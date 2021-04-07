@@ -10,6 +10,7 @@ import (
 
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kklogger"
+	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type DefaultServerChannel struct {
@@ -57,9 +58,9 @@ func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 func (c *DefaultServerChannel) panicCatch() {
-	if e := recover(); e != nil {
-		kklogger.ErrorJ("ServerChannelPanicCatch", e)
-	}
+	kkpanic.Call(func(v interface{}) {
+		kklogger.ErrorJ("ServerChannelPanicCatch", v)
+	})
 }
 
 func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
