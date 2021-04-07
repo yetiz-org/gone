@@ -72,8 +72,8 @@ github.com/kklab-com/goth-base62 v0.0.0-20210329091412-ca32cedc0914 h1:QfkGxdCOo
 github.com/kklab-com/goth-base62 v0.0.0-20210329091412-ca32cedc0914/go.mod h1:zVOUVB/1H/vmOnZHOovnOXaJ9hpRTgSx0Sv63v0xaDI=
 github.com/kklab-com/goth-erresponse v0.0.0-20210329103642-901ec32d20a1 h1:B4XcbCm/lj+xZ6SZRbFxVrZCB4gswKWs/tjrA1YjKdo=
 github.com/kklab-com/goth-erresponse v0.0.0-20210329103642-901ec32d20a1/go.mod h1:vvWpyaUeAayKyBULWM8Ln5raIwd/hluxCeFXZVbFTrA=
-github.com/kklab-com/goth-kkdatastore v0.0.0-20210329102153-75ddacd95caa h1:8fMRRDo9hDSegDlMFv7eM9x1Q+VmoVR6LeQlTLHQ4l4=
-github.com/kklab-com/goth-kkdatastore v0.0.0-20210329102153-75ddacd95caa/go.mod h1:7st1xbOj5AT84MbF6EjEHXXbyEVZ791QlKKfs+wgNJY=
+github.com/kklab-com/goth-kkdatastore v0.0.0-20210407043700-e57c70acb452 h1:gCWLoacyu/9rO7T739NwCKBaf07tfAwgi1Ewd8rsI2s=
+github.com/kklab-com/goth-kkdatastore v0.0.0-20210407043700-e57c70acb452/go.mod h1:7st1xbOj5AT84MbF6EjEHXXbyEVZ791QlKKfs+wgNJY=
 github.com/kklab-com/goth-kkerror v0.0.0-20210329094539-0929b4435347 h1:8vqoWpqoycjQCiWouFBV5x7JGWE41OVPiKW9b2QMxEs=
 github.com/kklab-com/goth-kkerror v0.0.0-20210329094539-0929b4435347/go.mod h1:KEgEJZV0UeXoKcEiqWjKovSYZU1D/94XXtsD7pZAr90=
 github.com/kklab-com/goth-kklogger v0.0.0-20210329100034-0d99b494f9a5 h1:GPg9XjUgR+saH0TgynUYCQHqtT0yhZR0353B5D6JmSE=
