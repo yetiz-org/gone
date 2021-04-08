@@ -8,7 +8,7 @@ import (
 )
 
 type DefaultClientChannel struct {
-	channel.DefaultNetClientChannel
+	*channel.DefaultNetClientChannel
 	writer ResponseWriter
 }
 

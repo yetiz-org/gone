@@ -54,9 +54,10 @@ func (c *DefaultTCPServerChannel) acceptLoop() {
 
 			kklogger.ErrorJ("DefaultTCPServerChannel.acceptLoop", err.Error())
 		} else {
-			cch := c._NewClientChannel(accept)
-			cch.Init()
-			cch.Pipeline().AddLast("", c.ChildHandler())
+			cc := c._NewClientChannel(accept)
+			cc.Init()
+			cc.Pipeline().AddLast("", c.ChildHandler())
+			go cc.read()
 		}
 	}
 }
@@ -73,8 +74,8 @@ func (c *DefaultTCPServerChannel) _NewClientChannel(conn net.Conn) *DefaultTCPCl
 		return nil
 	}
 
-	cc := DefaultTCPClientChannel{
-		DefaultNetClientChannel: *c.DeriveNetClientChannel(conn),
+	cc := &DefaultTCPClientChannel{
+		DefaultNetClientChannel: c.DeriveNetClientChannel(conn),
 	}
 
 	cc.Name = conn.RemoteAddr().String()
@@ -83,7 +84,7 @@ func (c *DefaultTCPServerChannel) _NewClientChannel(conn net.Conn) *DefaultTCPCl
 		return true
 	})
 
-	return &cc
+	return cc
 }
 
 func (c *DefaultTCPServerChannel) IsActive() bool {

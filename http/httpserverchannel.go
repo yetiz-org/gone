@@ -58,8 +58,8 @@ func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 func (c *DefaultServerChannel) panicCatch() {
-	kkpanic.Call(func(v interface{}) {
-		kklogger.ErrorJ("ServerChannelPanicCatch", v)
+	kkpanic.Call(func(r *kkpanic.Caught) {
+		kklogger.ErrorJ("ServerChannelPanicCatch", r.String())
 	})
 }
 
@@ -128,8 +128,8 @@ func (c *DefaultServerChannel) _NewClientChannel(conn net.Conn) *DefaultClientCh
 		return nil
 	}
 
-	cc := DefaultClientChannel{
-		DefaultNetClientChannel: *c.DeriveNetClientChannel(conn),
+	cc := &DefaultClientChannel{
+		DefaultNetClientChannel: c.DeriveNetClientChannel(conn),
 	}
 
 	cc.Name = conn.RemoteAddr().String()
@@ -138,7 +138,7 @@ func (c *DefaultServerChannel) _NewClientChannel(conn net.Conn) *DefaultClientCh
 		return true
 	})
 
-	return &cc
+	return cc
 }
 
 func (c *DefaultServerChannel) IsActive() bool {

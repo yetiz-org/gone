@@ -1,10 +1,10 @@
 package channel
 
 import (
-	"fmt"
 	"net"
 
 	"github.com/kklab-com/goth-kklogger"
+	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type HandlerContext interface {
@@ -72,10 +72,7 @@ func (d *DefaultHandlerContext) Channel() Channel {
 
 func (d *DefaultHandlerContext) FireRead(obj interface{}) HandlerContext {
 	if d.next() != nil {
-		if c, ok := d.next().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
 		d.next().handler().Read(d.next(), obj)
 	}
 
@@ -84,10 +81,7 @@ func (d *DefaultHandlerContext) FireRead(obj interface{}) HandlerContext {
 
 func (d *DefaultHandlerContext) FireReadCompleted() HandlerContext {
 	if d.next() != nil {
-		if c, ok := d.next().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
 		d.next().handler().ReadCompleted(d.next())
 	}
 
@@ -96,10 +90,7 @@ func (d *DefaultHandlerContext) FireReadCompleted() HandlerContext {
 
 func (d *DefaultHandlerContext) FireWrite(obj interface{}) HandlerContext {
 	if d.prev() != nil {
-		if c, ok := d.prev().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
 		d.prev().handler().Write(d.prev(), obj)
 	}
 
@@ -108,10 +99,7 @@ func (d *DefaultHandlerContext) FireWrite(obj interface{}) HandlerContext {
 
 func (d *DefaultHandlerContext) FireErrorCaught(err error) HandlerContext {
 	if d.prev() != nil {
-		if c, ok := d.prev().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
 		d.prev().handler().ErrorCaught(d.prev(), err)
 	}
 
@@ -120,10 +108,7 @@ func (d *DefaultHandlerContext) FireErrorCaught(err error) HandlerContext {
 
 func (d *DefaultHandlerContext) Bind(localAddr net.Addr) HandlerContext {
 	if d.prev() != nil {
-		if c, ok := d.prev().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
 		d.prev().handler().Bind(d.prev(), localAddr)
 	}
 
@@ -132,10 +117,7 @@ func (d *DefaultHandlerContext) Bind(localAddr net.Addr) HandlerContext {
 
 func (d *DefaultHandlerContext) Close() HandlerContext {
 	if d.prev() != nil {
-		if c, ok := d.prev().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
 		d.prev().handler().Close(d.prev())
 	}
 
@@ -144,10 +126,7 @@ func (d *DefaultHandlerContext) Close() HandlerContext {
 
 func (d *DefaultHandlerContext) Connect(remoteAddr net.Addr, localAddr net.Addr) HandlerContext {
 	if d.prev() != nil {
-		if c, ok := d.prev().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
 		d.prev().handler().Connect(d.prev(), remoteAddr, localAddr)
 	}
 
@@ -156,10 +135,7 @@ func (d *DefaultHandlerContext) Connect(remoteAddr net.Addr, localAddr net.Addr)
 
 func (d *DefaultHandlerContext) Disconnect() HandlerContext {
 	if d.prev() != nil {
-		if c, ok := d.prev().(*DefaultHandlerContext); ok {
-			defer c.deferErrorCaught()
-		}
-
+		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
 		d.prev().handler().Disconnect(d.prev())
 	}
 
@@ -171,15 +147,10 @@ func (d *DefaultHandlerContext) prev() HandlerContext {
 }
 
 func (d *DefaultHandlerContext) deferErrorCaught() {
-	if err := recover(); err != nil {
-		switch e := err.(type) {
-		case error:
-			kklogger.ErrorJ("HandlerContext.ErrorCaught", e.Error())
-			d.handler().ErrorCaught(d, e)
-		default:
-			kklogger.ErrorJ("HandlerContext.ErrorCaught", fmt.Sprintf("%v", e))
-			d.handler().ErrorCaught(d, fmt.Errorf("%v", e))
-		}
+	if v := recover(); v != nil {
+		caught := kkpanic.Convert(v)
+		kklogger.ErrorJ("HandlerContext.ErrorCaught", caught.Error())
+		d.handler().ErrorCaught(d, caught)
 	}
 }
 
