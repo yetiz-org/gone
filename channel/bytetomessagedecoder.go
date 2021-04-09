@@ -11,7 +11,6 @@ type MessageDecoder interface {
 
 type ByteToMessageDecoder struct {
 	DefaultHandler
-	outList list.List
 	Decoder MessageDecoder
 }
 
@@ -22,8 +21,12 @@ func (h *ByteToMessageDecoder) Added(ctx HandlerContext) {
 }
 
 func (h *ByteToMessageDecoder) Read(ctx HandlerContext, obj interface{}) {
-	h.Decoder.Decode(ctx, obj.(*bytes.Buffer), &h.outList)
-	if elem := h.outList.Back(); elem != nil {
+	out := &list.List{}
+	h.Decoder.Decode(ctx, obj.(*bytes.Buffer), out)
+	for elem := out.Back(); elem != nil; func() {
+		out.Remove(elem)
+		elem = out.Back()
+	}() {
 		ctx.FireRead(elem.Value)
 	}
 
