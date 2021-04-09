@@ -46,11 +46,17 @@ func (h *ReplayDecoder) Checkpoint(state ReplayState) {
 }
 
 func (h *ReplayDecoder) Read(ctx HandlerContext, obj interface{}) {
-	h.in.Write(obj.(*bytes.Buffer).Bytes())
-	out := &list.List{}
 	if h.Decoder != nil {
+		h.in.Write(obj.(*bytes.Buffer).Bytes())
 		kkpanic.Catch(func() {
+			out := &list.List{}
 			h.Decoder.Decode(ctx, &h.in, out)
+			for elem := out.Back(); elem != nil; func() {
+				out.Remove(elem)
+				elem = out.Back()
+			}() {
+				ctx.FireRead(elem.Value)
+			}
 		}, func(r *kkpanic.Caught) {
 			if r.Message != replayDecoderSkip {
 				kklogger.ErrorJ("ReplayDecoder.Read#Decode", r.String())
@@ -59,12 +65,5 @@ func (h *ReplayDecoder) Read(ctx HandlerContext, obj interface{}) {
 		})
 	} else {
 		kklogger.WarnJ("ReplayDecoder.Read#Decode", "no decoder")
-	}
-
-	for elem := out.Back(); elem != nil; func() {
-		out.Remove(elem)
-		elem = out.Back()
-	}() {
-		ctx.FireRead(elem.Value)
 	}
 }
