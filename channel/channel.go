@@ -16,7 +16,7 @@ type Channel interface {
 	CloseFuture() Future
 	Bind(localAddr net.Addr) Channel
 	Close() Channel
-	Connect(remoteAddr net.Addr, localAddr net.Addr) Channel
+	Connect(remoteAddr net.Addr) Channel
 	Disconnect() Channel
 	FireRead(obj interface{}) Channel
 	FireReadCompleted() Channel
@@ -27,7 +27,7 @@ type Channel interface {
 	unsafe() *Unsafe
 }
 
-var NotActive = errors.Errorf("channel not active")
+var ErrNotActive = errors.Errorf("channel not active")
 var IDEncoder = base62.ShiftEncoding
 
 type DefaultChannel struct {
@@ -43,7 +43,7 @@ type Unsafe struct {
 	WriteFunc      func(obj interface{}) error
 	BindFunc       func(localAddr net.Addr) error
 	CloseFunc      func() error
-	ConnectFunc    func(remoteAddr net.Addr, localAddr net.Addr) error
+	ConnectFunc    func(remoteAddr net.Addr) error
 	DisconnectFunc func() error
 	CloseLock      sync.Mutex
 	DisconnectLock sync.Mutex
@@ -51,7 +51,7 @@ type Unsafe struct {
 
 var UnsafeDefaultWriteFunc = func(obj interface{}) error { return nil }
 var UnsafeDefaultBindFunc = func(localAddr net.Addr) error { return nil }
-var UnsafeDefaultConnectFunc = func(remoteAddr net.Addr, localAddr net.Addr) error { return nil }
+var UnsafeDefaultConnectFunc = func(remoteAddr net.Addr) error { return nil }
 
 func (c *DefaultChannel) SetParam(key ParamKey, value interface{}) {
 	c.params.Store(key, value)
@@ -141,8 +141,8 @@ func (c *DefaultChannel) Close() Channel {
 	return c
 }
 
-func (c *DefaultChannel) Connect(remoteAddr net.Addr, localAddr net.Addr) Channel {
-	c.Pipeline().Connect(remoteAddr, localAddr)
+func (c *DefaultChannel) Connect(remoteAddr net.Addr) Channel {
+	c.Pipeline().Connect(remoteAddr)
 	return c
 }
 

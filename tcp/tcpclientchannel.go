@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 
 	"github.com/kklab-com/gone/channel"
 	kklogger "github.com/kklab-com/goth-kklogger"
@@ -12,15 +13,23 @@ import (
 
 type DefaultTCPClientChannel struct {
 	*channel.DefaultNetClientChannel
-	bufferSize   int
-	readTimeout  int
-	writeTimeout int
+	bufferSize           int
+	readTimeout          int
+	writeTimeout         int
+	netClientConnectFunc func(remoteAddr net.Addr) error
 }
 
 var UnknownObjectType = fmt.Errorf("unknown object type")
+var ErrNotTCPAddr = fmt.Errorf("not tcp addr")
 
 func (c *DefaultTCPClientChannel) Init() channel.Channel {
+	if c.DefaultNetClientChannel == nil {
+		c.DefaultNetClientChannel = channel.NewDefaultNetClientChannel()
+		c.netClientConnectFunc = c.Unsafe.ConnectFunc
+	}
+
 	c.ChannelPipeline = channel.NewDefaultPipeline(c)
+	c.Unsafe.ConnectFunc = c.connect
 	c.Unsafe.WriteFunc = c.write
 	c.bufferSize = channel.GetParamIntDefault(c, ParamReadBufferSize, 1024)
 	c.readTimeout = channel.GetParamIntDefault(c, ParamReadTimeout, 6000)
@@ -54,7 +63,7 @@ func (c *DefaultTCPClientChannel) read() {
 		}
 
 		bs := make([]byte, c.bufferSize)
-		if rl, err := c.Conn().Read(bs); err != nil {
+		if rl, err := c.Conn().Read(bs); err != nil && c.IsActive() {
 			if err != io.EOF {
 				kklogger.WarnJ("DefaultTCPClientChannel.read", err.Error())
 			}
@@ -69,4 +78,17 @@ func (c *DefaultTCPClientChannel) read() {
 			})
 		}
 	}
+}
+
+func (c *DefaultTCPClientChannel) connect(remoteAddr net.Addr) error {
+	if _, ok := remoteAddr.(*net.TCPAddr); !ok {
+		return ErrNotTCPAddr
+	}
+
+	if err := c.netClientConnectFunc(remoteAddr); err != nil {
+		return err
+	}
+
+	go c.read()
+	return nil
 }

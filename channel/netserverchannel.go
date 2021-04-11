@@ -19,7 +19,7 @@ func (c *DefaultNetServerChannel) DeriveNetClientChannel(conn net.Conn) *Default
 		return nil
 	}
 
-	ncc := NewDefaultNetClientChannel(conn)
+	ncc := serverNewDefaultNetClientChannel(conn)
 	ncc.parent = c
 	ncc.SetParam(paramActive, true)
 	ncc.Name = conn.RemoteAddr().String()

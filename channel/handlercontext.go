@@ -16,7 +16,7 @@ type HandlerContext interface {
 	FireErrorCaught(err error) HandlerContext
 	Bind(localAddr net.Addr) HandlerContext
 	Close() HandlerContext
-	Connect(remoteAddr net.Addr, localAddr net.Addr) HandlerContext
+	Connect(remoteAddr net.Addr) HandlerContext
 	Disconnect() HandlerContext
 	prev() HandlerContext
 	setPrev(prev HandlerContext) HandlerContext
@@ -124,10 +124,10 @@ func (d *DefaultHandlerContext) Close() HandlerContext {
 	return d
 }
 
-func (d *DefaultHandlerContext) Connect(remoteAddr net.Addr, localAddr net.Addr) HandlerContext {
+func (d *DefaultHandlerContext) Connect(remoteAddr net.Addr) HandlerContext {
 	if d.prev() != nil {
 		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
-		d.prev().handler().Connect(d.prev(), remoteAddr, localAddr)
+		d.prev().handler().Connect(d.prev(), remoteAddr)
 	}
 
 	return d

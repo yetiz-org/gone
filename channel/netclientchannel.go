@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"fmt"
 	"net"
 	"sync"
 
@@ -15,6 +16,8 @@ type NetClientChannel interface {
 	LocalAddr() net.Addr
 }
 
+var ErrNilObject = fmt.Errorf("nil object")
+
 type DefaultNetClientChannel struct {
 	DefaultClientChannel
 	conn           net.Conn
@@ -22,13 +25,23 @@ type DefaultNetClientChannel struct {
 	disconnectOnce sync.Once
 }
 
-func NewDefaultNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
+func serverNewDefaultNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
 	ncc := DefaultNetClientChannel{
 		DefaultClientChannel: *NewDefaultClientChannel(),
 	}
 
 	ncc.Unsafe.DisconnectFunc = ncc.disconnect
 	ncc.conn = conn
+	return &ncc
+}
+
+func NewDefaultNetClientChannel() *DefaultNetClientChannel {
+	ncc := DefaultNetClientChannel{
+		DefaultClientChannel: *NewDefaultClientChannel(),
+	}
+
+	ncc.Unsafe.ConnectFunc = ncc.connect
+	ncc.Unsafe.DisconnectFunc = ncc.disconnect
 	return &ncc
 }
 
@@ -74,6 +87,21 @@ func (c *DefaultNetClientChannel) disconnect() error {
 	})
 
 	return err
+}
+
+func (c *DefaultNetClientChannel) connect(remoteAddr net.Addr) error {
+	if remoteAddr == nil {
+		return ErrNilObject
+	}
+
+	if conn, err := net.Dial(remoteAddr.Network(), remoteAddr.String()); err != nil {
+		return err
+	} else {
+		c.conn = conn
+		c.SetParam(paramActive, true)
+	}
+
+	return nil
 }
 
 func (c *DefaultNetClientChannel) IsActive() bool {

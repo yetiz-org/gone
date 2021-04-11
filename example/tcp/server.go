@@ -17,12 +17,12 @@ func (k *Server) Start(localAddr net.Addr) {
 	bootstrap.ChannelType(reflect.TypeOf(tcp.DefaultTCPServerChannel{}))
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("DECODE_HANDLER", NewDecodeHandler())
-		ch.Pipeline().AddLast("HANDLER", &DefaultHandler{})
+		ch.Pipeline().AddLast("HANDLER", &ServerChildHandler{})
 	}))
 
 	ch := bootstrap.Bind(localAddr).Sync().Channel()
 	go func() {
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second * 4)
 		ch.Close()
 	}()
 
