@@ -75,11 +75,15 @@ func (c *DefaultNetClientChannel) disconnect() error {
 		c.SetParam(paramActive, false)
 		if conn := c.Conn(); conn != nil {
 			if c.parent != nil {
-				c.parent.Abandon(c.Conn())
-			}
-
-			if err = conn.Close(); err != nil {
-				kklogger.ErrorJ("DefaultNetClientChannel.disconnect", err.Error())
+				if c.parent.Abandon(c.Conn()) != nil {
+					if err = conn.Close(); err != nil {
+						kklogger.ErrorJ("DefaultNetClientChannel.disconnect#parent", err.Error())
+					}
+				}
+			} else {
+				if err = conn.Close(); err != nil {
+					kklogger.ErrorJ("DefaultNetClientChannel.disconnect", err.Error())
+				}
 			}
 		}
 

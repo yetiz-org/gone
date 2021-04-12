@@ -63,12 +63,14 @@ func (c *DefaultTCPClientChannel) read() {
 		}
 
 		bs := make([]byte, c.bufferSize)
-		if rl, err := c.Conn().Read(bs); err != nil && c.IsActive() {
-			if err != io.EOF {
-				kklogger.WarnJ("DefaultTCPClientChannel.read", err.Error())
-			}
+		if rl, err := c.Conn().Read(bs); err != nil {
+			if c.IsActive() {
+				if err != io.EOF {
+					kklogger.WarnJ("DefaultTCPClientChannel.read", err.Error())
+				}
 
-			c.Disconnect()
+				c.Disconnect()
+			}
 		} else {
 			kkpanic.Catch(func() {
 				c.FireRead(buf.NewByteBuf(bs[:rl]))
