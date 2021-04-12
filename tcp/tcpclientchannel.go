@@ -1,13 +1,13 @@
 package tcp
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net"
 
 	"github.com/kklab-com/gone/channel"
 	kklogger "github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/buf"
 	kkpanic "github.com/kklab-com/goth-panic"
 )
 
@@ -40,7 +40,7 @@ func (c *DefaultTCPClientChannel) Init() channel.Channel {
 func (c *DefaultTCPClientChannel) write(obj interface{}) error {
 	var bs []byte
 	switch v := obj.(type) {
-	case *bytes.Buffer:
+	case buf.ByteBuf:
 		bs = v.Bytes()
 	default:
 		kklogger.ErrorJ("DefaultTCPClientChannel.write", UnknownObjectType)
@@ -71,7 +71,7 @@ func (c *DefaultTCPClientChannel) read() {
 			c.Disconnect()
 		} else {
 			kkpanic.Catch(func() {
-				c.FireRead(bytes.NewBuffer(bs[:rl]))
+				c.FireRead(buf.NewByteBuf(bs[:rl]))
 				c.FireReadCompleted()
 			}, func(r *kkpanic.Caught) {
 				kklogger.ErrorJ("DefaultTCPClientChannel.read", r.String())

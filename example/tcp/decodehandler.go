@@ -1,10 +1,10 @@
 package tcp
 
 import (
-	"bytes"
 	"container/list"
 
 	"github.com/kklab-com/gone/channel"
+	"github.com/kklab-com/goth-kkutil/buf"
 )
 
 type DecodeHandler struct {
@@ -24,23 +24,15 @@ func NewDecodeHandler() *DecodeHandler {
 	return handler
 }
 
-func (h *DecodeHandler) Decode(ctx channel.HandlerContext, in *bytes.Buffer, out *list.List) {
+func (h *DecodeHandler) Decode(ctx channel.HandlerContext, in buf.ByteBuf, out *list.List) {
 	for true {
 		switch h.State() {
 		case HEAD:
-			bs := in.Next(1)
-			if len(bs) == 0 {
-				h.Skip()
-			}
-
+			bs := in.ReadByte()
 			h.obj = "h:" + string(bs)
 			h.Checkpoint(BODY)
 		case BODY:
-			if in.Len() < 2 {
-				h.Skip()
-			}
-
-			bs := in.Next(2)
+			bs := in.ReadBytes(2)
 			out.PushFront(h.obj + " b:" + string(bs))
 			h.obj = ""
 			h.Checkpoint(HEAD)

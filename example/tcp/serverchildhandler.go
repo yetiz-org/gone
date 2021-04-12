@@ -1,9 +1,8 @@
 package tcp
 
 import (
-	"bytes"
-
 	"github.com/kklab-com/gone/channel"
+	"github.com/kklab-com/goth-kkutil/buf"
 )
 
 type ServerChildHandler struct {
@@ -12,7 +11,7 @@ type ServerChildHandler struct {
 
 func (h *ServerChildHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	println(obj.(string))
-	ctx.FireWrite(bytes.NewBufferString(obj.(string)))
+	ctx.FireWrite(buf.NewByteBuf([]byte(obj.(string))))
 }
 
 func (h *ServerChildHandler) ReadCompleted(ctx channel.HandlerContext) {

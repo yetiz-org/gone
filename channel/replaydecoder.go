@@ -1,12 +1,11 @@
 package channel
 
 import (
-	"bytes"
 	"container/list"
-	"fmt"
 	"sync"
 
 	kklogger "github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/buf"
 	kkpanic "github.com/kklab-com/goth-panic"
 )
 
@@ -14,12 +13,11 @@ type ReplayState int
 
 type ReplayDecoder struct {
 	ByteToMessageDecoder
-	in    bytes.Buffer
+	in    buf.ByteBuf
 	state ReplayState
 	op    sync.Mutex
 }
 
-var replayDecoderSkip = fmt.Errorf("skip")
 var replayDecoderTruncateLen = 1 << 20
 
 func NewReplayDecoder(state ReplayState) *ReplayDecoder {
@@ -27,7 +25,7 @@ func NewReplayDecoder(state ReplayState) *ReplayDecoder {
 }
 
 func (h *ReplayDecoder) Skip() {
-	panic(replayDecoderSkip)
+	panic(buf.ErrInsufficientSize)
 }
 
 func (h *ReplayDecoder) State() ReplayState {
@@ -36,7 +34,7 @@ func (h *ReplayDecoder) State() ReplayState {
 
 func (h *ReplayDecoder) Checkpoint(state ReplayState) {
 	h.state = state
-	if h.in.Cap()-h.in.Len() > replayDecoderTruncateLen {
+	if h.in.Cap()-h.in.ReadableBytes() > replayDecoderTruncateLen {
 		h.op.Lock()
 		defer h.op.Unlock()
 		bs := h.in.Bytes()
@@ -45,14 +43,18 @@ func (h *ReplayDecoder) Checkpoint(state ReplayState) {
 	}
 }
 
+func (h *ReplayDecoder) Added(ctx HandlerContext) {
+	h.in = buf.EmptyByteBuf()
+}
+
 func (h *ReplayDecoder) Read(ctx HandlerContext, obj interface{}) {
 	if h.Decoder != nil {
-		h.in.Write(obj.(*bytes.Buffer).Bytes())
+		h.in.Write(obj.(buf.ByteBuf).Bytes())
 		out := &list.List{}
 		kkpanic.Catch(func() {
-			h.Decoder.Decode(ctx, &h.in, out)
+			h.Decoder.Decode(ctx, h.in, out)
 		}, func(r *kkpanic.Caught) {
-			if r.Message != replayDecoderSkip {
+			if r.Message != buf.ErrInsufficientSize {
 				kklogger.ErrorJ("ReplayDecoder.Read#Decode", r.String())
 				return
 			}

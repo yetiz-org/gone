@@ -1,7 +1,6 @@
 package tcp
 
 import (
-	"bytes"
 	"net"
 	"reflect"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/gone/tcp"
 	"github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/buf"
 )
 
 func TestServer_Start(t *testing.T) {
@@ -25,9 +25,9 @@ func TestServer_Start(t *testing.T) {
 		}))
 
 		ch := bootstrap.Connect(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel().(channel.ClientChannel)
-		ch.Write(bytes.NewBufferString("o12b32c49"))
+		ch.Write(buf.NewByteBuf([]byte("o12b32c49")))
 		time.Sleep(time.Second)
-		ch.Write(bytes.NewBufferString("a42d22e41"))
+		ch.Write(buf.NewByteBuf([]byte("a42d22e41")))
 		time.Sleep(time.Second)
 		ch.Disconnect()
 	}()
