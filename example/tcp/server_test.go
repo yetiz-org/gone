@@ -25,11 +25,13 @@ func TestServer_Start(t *testing.T) {
 		}))
 
 		ch := bootstrap.Connect(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel().(channel.ClientChannel)
+		nch := bootstrap.Connect(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel().(channel.ClientChannel)
 		ch.Write(buf.NewByteBuf([]byte("o12b32c49")))
 		time.Sleep(time.Second)
 		ch.Write(buf.NewByteBuf([]byte("a42d22e41")))
 		time.Sleep(time.Second)
 		ch.Disconnect()
+		nch.Write(buf.NewByteBuf([]byte("ccc")))
 	}()
 
 	(&Server{}).Start(&net.TCPAddr{IP: nil, Port: 18080})

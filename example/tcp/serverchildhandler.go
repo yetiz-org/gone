@@ -10,8 +10,12 @@ type ServerChildHandler struct {
 }
 
 func (h *ServerChildHandler) Read(ctx channel.HandlerContext, obj interface{}) {
-	println(obj.(string))
-	ctx.FireWrite(buf.NewByteBuf([]byte(obj.(string))))
+	str := obj.(string)
+	if str != "h:c b:cc" {
+		ctx.FireWrite(buf.NewByteBuf([]byte(str)))
+	} else {
+		ctx.Channel().Disconnect()
+	}
 }
 
 func (h *ServerChildHandler) ReadCompleted(ctx channel.HandlerContext) {
