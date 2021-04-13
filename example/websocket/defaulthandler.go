@@ -31,11 +31,11 @@ func (t *DefaultTask) Close(ctx channel.HandlerContext, message *websocket.Close
 	kklogger.Trace("DefaultTask", "Close")
 }
 
-func (*DefaultTask) Connected(req *http.Request, params map[string]interface{}) {
-	kklogger.Trace("DefaultTask", "Connected")
+func (*DefaultTask) WSConnected(req *http.Request, params map[string]interface{}) {
+	kklogger.Trace("DefaultTask", "WSConnected")
 }
 
-func (*DefaultTask) Disconnect(req *http.Request, params map[string]interface{}) {
-	kklogger.Trace("DefaultTask", "Disconnect")
+func (*DefaultTask) WSDisconnect(req *http.Request, params map[string]interface{}) {
+	kklogger.Trace("DefaultTask", "WSDisconnect")
 	req.Channel().Parent().Close()
 }

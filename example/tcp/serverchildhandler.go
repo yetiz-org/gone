@@ -26,3 +26,13 @@ func (h *ServerChildHandler) Disconnect(ctx channel.HandlerContext) {
 	println("server disconnect")
 	ctx.Disconnect()
 }
+
+func (h *ServerChildHandler) Active(ctx channel.HandlerContext) {
+	println("server active")
+	ctx.FireActive()
+}
+
+func (h *ServerChildHandler) Inactive(ctx channel.HandlerContext) {
+	println("server inactive")
+	ctx.FireInactive()
+}
