@@ -17,6 +17,7 @@ type NetClientChannel interface {
 }
 
 var ErrNilObject = fmt.Errorf("nil object")
+var ErrUnknownObject = fmt.Errorf("unknown object")
 
 type DefaultNetClientChannel struct {
 	DefaultClientChannel
@@ -41,6 +42,7 @@ func NewDefaultNetClientChannel() *DefaultNetClientChannel {
 	}
 
 	ncc.Unsafe.ConnectFunc = ncc.connect
+	ncc.Unsafe.CustomConnectFunc = ncc.customConnect
 	ncc.Unsafe.DisconnectFunc = ncc.disconnect
 	return &ncc
 }
@@ -103,6 +105,16 @@ func (c *DefaultNetClientChannel) connect(remoteAddr net.Addr) error {
 
 	c.Pipeline().fireActive()
 	return nil
+}
+
+func (c *DefaultNetClientChannel) customConnect(v interface{}) error {
+	if conn, ok := v.(net.Conn); ok {
+		c.conn = WrapConn(conn)
+		c.Pipeline().fireActive()
+		return nil
+	}
+
+	return ErrUnknownObject
 }
 
 func (c *DefaultNetClientChannel) IsActive() bool {

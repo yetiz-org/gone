@@ -19,6 +19,7 @@ type HandlerContext interface {
 	Bind(localAddr net.Addr) HandlerContext
 	Close() HandlerContext
 	Connect(remoteAddr net.Addr) HandlerContext
+	CustomConnect(v interface{}) HandlerContext
 	Disconnect() HandlerContext
 	prev() HandlerContext
 	setPrev(prev HandlerContext) HandlerContext
@@ -148,6 +149,15 @@ func (d *DefaultHandlerContext) Connect(remoteAddr net.Addr) HandlerContext {
 	if d.prev() != nil {
 		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
 		d.prev().handler().Connect(d.prev(), remoteAddr)
+	}
+
+	return d
+}
+
+func (d *DefaultHandlerContext) CustomConnect(v interface{}) HandlerContext {
+	if d.prev() != nil {
+		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
+		d.prev().handler().CustomConnect(d.prev(), v)
 	}
 
 	return d

@@ -17,6 +17,7 @@ type Channel interface {
 	Bind(localAddr net.Addr) Channel
 	Close() Channel
 	Connect(remoteAddr net.Addr) Channel
+	CustomConnect(v interface{}) Channel
 	Disconnect() Channel
 	FireRead(obj interface{}) Channel
 	FireReadCompleted() Channel
@@ -40,13 +41,14 @@ type DefaultChannel struct {
 }
 
 type Unsafe struct {
-	WriteFunc      func(obj interface{}) error
-	BindFunc       func(localAddr net.Addr) error
-	CloseFunc      func() error
-	ConnectFunc    func(remoteAddr net.Addr) error
-	DisconnectFunc func() error
-	CloseLock      sync.Mutex
-	DisconnectLock sync.Mutex
+	WriteFunc         func(obj interface{}) error
+	BindFunc          func(localAddr net.Addr) error
+	CloseFunc         func() error
+	ConnectFunc       func(remoteAddr net.Addr) error
+	CustomConnectFunc func(v interface{}) error
+	DisconnectFunc    func() error
+	CloseLock         sync.Mutex
+	DisconnectLock    sync.Mutex
 }
 
 var UnsafeDefaultWriteFunc = func(obj interface{}) error { return nil }
@@ -143,6 +145,11 @@ func (c *DefaultChannel) Close() Channel {
 
 func (c *DefaultChannel) Connect(remoteAddr net.Addr) Channel {
 	c.Pipeline().Connect(remoteAddr)
+	return c
+}
+
+func (c *DefaultChannel) CustomConnect(v interface{}) Channel {
+	c.Pipeline().CustomConnect(v)
 	return c
 }
 
