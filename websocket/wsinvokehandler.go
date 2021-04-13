@@ -47,15 +47,15 @@ func (h *InvokeHandler) invokeMethod(ctx channel.HandlerContext, req *http.Reque
 
 	switch msg.Type() {
 	case TextMessageType:
-		task.Text(ctx, msg.(*DefaultMessage), params)
+		task.WSText(ctx, msg.(*DefaultMessage), params)
 	case BinaryMessageType:
-		task.Binary(ctx, msg.(*DefaultMessage), params)
+		task.WSBinary(ctx, msg.(*DefaultMessage), params)
 	case CloseMessageType:
-		task.Close(ctx, msg.(*CloseMessage), params)
+		task.WSClose(ctx, msg.(*CloseMessage), params)
 	case PingMessageType:
-		task.Ping(ctx, msg.(*PingMessage), params)
+		task.WSPing(ctx, msg.(*PingMessage), params)
 	case PongMessageType:
-		task.Pong(ctx, msg.(*PongMessage), params)
+		task.WSPong(ctx, msg.(*PongMessage), params)
 	}
 }
 

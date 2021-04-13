@@ -20,8 +20,13 @@ type ReplayDecoder struct {
 
 var replayDecoderTruncateLen = 1 << 20
 
-func NewReplayDecoder(state ReplayState) *ReplayDecoder {
-	return &ReplayDecoder{state: state}
+func NewReplayDecoder(state ReplayState, decode func(ctx HandlerContext, in buf.ByteBuf, out *list.List)) *ReplayDecoder {
+	return &ReplayDecoder{
+		ByteToMessageDecoder: ByteToMessageDecoder{
+			Decode: decode,
+		},
+		state: state,
+	}
 }
 
 func (h *ReplayDecoder) Skip() {
@@ -48,11 +53,11 @@ func (h *ReplayDecoder) Added(ctx HandlerContext) {
 }
 
 func (h *ReplayDecoder) Read(ctx HandlerContext, obj interface{}) {
-	if h.Decoder != nil {
+	if h.Decode != nil {
 		h.in.Write(obj.(buf.ByteBuf).Bytes())
 		out := &list.List{}
 		kkpanic.Catch(func() {
-			h.Decoder.Decode(ctx, h.in, out)
+			h.Decode(ctx, h.in, out)
 		}, func(r *kkpanic.Caught) {
 			if r.Message != buf.ErrInsufficientSize {
 				kklogger.ErrorJ("ReplayDecoder.Read#Decode", r.String())

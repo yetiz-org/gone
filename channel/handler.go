@@ -17,7 +17,6 @@ type Handler interface {
 	Bind(ctx HandlerContext, localAddr net.Addr)
 	Close(ctx HandlerContext)
 	Connect(ctx HandlerContext, remoteAddr net.Addr)
-	CustomConnect(ctx HandlerContext, v interface{})
 	Disconnect(ctx HandlerContext)
 	ErrorCaught(ctx HandlerContext, err error)
 }
@@ -65,10 +64,6 @@ func (h *DefaultHandler) Close(ctx HandlerContext) {
 
 func (h *DefaultHandler) Connect(ctx HandlerContext, remoteAddr net.Addr) {
 	ctx.Connect(remoteAddr)
-}
-
-func (h *DefaultHandler) CustomConnect(ctx HandlerContext, v interface{}) {
-	ctx.CustomConnect(v)
 }
 
 func (h *DefaultHandler) Disconnect(ctx HandlerContext) {

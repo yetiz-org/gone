@@ -29,7 +29,6 @@ type Pipeline interface {
 	Bind(localAddr net.Addr) Pipeline
 	Close() Pipeline
 	Connect(remoteAddr net.Addr) Pipeline
-	CustomConnect(v interface{}) Pipeline
 	Disconnect() Pipeline
 }
 
@@ -121,14 +120,6 @@ func (h *headHandler) Close(ctx HandlerContext) {
 func (h *headHandler) Connect(ctx HandlerContext, remoteAddr net.Addr) {
 	if channel, ok := ctx.Channel().(ClientChannel); ok {
 		if err := channel.unsafe().ConnectFunc(remoteAddr); err != nil {
-			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
-		}
-	}
-}
-
-func (h *headHandler) CustomConnect(ctx HandlerContext, v interface{}) {
-	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().CustomConnectFunc(v); err != nil {
 			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
 		}
 	}
@@ -284,11 +275,6 @@ func (p *DefaultPipeline) Close() Pipeline {
 
 func (p *DefaultPipeline) Connect(remoteAddr net.Addr) Pipeline {
 	p.tail.Connect(remoteAddr)
-	return p
-}
-
-func (p *DefaultPipeline) CustomConnect(v interface{}) Pipeline {
-	p.tail.CustomConnect(v)
 	return p
 }
 

@@ -16,15 +16,12 @@ const HEAD = channel.ReplayState(1)
 const BODY = channel.ReplayState(2)
 
 func NewDecodeHandler() *DecodeHandler {
-	handler := &DecodeHandler{
-		ReplayDecoder: channel.NewReplayDecoder(HEAD),
-	}
-
-	handler.Decoder = handler
+	handler := &DecodeHandler{}
+	handler.ReplayDecoder = channel.NewReplayDecoder(HEAD, handler.decode)
 	return handler
 }
 
-func (h *DecodeHandler) Decode(ctx channel.HandlerContext, in buf.ByteBuf, out *list.List) {
+func (h *DecodeHandler) decode(ctx channel.HandlerContext, in buf.ByteBuf, out *list.List) {
 	for true {
 		switch h.State() {
 		case HEAD:

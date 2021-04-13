@@ -10,7 +10,6 @@ type Bootstrap interface {
 	Handler(handler Handler) Bootstrap
 	ChannelType(typ reflect.Type) Bootstrap
 	Connect(remoteAddr net.Addr) Future
-	CustomConnect(v interface{}) Future
 	SetParams(key ParamKey, value interface{})
 	Params() map[ParamKey]interface{}
 }
@@ -69,25 +68,6 @@ func (d *DefaultBootstrap) Connect(remoteAddr net.Addr) Future {
 
 	future := NewChannelFuture(channel, func() interface{} {
 		channel.Connect(remoteAddr)
-		return channel
-	})
-
-	return future
-}
-
-func (d *DefaultBootstrap) CustomConnect(v interface{}) Future {
-	var channel = reflect.New(d.channelType).Interface().(ClientChannel)
-	channel.Init()
-	if d.handler != nil {
-		channel.Pipeline().AddLast("ROOT", d.handler)
-	}
-
-	for k, v := range d.Params() {
-		channel.SetParam(k, v)
-	}
-
-	future := NewChannelFuture(channel, func() interface{} {
-		channel.CustomConnect(v)
 		return channel
 	})
 

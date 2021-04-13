@@ -4,7 +4,6 @@ import (
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/gone/websocket"
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/value"
 )
 
@@ -12,10 +11,11 @@ type DefaultTask struct {
 	websocket.WSHandlerTask
 }
 
-func (t *DefaultTask) Ping(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {
+func (t *DefaultTask) WSPing(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {
 }
 
-func (t *DefaultTask) Text(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]interface{}) {
+func (t *DefaultTask) WSText(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]interface{}) {
+	println(message.StringMessage())
 	var obj interface{} = t.Builder.Text(value.JsonMarshal(struct {
 		Params  map[string]interface{} `json:"params"`
 		Message string                 `json:"message"`
@@ -27,15 +27,16 @@ func (t *DefaultTask) Text(ctx channel.HandlerContext, message *websocket.Defaul
 	ctx.FireWrite(obj)
 }
 
-func (t *DefaultTask) Close(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
-	kklogger.Trace("DefaultTask", "Close")
+func (t *DefaultTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
+	println("server ws close")
+	ctx.Disconnect()
 }
 
 func (*DefaultTask) WSConnected(req *http.Request, params map[string]interface{}) {
-	kklogger.Trace("DefaultTask", "WSConnected")
+	println("server ws connected")
 }
 
 func (*DefaultTask) WSDisconnect(req *http.Request, params map[string]interface{}) {
-	kklogger.Trace("DefaultTask", "WSDisconnect")
+	println("server ws disconnect")
 	req.Channel().Parent().Close()
 }
