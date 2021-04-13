@@ -2,6 +2,7 @@ package channel
 
 import (
 	"net"
+	"reflect"
 	"sync"
 )
 
@@ -14,7 +15,7 @@ type DefaultNetServerChannel struct {
 	child sync.Map
 }
 
-func (c *DefaultNetServerChannel) DeriveNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
+func (c *DefaultNetServerChannel) DeriveClientChannel(typ reflect.Type, conn net.Conn) NetClientChannel {
 	if conn == nil {
 		return nil
 	}
@@ -22,14 +23,41 @@ func (c *DefaultNetServerChannel) DeriveNetClientChannel(conn net.Conn) *Default
 	ncc := serverNewDefaultNetClientChannel(conn)
 	ncc.parent = c
 	ncc.Name = ncc.Conn().RemoteAddr().String()
-	c.child.Store(ncc.Conn().Conn(), ncc)
-	return ncc
+	vcc := reflect.New(typ)
+	cc := vcc.Interface().(NetClientChannel)
+	c.child.Store(ncc.Conn().Conn(), cc)
+	if icc := vcc.Elem().FieldByName("DefaultNetClientChannel"); icc.IsValid() && icc.CanSet() {
+		icc.Set(reflect.ValueOf(ncc))
+	} else {
+		return nil
+	}
+
+	c.Params().Range(func(k ParamKey, v interface{}) bool {
+		cc.SetParam(k, v)
+		return true
+	})
+
+	cc.Init()
+	cc.Pipeline().AddLast("", c.ChildHandler())
+	cc.Pipeline().fireActive()
+	return cc
 }
 
 func (c *DefaultNetServerChannel) Abandon(conn net.Conn) NetClientChannel {
 	if load, ok := c.child.Load(conn); ok {
+		ncc := load.(NetClientChannel)
+		ncc.Pipeline().fireInactive()
 		c.child.Delete(conn)
-		return load.(NetClientChannel)
+		return ncc
+	}
+
+	return nil
+}
+
+func (c *DefaultNetServerChannel) Child(conn net.Conn) NetClientChannel {
+	if load, ok := c.child.Load(conn); ok {
+		ncc := load.(NetClientChannel)
+		return ncc
 	}
 
 	return nil

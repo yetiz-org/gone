@@ -10,6 +10,8 @@ import (
 type HandlerContext interface {
 	Name() string
 	Channel() Channel
+	FireActive() HandlerContext
+	FireInactive() HandlerContext
 	FireRead(obj interface{}) HandlerContext
 	FireReadCompleted() HandlerContext
 	FireWrite(obj interface{}) HandlerContext
@@ -68,6 +70,24 @@ func (d *DefaultHandlerContext) Name() string {
 
 func (d *DefaultHandlerContext) Channel() Channel {
 	return d.channel
+}
+
+func (d *DefaultHandlerContext) FireActive() HandlerContext {
+	if d.next() != nil {
+		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
+		d.next().handler().Active(d.next())
+	}
+
+	return d
+}
+
+func (d *DefaultHandlerContext) FireInactive() HandlerContext {
+	if d.next() != nil {
+		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
+		d.next().handler().Inactive(d.next())
+	}
+
+	return d
 }
 
 func (d *DefaultHandlerContext) FireRead(obj interface{}) HandlerContext {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"reflect"
 
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kklogger"
@@ -14,6 +15,8 @@ type DefaultTCPServerChannel struct {
 	listen net.Listener
 	active bool
 }
+
+var ClientChannelType = reflect.TypeOf(DefaultTCPClientChannel{})
 
 func (c *DefaultTCPServerChannel) Init() channel.Channel {
 	c.ChannelPipeline = channel.NewDefaultPipeline(c)
@@ -47,17 +50,15 @@ func (c *DefaultTCPServerChannel) bind(localAddr net.Addr) error {
 
 func (c *DefaultTCPServerChannel) acceptLoop() {
 	for c.active {
-		if accept, err := c.listen.Accept(); err != nil {
+		if conn, err := c.listen.Accept(); err != nil {
 			if !c.active {
 				return
 			}
 
 			kklogger.ErrorJ("DefaultTCPServerChannel.acceptLoop", err.Error())
 		} else {
-			cc := c._NewClientChannel(accept)
-			cc.Init()
-			cc.Pipeline().AddLast("", c.ChildHandler())
-			go cc.read()
+			cc := c.DeriveClientChannel(ClientChannelType, conn)
+			go cc.(*DefaultTCPClientChannel).read()
 		}
 	}
 }
@@ -67,24 +68,6 @@ func (c *DefaultTCPServerChannel) close() error {
 	c.listen.Close()
 	c.Unsafe.CloseLock.Unlock()
 	return nil
-}
-
-func (c *DefaultTCPServerChannel) _NewClientChannel(conn net.Conn) *DefaultTCPClientChannel {
-	if conn == nil {
-		return nil
-	}
-
-	cc := &DefaultTCPClientChannel{
-		DefaultNetClientChannel: c.DeriveNetClientChannel(conn),
-	}
-
-	cc.Name = cc.Conn().RemoteAddr().String()
-	c.Params().Range(func(k channel.ParamKey, v interface{}) bool {
-		cc.SetParam(k, v)
-		return true
-	})
-
-	return cc
 }
 
 func (c *DefaultTCPServerChannel) IsActive() bool {

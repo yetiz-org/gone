@@ -73,16 +73,14 @@ func (c *DefaultNetClientChannel) disconnect() error {
 	var err error = nil
 	c.disconnectOnce.Do(func() {
 		if conn := c.Conn(); conn != nil {
+			if err = conn.Close(); err != nil {
+				kklogger.ErrorJ("DefaultNetClientChannel.disconnect", err.Error())
+			}
+
 			if c.parent != nil {
-				if c.parent.Abandon(c.Conn()) != nil {
-					if err = conn.Close(); err != nil {
-						kklogger.ErrorJ("DefaultNetClientChannel.disconnect#parent", err.Error())
-					}
-				}
+				c.parent.Abandon(c.Conn().Conn())
 			} else {
-				if err = conn.Close(); err != nil {
-					kklogger.ErrorJ("DefaultNetClientChannel.disconnect", err.Error())
-				}
+				c.Pipeline().fireInactive()
 			}
 		}
 
@@ -103,6 +101,7 @@ func (c *DefaultNetClientChannel) connect(remoteAddr net.Addr) error {
 		c.conn = WrapConn(conn)
 	}
 
+	c.Pipeline().fireActive()
 	return nil
 }
 

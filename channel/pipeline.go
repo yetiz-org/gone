@@ -20,6 +20,8 @@ type Pipeline interface {
 	Param(key ParamKey) interface{}
 	SetParam(key ParamKey, value interface{}) Pipeline
 	Params() *Params
+	fireActive() Pipeline
+	fireInactive() Pipeline
 	fireRead(obj interface{}) Pipeline
 	fireReadCompleted() Pipeline
 	fireErrorCaught(err error) Pipeline
@@ -229,6 +231,16 @@ func (p *DefaultPipeline) SetParam(key ParamKey, value interface{}) Pipeline {
 
 func (p *DefaultPipeline) Params() *Params {
 	return &p.carrier
+}
+
+func (p *DefaultPipeline) fireActive() Pipeline {
+	p.head.FireActive()
+	return p
+}
+
+func (p *DefaultPipeline) fireInactive() Pipeline {
+	p.head.FireInactive()
+	return p
 }
 
 func (p *DefaultPipeline) fireRead(obj interface{}) Pipeline {

@@ -9,6 +9,8 @@ import (
 type Handler interface {
 	Added(ctx HandlerContext)
 	Removed(ctx HandlerContext)
+	Active(ctx HandlerContext)
+	Inactive(ctx HandlerContext)
 	Read(ctx HandlerContext, obj interface{})
 	ReadCompleted(ctx HandlerContext)
 	Write(ctx HandlerContext, obj interface{})
@@ -24,6 +26,14 @@ type DefaultHandler struct {
 
 func NewDefaultHandler() *DefaultHandler {
 	return new(DefaultHandler)
+}
+
+func (h *DefaultHandler) Active(ctx HandlerContext) {
+	ctx.FireActive()
+}
+
+func (h *DefaultHandler) Inactive(ctx HandlerContext) {
+	ctx.FireInactive()
 }
 
 func (h *DefaultHandler) Added(ctx HandlerContext) {
