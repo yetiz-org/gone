@@ -32,7 +32,7 @@ type UpgradeHandler struct {
 func (h *UpgradeHandler) Disconnect(ctx channel.HandlerContext) {
 	if !h.wsConnClosed {
 		if h.task != nil {
-			h.task.Disconnect(h.pack.Req, h.pack.Params)
+			h.task.WSDisconnect(h.pack.Req, h.pack.Params)
 		}
 
 		h.wsConnClosed = true
@@ -61,6 +61,16 @@ func (h *UpgradeHandler) Added(ctx channel.HandlerContext) {
 			}
 		}(),
 	}
+}
+
+func (h *UpgradeHandler) Active(ctx channel.HandlerContext) {
+	kklogger.DebugJ("UpgradeHandler.Active", fmt.Sprintf("connection %s active", ctx.Channel().ID()))
+	ctx.FireActive()
+}
+
+func (h *UpgradeHandler) Inactive(ctx channel.HandlerContext) {
+	kklogger.DebugJ("UpgradeHandler.Inactive", fmt.Sprintf("connection %s inactive", ctx.Channel().ID()))
+	ctx.FireInactive()
 }
 
 func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
@@ -148,7 +158,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		wsConn, err := h.upgrader.Upgrade(h.pack.Writer, &h.pack.Req.Request, h.pack.Resp.Header())
 		if err != nil {
 			kklogger.ErrorJ("UpgradeHandler.Read#Upgrade", h._NewWSLog(nil, err))
-			h.task.Disconnect(h.pack.Req, h.pack.Params)
+			h.task.WSDisconnect(h.pack.Req, h.pack.Params)
 			h.wsConnClosed = true
 			h.slowDisconnect(ctx)
 			return nil
@@ -169,7 +179,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	wsConn.SetCloseHandler(h._CloseHandler)
 	wsConn.SetPingHandler(h._PingHandler)
 	wsConn.SetPongHandler(h._PongHandler)
-	h.task.Connected(h.pack.Req, h.pack.Params)
+	h.task.WSConnected(h.pack.Req, h.pack.Params)
 	for ctx.Channel().IsActive() {
 		timeMark = time.Now()
 		messageType, message, err := wsConn.ReadMessage()
@@ -180,7 +190,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 				kklogger.WarnJ("UpgradeHandler.Read#ReadMessage", h._NewWSLog(nil, err))
 			}
 
-			h.task.Disconnect(h.pack.Req, h.pack.Params)
+			h.task.WSDisconnect(h.pack.Req, h.pack.Params)
 			h.wsConnClosed = true
 			ctx.Disconnect()
 			return

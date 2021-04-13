@@ -20,13 +20,15 @@ type Pipeline interface {
 	Param(key ParamKey) interface{}
 	SetParam(key ParamKey, value interface{}) Pipeline
 	Params() *Params
+	fireActive() Pipeline
+	fireInactive() Pipeline
 	fireRead(obj interface{}) Pipeline
 	fireReadCompleted() Pipeline
 	fireErrorCaught(err error) Pipeline
 	Write(obj interface{}) Pipeline
 	Bind(localAddr net.Addr) Pipeline
 	Close() Pipeline
-	Connect(remoteAddr net.Addr, localAddr net.Addr) Pipeline
+	Connect(remoteAddr net.Addr) Pipeline
 	Disconnect() Pipeline
 }
 
@@ -115,9 +117,9 @@ func (h *headHandler) Close(ctx HandlerContext) {
 	}
 }
 
-func (h *headHandler) Connect(ctx HandlerContext, remoteAddr net.Addr, localAddr net.Addr) {
+func (h *headHandler) Connect(ctx HandlerContext, remoteAddr net.Addr) {
 	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().ConnectFunc(remoteAddr, localAddr); err != nil {
+		if err := channel.unsafe().ConnectFunc(remoteAddr); err != nil {
 			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
 		}
 	}
@@ -231,6 +233,16 @@ func (p *DefaultPipeline) Params() *Params {
 	return &p.carrier
 }
 
+func (p *DefaultPipeline) fireActive() Pipeline {
+	p.head.FireActive()
+	return p
+}
+
+func (p *DefaultPipeline) fireInactive() Pipeline {
+	p.head.FireInactive()
+	return p
+}
+
 func (p *DefaultPipeline) fireRead(obj interface{}) Pipeline {
 	p.head.FireRead(obj)
 	return p
@@ -261,8 +273,8 @@ func (p *DefaultPipeline) Close() Pipeline {
 	return p
 }
 
-func (p *DefaultPipeline) Connect(remoteAddr net.Addr, localAddr net.Addr) Pipeline {
-	p.tail.Connect(remoteAddr, localAddr)
+func (p *DefaultPipeline) Connect(remoteAddr net.Addr) Pipeline {
+	p.tail.Connect(remoteAddr)
 	return p
 }
 

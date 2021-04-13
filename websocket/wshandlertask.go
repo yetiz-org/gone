@@ -20,8 +20,8 @@ type HandlerTask interface {
 	channel.HandlerTask
 	WSTask
 	Upgrade(req *http.Request, resp *http.Response, params map[string]interface{}) bool
-	Connected(req *http.Request, params map[string]interface{})
-	Disconnect(req *http.Request, params map[string]interface{})
+	WSConnected(req *http.Request, params map[string]interface{})
+	WSDisconnect(req *http.Request, params map[string]interface{})
 	ErrorCaught(ctx channel.HandlerContext, req *http.Request, msg Message, err error)
 }
 
@@ -58,10 +58,10 @@ func (h *WSHandlerTask) Upgrade(req *http.Request, resp *http.Response, params m
 	return true
 }
 
-func (h *WSHandlerTask) Connected(req *http.Request, params map[string]interface{}) {
+func (h *WSHandlerTask) WSConnected(req *http.Request, params map[string]interface{}) {
 }
 
-func (h *WSHandlerTask) Disconnect(req *http.Request, params map[string]interface{}) {
+func (h *WSHandlerTask) WSDisconnect(req *http.Request, params map[string]interface{}) {
 }
 
 func (h *WSHandlerTask) ErrorCaught(ctx channel.HandlerContext, req *http.Request, msg Message, err error) {

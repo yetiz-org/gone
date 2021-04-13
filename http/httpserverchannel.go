@@ -6,10 +6,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kklogger"
+	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type DefaultServerChannel struct {
@@ -19,7 +21,8 @@ type DefaultServerChannel struct {
 }
 
 const ConnCtx = "conn"
-const ClientChannelCtx = "client_channel"
+
+var ClientChannelType = reflect.TypeOf(DefaultClientChannel{})
 
 func (c *DefaultServerChannel) Init() channel.Channel {
 	c.ChannelPipeline = channel.NewDefaultPipeline(c)
@@ -37,7 +40,7 @@ func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cch := r.Context().Value(ClientChannelCtx).(*DefaultClientChannel)
+	cch := c.Child(conn.(net.Conn)).(*DefaultClientChannel)
 	if cch == nil {
 		kklogger.ErrorJ("DefaultServerChannel.ServeHTTP", "can't get DefaultClientChannel")
 		return
@@ -57,9 +60,9 @@ func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 func (c *DefaultServerChannel) panicCatch() {
-	if e := recover(); e != nil {
-		kklogger.ErrorJ("ServerChannelPanicCatch", e)
-	}
+	kkpanic.Call(func(r *kkpanic.Caught) {
+		kklogger.ErrorJ("ServerChannelPanicCatch", r.String())
+	})
 }
 
 func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
@@ -84,23 +87,18 @@ func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			switch state {
 			case http.StateNew:
+				cch := c.DeriveClientChannel(ClientChannelType, conn)
+				cch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
 			case http.StateActive:
 			case http.StateIdle:
 			case http.StateHijacked:
 			case http.StateClosed:
-				if ncc := c.Abandon(conn); ncc != nil {
-					ncc.Disconnect()
-				}
+				c.Abandon(c.Child(conn).Conn().Conn())
 			default:
 			}
 		},
 		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
-			cch := c._NewClientChannel(conn)
-			cch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
-			cch.Init()
-			cch.Pipeline().AddLast("", c.ChildHandler())
 			ctx = context.WithValue(ctx, ConnCtx, conn)
-			ctx = context.WithValue(ctx, ClientChannelCtx, cch)
 			return ctx
 		},
 	}
@@ -120,24 +118,6 @@ func (c *DefaultServerChannel) close() error {
 	c.Unsafe.CloseLock.Unlock()
 	c.active = false
 	return nil
-}
-
-func (c *DefaultServerChannel) _NewClientChannel(conn net.Conn) *DefaultClientChannel {
-	if conn == nil {
-		return nil
-	}
-
-	cc := DefaultClientChannel{
-		DefaultNetClientChannel: *c.DeriveNetClientChannel(conn),
-	}
-
-	cc.Name = conn.RemoteAddr().String()
-	c.Params().Range(func(k channel.ParamKey, v interface{}) bool {
-		cc.SetParam(k, v)
-		return true
-	})
-
-	return &cc
 }
 
 func (c *DefaultServerChannel) IsActive() bool {

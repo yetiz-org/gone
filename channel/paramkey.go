@@ -68,8 +68,6 @@ func GetParamBoolDefault(ch Channel, key ParamKey, defaultValue bool) bool {
 	return defaultValue
 }
 
-var paramActive ParamKey = "active"
-
 type Params struct {
 	sync.Map
 }

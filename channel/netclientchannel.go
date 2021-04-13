@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"fmt"
 	"net"
 	"sync"
 
@@ -9,30 +10,42 @@ import (
 
 type NetClientChannel interface {
 	ClientChannel
-	Conn() net.Conn
+	Conn() Conn
 	Parent() NetServerChannel
 	RemoteAddr() net.Addr
 	LocalAddr() net.Addr
 }
 
+var ErrNilObject = fmt.Errorf("nil object")
+
 type DefaultNetClientChannel struct {
 	DefaultClientChannel
-	conn           net.Conn
+	conn           Conn
 	parent         *DefaultNetServerChannel
 	disconnectOnce sync.Once
 }
 
-func NewDefaultNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
+func serverNewDefaultNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
 	ncc := DefaultNetClientChannel{
 		DefaultClientChannel: *NewDefaultClientChannel(),
 	}
 
 	ncc.Unsafe.DisconnectFunc = ncc.disconnect
-	ncc.conn = conn
+	ncc.conn = WrapConn(conn)
 	return &ncc
 }
 
-func (c *DefaultNetClientChannel) Conn() net.Conn {
+func NewDefaultNetClientChannel() *DefaultNetClientChannel {
+	ncc := DefaultNetClientChannel{
+		DefaultClientChannel: *NewDefaultClientChannel(),
+	}
+
+	ncc.Unsafe.ConnectFunc = ncc.connect
+	ncc.Unsafe.DisconnectFunc = ncc.disconnect
+	return &ncc
+}
+
+func (c *DefaultNetClientChannel) Conn() Conn {
 	return c.conn
 }
 
@@ -59,14 +72,15 @@ func (c *DefaultNetClientChannel) LocalAddr() net.Addr {
 func (c *DefaultNetClientChannel) disconnect() error {
 	var err error = nil
 	c.disconnectOnce.Do(func() {
-		c.SetParam(paramActive, false)
 		if conn := c.Conn(); conn != nil {
-			if c.parent != nil {
-				c.parent.Abandon(c.Conn())
-			}
-
 			if err = conn.Close(); err != nil {
 				kklogger.ErrorJ("DefaultNetClientChannel.disconnect", err.Error())
+			}
+
+			if c.parent != nil {
+				c.parent.Abandon(c.Conn().Conn())
+			} else {
+				c.Pipeline().fireInactive()
 			}
 		}
 
@@ -76,6 +90,21 @@ func (c *DefaultNetClientChannel) disconnect() error {
 	return err
 }
 
+func (c *DefaultNetClientChannel) connect(remoteAddr net.Addr) error {
+	if remoteAddr == nil {
+		return ErrNilObject
+	}
+
+	if conn, err := net.Dial(remoteAddr.Network(), remoteAddr.String()); err != nil {
+		return err
+	} else {
+		c.conn = WrapConn(conn)
+	}
+
+	c.Pipeline().fireActive()
+	return nil
+}
+
 func (c *DefaultNetClientChannel) IsActive() bool {
-	return c.Param(paramActive).(bool)
+	return c.Conn().IsActive()
 }
