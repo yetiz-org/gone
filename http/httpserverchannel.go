@@ -100,7 +100,7 @@ func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
 			cch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
 			cch.Init()
 			cch.Pipeline().AddLast("", c.ChildHandler())
-			ctx = context.WithValue(ctx, ConnCtx, conn)
+			ctx = context.WithValue(ctx, ConnCtx, channel.WrapConn(conn))
 			ctx = context.WithValue(ctx, ClientChannelCtx, cch)
 			return ctx
 		},
@@ -132,7 +132,7 @@ func (c *DefaultServerChannel) _NewClientChannel(conn net.Conn) *DefaultClientCh
 		DefaultNetClientChannel: c.DeriveNetClientChannel(conn),
 	}
 
-	cc.Name = conn.RemoteAddr().String()
+	cc.Name = cc.Conn().RemoteAddr().String()
 	c.Params().Range(func(k channel.ParamKey, v interface{}) bool {
 		cc.SetParam(k, v)
 		return true

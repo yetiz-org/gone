@@ -78,7 +78,7 @@ func (c *DefaultTCPServerChannel) _NewClientChannel(conn net.Conn) *DefaultTCPCl
 		DefaultNetClientChannel: c.DeriveNetClientChannel(conn),
 	}
 
-	cc.Name = conn.RemoteAddr().String()
+	cc.Name = cc.Conn().RemoteAddr().String()
 	c.Params().Range(func(k channel.ParamKey, v interface{}) bool {
 		cc.SetParam(k, v)
 		return true
