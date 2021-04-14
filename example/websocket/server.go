@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"net"
-	"reflect"
 	"time"
 
 	"github.com/kklab-com/gone/channel"
@@ -17,7 +16,7 @@ type Server struct {
 func (k *Server) Start(localAddr net.Addr) {
 	upgrader := &websocket.UpgradeHandler{}
 	bootstrap := channel.NewServerBootstrap()
-	bootstrap.ChannelType(reflect.TypeOf(http.DefaultServerChannel{}))
+	bootstrap.ChannelType(&http.DefaultServerChannel{})
 	bootstrap.SetParams(websocket.ParamCheckOrigin, false)
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("DISPATCHER", http.NewDispatchHandler(NewRoute())).

@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"net"
-	"reflect"
 	"testing"
 	"time"
 
@@ -19,7 +18,7 @@ func TestServer_Start(t *testing.T) {
 		time.Sleep(time.Millisecond * 500)
 
 		bootstrap := channel.NewBootstrap()
-		bootstrap.ChannelType(reflect.TypeOf(websocket.DefaultWSClientChannel{}))
+		bootstrap.ChannelType(&websocket.DefaultWSClientChannel{})
 		bootstrap.Handler(channel.NewInitializer(func(ch channel.Channel) {
 			ch.Pipeline().AddLast("HANDLER", &ClientHandler{})
 		}))

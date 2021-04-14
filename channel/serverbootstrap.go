@@ -32,9 +32,10 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 		serverChannel.SetChildHandler(d.childHandler)
 	}
 
-	for k, v := range d.Params() {
+	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		serverChannel.SetParam(k, v)
-	}
+		return true
+	})
 
 	future := NewChannelFuture(serverChannel, func() interface{} {
 		serverChannel.Bind(localAddr)

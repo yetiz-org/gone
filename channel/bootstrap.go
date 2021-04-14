@@ -3,43 +3,30 @@ package channel
 import (
 	"net"
 	"reflect"
-	"sync"
 )
 
 type Bootstrap interface {
 	Handler(handler Handler) Bootstrap
-	ChannelType(typ reflect.Type) Bootstrap
+	ChannelType(ch Channel) Bootstrap
 	Connect(remoteAddr net.Addr) Future
 	SetParams(key ParamKey, value interface{})
-	Params() map[ParamKey]interface{}
+	Params() *Params
 }
 
 type DefaultBootstrap struct {
 	handler     Handler
 	channelType reflect.Type
-	atomicLock  sync.Mutex
-	params      map[ParamKey]interface{}
+	params      Params
 }
 
 func (d *DefaultBootstrap) SetParams(key ParamKey, value interface{}) {
-	d._initParams()
-	d.params[key] = value
+	d.params.Store(key, value)
 }
 
-func (d *DefaultBootstrap) Params() map[ParamKey]interface{} {
-	d._initParams()
-	return d.params
+func (d *DefaultBootstrap) Params() *Params {
+	return &d.params
 }
 
-func (d *DefaultBootstrap) _initParams() {
-	if d.params == nil {
-		d.atomicLock.Lock()
-		defer d.atomicLock.Unlock()
-		if d.params == nil {
-			d.params = map[ParamKey]interface{}{}
-		}
-	}
-}
 func NewBootstrap() Bootstrap {
 	bootstrap := DefaultBootstrap{}
 	return &bootstrap
@@ -50,8 +37,8 @@ func (d *DefaultBootstrap) Handler(handler Handler) Bootstrap {
 	return d
 }
 
-func (d *DefaultBootstrap) ChannelType(typ reflect.Type) Bootstrap {
-	d.channelType = typ
+func (d *DefaultBootstrap) ChannelType(ch Channel) Bootstrap {
+	d.channelType = reflect.ValueOf(ch).Elem().Type()
 	return d
 }
 
@@ -62,9 +49,10 @@ func (d *DefaultBootstrap) Connect(remoteAddr net.Addr) Future {
 		channel.Pipeline().AddLast("ROOT", d.handler)
 	}
 
-	for k, v := range d.Params() {
+	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		channel.SetParam(k, v)
-	}
+		return true
+	})
 
 	future := NewChannelFuture(channel, func() interface{} {
 		channel.Connect(remoteAddr)

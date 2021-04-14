@@ -2,7 +2,6 @@ package tcp
 
 import (
 	"net"
-	"reflect"
 	"time"
 
 	"github.com/kklab-com/gone/channel"
@@ -14,7 +13,7 @@ type Server struct {
 
 func (k *Server) Start(localAddr net.Addr) {
 	bootstrap := channel.NewServerBootstrap()
-	bootstrap.ChannelType(reflect.TypeOf(tcp.DefaultTCPServerChannel{}))
+	bootstrap.ChannelType(&tcp.DefaultTCPServerChannel{})
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("DECODE_HANDLER", NewDecodeHandler())
 		ch.Pipeline().AddLast("HANDLER", &ServerChildHandler{})

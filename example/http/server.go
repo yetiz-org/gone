@@ -2,7 +2,6 @@ package http
 
 import (
 	"net"
-	"reflect"
 	"time"
 
 	"github.com/kklab-com/gone/channel"
@@ -14,7 +13,7 @@ type Server struct {
 
 func (k *Server) Start(localAddr net.Addr) {
 	bootstrap := channel.NewServerBootstrap()
-	bootstrap.ChannelType(reflect.TypeOf(http.DefaultServerChannel{}))
+	bootstrap.ChannelType(&http.DefaultServerChannel{})
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("GZIP_HANDLER", new(http.GZipHandler))
 		ch.Pipeline().AddLast("LOG_HANDLER", http.NewLogHandler(false))
