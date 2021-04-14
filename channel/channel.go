@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-base62"
 	"github.com/pkg/errors"
 )
@@ -18,8 +19,10 @@ type Channel interface {
 	Close() Channel
 	Connect(remoteAddr net.Addr) Channel
 	Disconnect() Channel
+	Read() Channel
 	FireRead(obj interface{}) Channel
 	FireReadCompleted() Channel
+	Write(obj interface{}) Channel
 	IsActive() bool
 	SetParam(key ParamKey, value interface{})
 	Param(key ParamKey) interface{}
@@ -116,7 +119,7 @@ func (c *DefaultChannel) Pipeline() Pipeline {
 }
 
 func (c *DefaultChannel) CloseFuture() Future {
-	return NewChannelFuture(c, func() interface{} {
+	return NewChannelFuture(c, func(f concurrent.Future) interface{} {
 		c.Unsafe.CloseLock.Lock()
 		c.Unsafe.CloseLock.Unlock()
 		return nil
@@ -124,7 +127,7 @@ func (c *DefaultChannel) CloseFuture() Future {
 }
 
 func (c *DefaultChannel) DisconnectFuture() Future {
-	return NewChannelFuture(c, func() interface{} {
+	return NewChannelFuture(c, func(f concurrent.Future) interface{} {
 		c.Unsafe.DisconnectLock.Lock()
 		c.Unsafe.DisconnectLock.Unlock()
 		return nil
@@ -155,6 +158,10 @@ func (c *DefaultChannel) PreStart() Channel {
 	panic("implement me")
 }
 
+func (c *DefaultChannel) Read() Channel {
+	return c
+}
+
 func (c *DefaultChannel) FireRead(obj interface{}) Channel {
 	c.Pipeline().fireRead(obj)
 	return c
@@ -162,6 +169,11 @@ func (c *DefaultChannel) FireRead(obj interface{}) Channel {
 
 func (c *DefaultChannel) FireReadCompleted() Channel {
 	c.Pipeline().fireReadCompleted()
+	return c
+}
+
+func (c *DefaultChannel) Write(obj interface{}) Channel {
+	c.Pipeline().Write(obj)
 	return c
 }
 

@@ -2,8 +2,7 @@ package channel
 
 type ServerChannel interface {
 	Channel
-	SetChildHandler(handler Handler) ServerChannel
-	ChildHandler() Handler
+	setChildHandler(handler Handler) ServerChannel
 }
 
 type DefaultServerChannel struct {
@@ -22,11 +21,7 @@ func (d *DefaultServerChannel) Init() Channel {
 	return d
 }
 
-func (d *DefaultServerChannel) SetChildHandler(handler Handler) ServerChannel {
+func (d *DefaultServerChannel) setChildHandler(handler Handler) ServerChannel {
 	d.childHandler = handler
 	return d
-}
-
-func (d *DefaultServerChannel) ChildHandler() Handler {
-	return d.childHandler
 }

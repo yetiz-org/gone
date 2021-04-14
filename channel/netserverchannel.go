@@ -38,7 +38,7 @@ func (c *DefaultNetServerChannel) DeriveClientChannel(typ reflect.Type, conn net
 	})
 
 	cc.Init()
-	cc.Pipeline().AddLast("", c.ChildHandler())
+	cc.Pipeline().AddLast("", c.childHandler)
 	cc.Pipeline().fireActive()
 	return cc
 }

@@ -3,6 +3,8 @@ package channel
 import (
 	"net"
 	"reflect"
+
+	"github.com/kklab-com/gone/concurrent"
 )
 
 type Bootstrap interface {
@@ -54,7 +56,7 @@ func (d *DefaultBootstrap) Connect(remoteAddr net.Addr) Future {
 		return true
 	})
 
-	future := NewChannelFuture(channel, func() interface{} {
+	future := NewChannelFuture(channel, func(f concurrent.Future) interface{} {
 		channel.Connect(remoteAddr)
 		return channel
 	})

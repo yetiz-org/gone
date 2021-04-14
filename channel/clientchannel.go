@@ -2,7 +2,6 @@ package channel
 
 type ClientChannel interface {
 	Channel
-	Write(obj interface{}) ClientChannel
 }
 
 type DefaultClientChannel struct {
@@ -25,10 +24,5 @@ func NewDefaultClientChannel() *DefaultClientChannel {
 
 func (c *DefaultClientChannel) Init() Channel {
 	c.ChannelPipeline = NewDefaultPipeline(c)
-	return c
-}
-
-func (c *DefaultClientChannel) Write(obj interface{}) ClientChannel {
-	c.Pipeline().Write(obj)
 	return c
 }

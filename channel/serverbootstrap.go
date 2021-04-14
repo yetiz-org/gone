@@ -3,6 +3,8 @@ package channel
 import (
 	"net"
 	"reflect"
+
+	"github.com/kklab-com/gone/concurrent"
 )
 
 type ServerBootstrap interface {
@@ -29,7 +31,7 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	}
 
 	if d.childHandler != nil {
-		serverChannel.SetChildHandler(d.childHandler)
+		serverChannel.setChildHandler(d.childHandler)
 	}
 
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
@@ -37,7 +39,7 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 		return true
 	})
 
-	future := NewChannelFuture(serverChannel, func() interface{} {
+	future := NewChannelFuture(serverChannel, func(f concurrent.Future) interface{} {
 		serverChannel.Bind(localAddr)
 		return serverChannel
 	})
