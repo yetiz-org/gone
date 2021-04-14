@@ -9,11 +9,11 @@ import (
 )
 
 type WSTask interface {
-	Ping(ctx channel.HandlerContext, message *PingMessage, params map[string]interface{})
-	Pong(ctx channel.HandlerContext, message *PongMessage, params map[string]interface{})
-	Close(ctx channel.HandlerContext, message *CloseMessage, params map[string]interface{})
-	Binary(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{})
-	Text(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{})
+	WSPing(ctx channel.HandlerContext, message *PingMessage, params map[string]interface{})
+	WSPong(ctx channel.HandlerContext, message *PongMessage, params map[string]interface{})
+	WSClose(ctx channel.HandlerContext, message *CloseMessage, params map[string]interface{})
+	WSBinary(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{})
+	WSText(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{})
 }
 
 type HandlerTask interface {
@@ -25,7 +25,7 @@ type HandlerTask interface {
 	ErrorCaught(ctx channel.HandlerContext, req *http.Request, msg Message, err error)
 }
 
-func (h *WSHandlerTask) Ping(ctx channel.HandlerContext, message *PingMessage, params map[string]interface{}) {
+func (h *WSHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMessage, params map[string]interface{}) {
 	dead := time.Now().Add(time.Minute)
 	var obj interface{} = PongMessage{
 		DefaultMessage: DefaultMessage{
@@ -38,16 +38,16 @@ func (h *WSHandlerTask) Ping(ctx channel.HandlerContext, message *PingMessage, p
 	ctx.FireWrite(&obj)
 }
 
-func (h *WSHandlerTask) Pong(ctx channel.HandlerContext, message *PongMessage, params map[string]interface{}) {
+func (h *WSHandlerTask) WSPong(ctx channel.HandlerContext, message *PongMessage, params map[string]interface{}) {
 }
 
-func (h *WSHandlerTask) Close(ctx channel.HandlerContext, message *CloseMessage, params map[string]interface{}) {
+func (h *WSHandlerTask) WSClose(ctx channel.HandlerContext, message *CloseMessage, params map[string]interface{}) {
 }
 
-func (h *WSHandlerTask) Binary(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{}) {
+func (h *WSHandlerTask) WSBinary(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{}) {
 }
 
-func (h *WSHandlerTask) Text(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{}) {
+func (h *WSHandlerTask) WSText(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{}) {
 }
 
 type WSHandlerTask struct {

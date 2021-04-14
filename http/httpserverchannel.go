@@ -109,6 +109,10 @@ func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
 }
 
 func (c *DefaultServerChannel) close() error {
+	if !c.active {
+		return nil
+	}
+
 	shutdownTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	if err := c.server.Shutdown(shutdownTimeout); err != nil {

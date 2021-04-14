@@ -32,4 +32,5 @@ func (k *Server) Start(localAddr net.Addr) {
 	}()
 
 	k.ch.CloseFuture().Sync()
+	time.Sleep(time.Second * 1)
 }

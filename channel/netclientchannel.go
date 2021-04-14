@@ -16,13 +16,19 @@ type NetClientChannel interface {
 	LocalAddr() net.Addr
 }
 
+type NetClientChannelPostActive interface {
+	PostActive(conn net.Conn)
+}
+
 var ErrNilObject = fmt.Errorf("nil object")
+var ErrUnknownObject = fmt.Errorf("unknown object")
 
 type DefaultNetClientChannel struct {
 	DefaultClientChannel
 	conn           Conn
 	parent         *DefaultNetServerChannel
 	disconnectOnce sync.Once
+	WriteLock      sync.Mutex
 }
 
 func serverNewDefaultNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
@@ -72,13 +78,13 @@ func (c *DefaultNetClientChannel) LocalAddr() net.Addr {
 func (c *DefaultNetClientChannel) disconnect() error {
 	var err error = nil
 	c.disconnectOnce.Do(func() {
-		if conn := c.Conn(); conn != nil {
+		if conn := c.conn; conn != nil {
 			if err = conn.Close(); err != nil {
 				kklogger.ErrorJ("DefaultNetClientChannel.disconnect", err.Error())
 			}
 
 			if c.parent != nil {
-				c.parent.Abandon(c.Conn().Conn())
+				c.parent.Abandon(c.conn.Conn())
 			} else {
 				c.Pipeline().fireInactive()
 			}
@@ -106,5 +112,10 @@ func (c *DefaultNetClientChannel) connect(remoteAddr net.Addr) error {
 }
 
 func (c *DefaultNetClientChannel) IsActive() bool {
-	return c.Conn().IsActive()
+	return c.conn.IsActive()
+}
+
+func (c *DefaultNetClientChannel) PostActive(conn net.Conn) {
+	c.conn = WrapConn(conn)
+	c.Pipeline().fireActive()
 }

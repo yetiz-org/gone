@@ -1,6 +1,8 @@
 package tcp
 
 import (
+	"time"
+
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kkutil/buf"
 )
@@ -14,7 +16,10 @@ func (h *ServerChildHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	if str != "h:c b:cc" {
 		ctx.FireWrite(buf.NewByteBuf([]byte(str)))
 	} else {
+		ctx.FireWrite(buf.NewByteBuf([]byte(str)))
 		ctx.Channel().Disconnect()
+		time.Sleep(time.Millisecond * 100)
+		ctx.Channel().(channel.NetClientChannel).Parent().Close()
 	}
 }
 

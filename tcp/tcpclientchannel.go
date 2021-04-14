@@ -38,6 +38,12 @@ func (c *DefaultTCPClientChannel) Init() channel.Channel {
 }
 
 func (c *DefaultTCPClientChannel) write(obj interface{}) error {
+	if !c.IsActive() {
+		return net.ErrClosed
+	}
+
+	c.WriteLock.Lock()
+	defer c.WriteLock.Unlock()
 	var bs []byte
 	switch v := obj.(type) {
 	case buf.ByteBuf:
@@ -56,6 +62,10 @@ func (c *DefaultTCPClientChannel) write(obj interface{}) error {
 }
 
 func (c *DefaultTCPClientChannel) read() {
+	defer kkpanic.Call(func(r *kkpanic.Caught) {
+		c.Disconnect()
+	})
+
 	for c.IsActive() {
 		if c.Conn() == nil {
 			c.Disconnect()
@@ -69,6 +79,8 @@ func (c *DefaultTCPClientChannel) read() {
 					kklogger.WarnJ("DefaultTCPClientChannel.read", err.Error())
 				}
 
+				c.Disconnect()
+			} else if err == io.EOF {
 				c.Disconnect()
 			}
 		} else {

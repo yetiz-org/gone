@@ -10,21 +10,21 @@ type MessageEncoder interface {
 
 type MessageToByteEncoder struct {
 	DefaultHandler
-	Encoder MessageEncoder
+	Encode func(ctx HandlerContext, msg interface{}, out buf.ByteBuf)
 }
 
 func (h *MessageToByteEncoder) Added(ctx HandlerContext) {
-	if h.Encoder == nil {
-		h.Encoder = h
+	if h.Encode == nil {
+		h.Encode = h.encode
 	}
 }
 
 func (h *MessageToByteEncoder) Write(ctx HandlerContext, obj interface{}) {
 	out := buf.EmptyByteBuf()
-	h.Encoder.Encode(ctx, obj, out)
+	h.Encode(ctx, obj, out)
 	ctx.FireWrite(out)
 }
 
-func (h *MessageToByteEncoder) Encode(ctx HandlerContext, msg interface{}, out buf.ByteBuf) {
+func (h *MessageToByteEncoder) encode(ctx HandlerContext, msg interface{}, out buf.ByteBuf) {
 	panic("implement me")
 }
