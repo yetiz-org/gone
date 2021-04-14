@@ -22,7 +22,7 @@ func (k *Server) Start(localAddr net.Addr) {
 
 	ch := bootstrap.Bind(localAddr).Sync().Channel()
 	go func() {
-		time.Sleep(time.Second * 4)
+		time.Sleep(time.Minute * 1)
 		ch.Close()
 	}()
 

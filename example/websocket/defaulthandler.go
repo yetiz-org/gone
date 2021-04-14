@@ -29,7 +29,6 @@ func (t *DefaultTask) WSText(ctx channel.HandlerContext, message *websocket.Defa
 
 func (t *DefaultTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
 	println("server ws close")
-	ctx.Disconnect()
 }
 
 func (*DefaultTask) WSConnected(req *http.Request, params map[string]interface{}) {

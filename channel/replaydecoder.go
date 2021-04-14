@@ -56,13 +56,10 @@ func (h *ReplayDecoder) Read(ctx HandlerContext, obj interface{}) {
 	if h.Decode != nil {
 		h.in.Write(obj.(buf.ByteBuf).Bytes())
 		out := &list.List{}
-		kkpanic.Catch(func() {
+		kkpanic.CatchExcept(func() {
 			h.Decode(ctx, h.in, out)
-		}, func(r *kkpanic.Caught) {
-			if r.Message != buf.ErrInsufficientSize {
-				kklogger.ErrorJ("ReplayDecoder.Read#Decode", r.String())
-				return
-			}
+		}, buf.ErrInsufficientSize, func(r *kkpanic.Caught) {
+			kklogger.ErrorJ("ReplayDecoder.Read#Decode", r.String())
 		})
 
 		for elem := out.Back(); elem != nil; func() {

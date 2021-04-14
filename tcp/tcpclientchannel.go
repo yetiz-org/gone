@@ -80,6 +80,8 @@ func (c *DefaultTCPClientChannel) read() {
 				}
 
 				c.Disconnect()
+			} else if err == io.EOF {
+				c.Disconnect()
 			}
 		} else {
 			kkpanic.Catch(func() {
