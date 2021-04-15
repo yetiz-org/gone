@@ -62,7 +62,7 @@ func (c *DefaultTCPClientChannel) write(obj interface{}) error {
 }
 
 func (c *DefaultTCPClientChannel) read() {
-	defer kkpanic.Call(func(r *kkpanic.Caught) {
+	defer kkpanic.Call(func(r kkpanic.Caught) {
 		c.Disconnect()
 	})
 
@@ -87,7 +87,7 @@ func (c *DefaultTCPClientChannel) read() {
 			kkpanic.Catch(func() {
 				c.FireRead(buf.NewByteBuf(bs[:rl]))
 				c.FireReadCompleted()
-			}, func(r *kkpanic.Caught) {
+			}, func(r kkpanic.Caught) {
 				kklogger.ErrorJ("DefaultTCPClientChannel.read", r.String())
 			})
 		}

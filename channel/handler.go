@@ -2,8 +2,6 @@ package channel
 
 import (
 	"net"
-
-	"github.com/kklab-com/goth-kkutil/value"
 )
 
 type Handler interface {
@@ -72,22 +70,4 @@ func (h *DefaultHandler) Disconnect(ctx HandlerContext) {
 
 func (h *DefaultHandler) ErrorCaught(ctx HandlerContext, err error) {
 	(ctx).FireErrorCaught(err)
-}
-
-type HandlerCaughtError struct {
-	Err             string `json:"error,omitempty"`
-	PanicCallStack  string `json:"panic_call_stack,omitempty"`
-	GoRoutineStacks string `json:"go_routine_stacks,omitempty"`
-}
-
-func (e *HandlerCaughtError) Error() string {
-	return value.JsonMarshal(e)
-}
-
-type StringError struct {
-	Message string `json:"message"`
-}
-
-func (e *StringError) Error() string {
-	return e.Message
 }

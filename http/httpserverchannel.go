@@ -60,7 +60,7 @@ func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 func (c *DefaultServerChannel) panicCatch() {
-	kkpanic.Call(func(r *kkpanic.Caught) {
+	kkpanic.Call(func(r kkpanic.Caught) {
 		kklogger.ErrorJ("ServerChannelPanicCatch", r.String())
 	})
 }

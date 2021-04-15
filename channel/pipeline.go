@@ -1,13 +1,11 @@
 package channel
 
 import (
-	"bytes"
 	"fmt"
 	"net"
-	"runtime/debug"
-	"runtime/pprof"
 
 	"github.com/kklab-com/goth-kklogger"
+	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type Pipeline interface {
@@ -134,20 +132,11 @@ func (h *headHandler) Disconnect(ctx HandlerContext) {
 }
 
 func (h *headHandler) ErrorCaught(ctx HandlerContext, err error) {
-	var ce *HandlerCaughtError
-	if e, ok := err.(*HandlerCaughtError); ok {
+	var ce kkpanic.Caught
+	if e, ok := err.(*kkpanic.CaughtImpl); ok {
 		ce = e
 	} else {
-		buffer := &bytes.Buffer{}
-		pprof.Lookup("goroutine").WriteTo(buffer, 1)
-		ce = &HandlerCaughtError{
-			PanicCallStack:  string(debug.Stack()),
-			GoRoutineStacks: buffer.String(),
-		}
-
-		if err != nil {
-			ce.Err = err.Error()
-		}
+		ce = kkpanic.Convert(e)
 	}
 
 	kklogger.ErrorJ("HeadHandler.ErrorCaught", ce)

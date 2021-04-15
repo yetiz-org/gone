@@ -58,7 +58,7 @@ func (h *ReplayDecoder) Read(ctx HandlerContext, obj interface{}) {
 		out := &list.List{}
 		kkpanic.CatchExcept(func() {
 			h.Decode(ctx, h.in, out)
-		}, buf.ErrInsufficientSize, func(r *kkpanic.Caught) {
+		}, buf.ErrInsufficientSize, func(r kkpanic.Caught) {
 			kklogger.ErrorJ("ReplayDecoder.Read#Decode", r.String())
 		})
 

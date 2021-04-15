@@ -73,7 +73,7 @@ func (c *DefaultWSClientChannel) write(obj interface{}) error {
 }
 
 func (c *DefaultWSClientChannel) read() {
-	defer kkpanic.Call(func(r *kkpanic.Caught) {
+	defer kkpanic.Call(func(r kkpanic.Caught) {
 		c.Disconnect()
 	})
 
@@ -95,7 +95,7 @@ func (c *DefaultWSClientChannel) read() {
 			kkpanic.Catch(func() {
 				c.FireRead(_ParseMessage(typ, bs))
 				c.FireReadCompleted()
-			}, func(r *kkpanic.Caught) {
+			}, func(r kkpanic.Caught) {
 				kklogger.ErrorJ("DefaultWSClientChannel.read", r.String())
 			})
 		}

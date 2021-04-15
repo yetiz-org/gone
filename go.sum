@@ -83,8 +83,8 @@ github.com/kklab-com/goth-kksecret v0.0.0-20210329095243-96b2cff3031d h1:4oVS5w0
 github.com/kklab-com/goth-kksecret v0.0.0-20210329095243-96b2cff3031d/go.mod h1:3ufFXEr1PjOyEaEwuB82qyZNpYy0dRX362FuQKMvzQk=
 github.com/kklab-com/goth-kkutil v0.0.0-20210412070146-4ab5ce6b7df7 h1:C8ycpIbsgPZfwGM7S6WdWCuXJhzs1slxCn5RRYYJdQI=
 github.com/kklab-com/goth-kkutil v0.0.0-20210412070146-4ab5ce6b7df7/go.mod h1:OoZAKtG3nKDGJhOuqFRwn5g8v9+D/JuehBRQpT0Bt2M=
-github.com/kklab-com/goth-panic v0.0.0-20210414071617-4a9516d9dc78 h1:DrQQbSCeb9LDTsUZXpEs9P/CAk4G608wztqUv9xwiWo=
-github.com/kklab-com/goth-panic v0.0.0-20210414071617-4a9516d9dc78/go.mod h1:jykIHjr28eVm11uRewgPBQ8JzEnxJLQeVWbxPHoWSig=
+github.com/kklab-com/goth-panic v0.0.0-20210415075005-d0c9fd7f436f h1:wi3maADuvLCz7Hgl4VHDNRpfhiAk6F4BeAHIyiO8Gmo=
+github.com/kklab-com/goth-panic v0.0.0-20210415075005-d0c9fd7f436f/go.mod h1:jykIHjr28eVm11uRewgPBQ8JzEnxJLQeVWbxPHoWSig=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/konsorten/go-windows-terminal-sequences v1.0.2 h1:DB17ag19krx9CFsz4o3enTrPXyIXCl+2iCXH/aMAp9s=
 github.com/konsorten/go-windows-terminal-sequences v1.0.2/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"runtime/debug"
-	"runtime/pprof"
 	"time"
 
 	"github.com/kklab-com/gone-httpheadername"
@@ -16,7 +14,7 @@ import (
 	"github.com/kklab-com/goth-erresponse"
 	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/hash"
-	"github.com/kklab-com/goth-kkutil/value"
+	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type DispatchHandler struct {
@@ -137,45 +135,41 @@ func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Reque
 	timeMark := time.Now()
 	var err error
 	if r := recover(); r != nil {
+		erErr = erresponse.ServerErrorPanic
 		switch er := r.(type) {
 		case ErrorResponse:
 			erErr = er
-		case error:
 			err = er
-		case *channel.HandlerCaughtError:
+		case *kkpanic.CaughtImpl:
 			err = er
-		case string:
-			err = &channel.StringError{Message: er}
 		default:
-			err = &channel.StringError{Message: value.JsonMarshal(er)}
+			err = kkpanic.Convert(er)
 		}
 
+		h.ErrorCaught(ctx, err)
 		kklogger.ErrorJ("DispatchHandler.Read#ErrorCaught", ObjectLogStruct{
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    request.TrackID(),
 			URI:        request.RequestURI,
 			Handler:    reflect.TypeOf(task).String(),
 			RemoteAddr: request.Request.RemoteAddr,
+			Message:    err,
 		})
-
-		if err != nil {
-			if _, ok := err.(*channel.HandlerCaughtError); !ok {
-				buffer := &bytes.Buffer{}
-				pprof.Lookup("goroutine").WriteTo(buffer, 1)
-				err = &channel.HandlerCaughtError{
-					Err:             err.Error(),
-					PanicCallStack:  string(debug.Stack()),
-					GoRoutineStacks: buffer.String(),
-				}
-			}
-
-			h.ErrorCaught(ctx, err)
-			erErr = erresponse.ServerErrorPanic
-		}
 	}
 
 	if erErr != nil {
-		erErr = erErr.Clone()
+		erErr = &ErrorResponseImpl{
+			ErrorResponse: erErr.Clone(),
+		}
+
+		if err != nil {
+			if erc, ok := err.(*kkpanic.CaughtImpl); ok {
+				erErr.(*ErrorResponseImpl).Caught = erc
+			} else {
+				erErr.(*ErrorResponseImpl).Caught = kkpanic.Convert(err)
+			}
+		}
+
 		erErr.ErrorData()["cid"] = request.Channel().ID()
 		erErr.ErrorData()["tid"] = request.TrackID()
 		timeMark = time.Now()
@@ -246,20 +240,7 @@ func (h *DispatchHandler) invokeMethod(task HandlerTask, request *Request, respo
 }
 
 func (h *DispatchHandler) ErrorCaught(ctx channel.HandlerContext, err error) {
-	var ce *channel.HandlerCaughtError
-	if e, ok := err.(*channel.HandlerCaughtError); ok {
-		ce = e
-	} else {
-		buffer := &bytes.Buffer{}
-		pprof.Lookup("goroutine").WriteTo(buffer, 1)
-		ce = &channel.HandlerCaughtError{
-			Err:             err.Error(),
-			PanicCallStack:  string(debug.Stack()),
-			GoRoutineStacks: buffer.String(),
-		}
-	}
-
-	kklogger.ErrorJ("DispatchHandler.ErrorCaught", ce)
+	kklogger.ErrorJ("DispatchHandler.ErrorCaught", err.Error())
 }
 
 func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
@@ -298,11 +279,11 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 }
 
 type ObjectLogStruct struct {
-	ChannelID  string `json:"cid,omitempty"`
-	TrackID    string `json:"tid,omitempty"`
-	State      string `json:"state,omitempty"`
-	Handler    string `json:"handler,omitempty"`
-	URI        string `json:"uri,omitempty"`
-	Message    string `json:"message,omitempty"`
-	RemoteAddr string `json:"remote_addr,omitempty"`
+	ChannelID  string      `json:"cid,omitempty"`
+	TrackID    string      `json:"tid,omitempty"`
+	State      string      `json:"state,omitempty"`
+	Handler    string      `json:"handler,omitempty"`
+	URI        string      `json:"uri,omitempty"`
+	Message    interface{} `json:"message,omitempty"`
+	RemoteAddr string      `json:"remote_addr,omitempty"`
 }
