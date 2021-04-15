@@ -57,6 +57,7 @@ func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 	var obj interface{} = pkg
 	cch.FireRead(obj)
+	cch.FireReadCompleted()
 }
 
 func (c *DefaultServerChannel) panicCatch() {

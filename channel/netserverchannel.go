@@ -32,7 +32,7 @@ func (c *DefaultNetServerChannel) DeriveClientChannel(typ reflect.Type, conn net
 		return nil
 	}
 
-	c.Params().Range(func(k ParamKey, v interface{}) bool {
+	c.childParams.Range(func(k ParamKey, v interface{}) bool {
 		cc.SetParam(k, v)
 		return true
 	})

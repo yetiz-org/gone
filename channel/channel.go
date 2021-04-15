@@ -126,14 +126,6 @@ func (c *DefaultChannel) CloseFuture() Future {
 	})
 }
 
-func (c *DefaultChannel) DisconnectFuture() Future {
-	return NewChannelFuture(c, func(f concurrent.Future) interface{} {
-		c.Unsafe.DisconnectLock.Lock()
-		c.Unsafe.DisconnectLock.Unlock()
-		return nil
-	})
-}
-
 func (c *DefaultChannel) Bind(localAddr net.Addr) Channel {
 	c.Pipeline().Bind(localAddr)
 	return c
