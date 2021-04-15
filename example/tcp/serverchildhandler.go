@@ -19,7 +19,7 @@ func (h *ServerChildHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		ctx.FireWrite(buf.NewByteBuf([]byte(str)))
 		ctx.Channel().Disconnect()
 		time.Sleep(time.Millisecond * 100)
-		ctx.Channel().(channel.NetClientChannel).Parent().Close()
+		ctx.Channel().(channel.NetChannel).Parent().Close()
 	}
 }
 

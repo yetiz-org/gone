@@ -45,7 +45,7 @@ func (d *DefaultBootstrap) ChannelType(ch Channel) Bootstrap {
 }
 
 func (d *DefaultBootstrap) Connect(remoteAddr net.Addr) Future {
-	var channel = reflect.New(d.channelType).Interface().(ClientChannel)
+	var channel = reflect.New(d.channelType).Interface().(Channel)
 	channel.Init()
 	if d.handler != nil {
 		channel.Pipeline().AddLast("ROOT", d.handler)

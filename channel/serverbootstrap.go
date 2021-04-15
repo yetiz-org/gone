@@ -52,6 +52,7 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 
 	future := NewChannelFuture(serverChannel, func(f concurrent.Future) interface{} {
 		serverChannel.Bind(localAddr)
+		serverChannel.setLocalAddr(localAddr)
 		return serverChannel
 	})
 

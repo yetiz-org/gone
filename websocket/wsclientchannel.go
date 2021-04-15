@@ -14,7 +14,7 @@ import (
 )
 
 type DefaultWSClientChannel struct {
-	*channel.DefaultNetClientChannel
+	*channel.DefaultNetChannel
 	netClientConnectFunc func(remoteAddr net.Addr) error
 	conn                 *websocket.Conn
 	response             *http.Response
@@ -23,8 +23,8 @@ type DefaultWSClientChannel struct {
 var ErrUnknownObjectType = fmt.Errorf("unknown object type")
 
 func (c *DefaultWSClientChannel) Init() channel.Channel {
-	if c.DefaultNetClientChannel == nil {
-		c.DefaultNetClientChannel = channel.NewDefaultNetClientChannel()
+	if c.DefaultNetChannel == nil {
+		c.DefaultNetChannel = channel.NewDefaultNetClientChannel()
 	}
 
 	c.ChannelPipeline = channel.NewDefaultPipeline(c)

@@ -27,6 +27,9 @@ type Channel interface {
 	SetParam(key ParamKey, value interface{})
 	Param(key ParamKey) interface{}
 	Params() *Params
+	Parent() ServerChannel
+	LocalAddr() net.Addr
+	setLocalAddr(addr net.Addr)
 	unsafe() *Unsafe
 }
 
@@ -38,7 +41,9 @@ type DefaultChannel struct {
 	Name            string
 	ChannelPipeline Pipeline
 	atomicLock      sync.Mutex
+	parent          ServerChannel
 	params          Params
+	localAddr       net.Addr
 	Unsafe          Unsafe
 }
 
@@ -55,22 +60,6 @@ type Unsafe struct {
 var UnsafeDefaultWriteFunc = func(obj interface{}) error { return nil }
 var UnsafeDefaultBindFunc = func(localAddr net.Addr) error { return nil }
 var UnsafeDefaultConnectFunc = func(remoteAddr net.Addr) error { return nil }
-
-func (c *DefaultChannel) SetParam(key ParamKey, value interface{}) {
-	c.params.Store(key, value)
-}
-
-func (c *DefaultChannel) Param(key ParamKey) interface{} {
-	if v, f := c.params.Load(key); f {
-		return v
-	}
-
-	return nil
-}
-
-func (c *DefaultChannel) Params() *Params {
-	return &c.params
-}
 
 func (c *DefaultChannel) ID() string {
 	if c.id == "" {
@@ -101,6 +90,12 @@ func EmptyDefaultChannel() *DefaultChannel {
 
 func NewDefaultChannel() *DefaultChannel {
 	channel := EmptyDefaultChannel()
+	channel.Unsafe.DisconnectFunc = func() error {
+		channel.Unsafe.DisconnectLock.Unlock()
+		return nil
+	}
+
+	channel.Unsafe.DisconnectLock.Lock()
 	channel.Init()
 	return channel
 }
@@ -171,6 +166,34 @@ func (c *DefaultChannel) Write(obj interface{}) Channel {
 
 func (c *DefaultChannel) IsActive() bool {
 	panic("implement me")
+}
+
+func (c *DefaultChannel) SetParam(key ParamKey, value interface{}) {
+	c.params.Store(key, value)
+}
+
+func (c *DefaultChannel) Param(key ParamKey) interface{} {
+	if v, f := c.params.Load(key); f {
+		return v
+	}
+
+	return nil
+}
+
+func (c *DefaultChannel) Params() *Params {
+	return &c.params
+}
+
+func (c *DefaultChannel) Parent() ServerChannel {
+	return c.parent
+}
+
+func (c *DefaultChannel) LocalAddr() net.Addr {
+	return c.localAddr
+}
+
+func (c *DefaultChannel) setLocalAddr(addr net.Addr) {
+	c.localAddr = addr
 }
 
 func (c *DefaultChannel) unsafe() *Unsafe {

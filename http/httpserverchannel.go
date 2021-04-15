@@ -21,6 +21,7 @@ type DefaultServerChannel struct {
 }
 
 const ConnCtx = "conn"
+const ConnChCtx = "conn_ch"
 
 var ClientChannelType = reflect.TypeOf(DefaultClientChannel{})
 
@@ -40,7 +41,7 @@ func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cch := c.Child(conn.(net.Conn)).(*DefaultClientChannel)
+	cch := r.Context().Value(ConnChCtx).(*DefaultClientChannel)
 	if cch == nil {
 		kklogger.ErrorJ("DefaultServerChannel.ServeHTTP", "can't get DefaultClientChannel")
 		return
@@ -88,18 +89,18 @@ func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			switch state {
 			case http.StateNew:
-				cch := c.DeriveClientChannel(ClientChannelType, conn)
-				cch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
 			case http.StateActive:
 			case http.StateIdle:
 			case http.StateHijacked:
 			case http.StateClosed:
-				c.Abandon(c.Child(conn).Conn().Conn())
 			default:
 			}
 		},
 		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
+			cch := c.DeriveNetChildChannel(ClientChannelType, conn)
+			cch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
 			ctx = context.WithValue(ctx, ConnCtx, conn)
+			ctx = context.WithValue(ctx, ConnChCtx, cch)
 			return ctx
 		},
 	}

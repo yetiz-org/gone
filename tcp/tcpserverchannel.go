@@ -57,7 +57,7 @@ func (c *DefaultTCPServerChannel) acceptLoop() {
 
 			kklogger.ErrorJ("DefaultTCPServerChannel.acceptLoop", err.Error())
 		} else {
-			cc := c.DeriveClientChannel(ClientChannelType, conn)
+			cc := c.DeriveNetChildChannel(ClientChannelType, conn)
 			go cc.(*DefaultTCPClientChannel).read()
 		}
 	}

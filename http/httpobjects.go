@@ -33,10 +33,10 @@ type Request struct {
 	Body        []byte
 	session     httpsession.Session
 	lock        sync.Mutex
-	channel     channel.NetClientChannel
+	channel     channel.NetChannel
 }
 
-func NewRequest(ch channel.NetClientChannel, req http.Request) *Request {
+func NewRequest(ch channel.NetChannel, req http.Request) *Request {
 	request := Request{
 		Request:   req,
 		CreatedAt: time.Now(),
@@ -74,7 +74,7 @@ func NewRequest(ch channel.NetClientChannel, req http.Request) *Request {
 	return &request
 }
 
-func (r *Request) Channel() (ch channel.NetClientChannel) {
+func (r *Request) Channel() (ch channel.NetChannel) {
 	return r.channel
 }
 

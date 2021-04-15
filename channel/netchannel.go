@@ -8,32 +8,29 @@ import (
 	"github.com/kklab-com/goth-kklogger"
 )
 
-type NetClientChannel interface {
-	ClientChannel
+type NetChannel interface {
+	Channel
 	Conn() Conn
-	Parent() NetServerChannel
 	RemoteAddr() net.Addr
-	LocalAddr() net.Addr
 }
 
-type NetClientChannelPostActive interface {
+type NetChannelPostActive interface {
 	PostActive(conn net.Conn)
 }
 
 var ErrNilObject = fmt.Errorf("nil object")
 var ErrUnknownObject = fmt.Errorf("unknown object")
 
-type DefaultNetClientChannel struct {
-	DefaultClientChannel
+type DefaultNetChannel struct {
+	DefaultChannel
 	conn           Conn
-	parent         *DefaultNetServerChannel
 	disconnectOnce sync.Once
 	WriteLock      sync.Mutex
 }
 
-func serverNewDefaultNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
-	ncc := DefaultNetClientChannel{
-		DefaultClientChannel: *NewDefaultClientChannel(),
+func serverNewChildChannel(conn net.Conn) *DefaultNetChannel {
+	ncc := DefaultNetChannel{
+		DefaultChannel: *NewDefaultChannel(),
 	}
 
 	ncc.Unsafe.DisconnectFunc = ncc.disconnect
@@ -41,9 +38,9 @@ func serverNewDefaultNetClientChannel(conn net.Conn) *DefaultNetClientChannel {
 	return &ncc
 }
 
-func NewDefaultNetClientChannel() *DefaultNetClientChannel {
-	ncc := DefaultNetClientChannel{
-		DefaultClientChannel: *NewDefaultClientChannel(),
+func NewDefaultNetClientChannel() *DefaultNetChannel {
+	ncc := DefaultNetChannel{
+		DefaultChannel: *NewDefaultChannel(),
 	}
 
 	ncc.Unsafe.ConnectFunc = ncc.connect
@@ -51,15 +48,11 @@ func NewDefaultNetClientChannel() *DefaultNetClientChannel {
 	return &ncc
 }
 
-func (c *DefaultNetClientChannel) Conn() Conn {
+func (c *DefaultNetChannel) Conn() Conn {
 	return c.conn
 }
 
-func (c *DefaultNetClientChannel) Parent() NetServerChannel {
-	return c.parent
-}
-
-func (c *DefaultNetClientChannel) RemoteAddr() net.Addr {
+func (c *DefaultNetChannel) RemoteAddr() net.Addr {
 	if c.conn != nil {
 		return c.conn.RemoteAddr()
 	}
@@ -67,20 +60,23 @@ func (c *DefaultNetClientChannel) RemoteAddr() net.Addr {
 	return nil
 }
 
-func (c *DefaultNetClientChannel) LocalAddr() net.Addr {
-	if c.conn != nil {
-		return c.conn.LocalAddr()
+func (c *DefaultNetChannel) LocalAddr() net.Addr {
+	if c.localAddr == nil {
+		if c.conn != nil {
+			c.localAddr = c.conn.LocalAddr()
+			return c.conn.LocalAddr()
+		}
 	}
 
 	return nil
 }
 
-func (c *DefaultNetClientChannel) disconnect() error {
+func (c *DefaultNetChannel) disconnect() error {
 	var err error = nil
 	c.disconnectOnce.Do(func() {
 		if conn := c.conn; conn != nil {
 			if err = conn.Close(); err != nil {
-				kklogger.ErrorJ("DefaultNetClientChannel.disconnect", err.Error())
+				kklogger.ErrorJ("DefaultNetChannel.disconnect", err.Error())
 			}
 
 			if c.parent != nil {
@@ -96,7 +92,7 @@ func (c *DefaultNetClientChannel) disconnect() error {
 	return err
 }
 
-func (c *DefaultNetClientChannel) connect(remoteAddr net.Addr) error {
+func (c *DefaultNetChannel) connect(remoteAddr net.Addr) error {
 	if remoteAddr == nil {
 		return ErrNilObject
 	}
@@ -111,11 +107,11 @@ func (c *DefaultNetClientChannel) connect(remoteAddr net.Addr) error {
 	return nil
 }
 
-func (c *DefaultNetClientChannel) IsActive() bool {
+func (c *DefaultNetChannel) IsActive() bool {
 	return c.conn.IsActive()
 }
 
-func (c *DefaultNetClientChannel) PostActive(conn net.Conn) {
+func (c *DefaultNetChannel) PostActive(conn net.Conn) {
 	c.conn = WrapConn(conn)
 	c.Pipeline().fireActive()
 }

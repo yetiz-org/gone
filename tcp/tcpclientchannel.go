@@ -12,7 +12,7 @@ import (
 )
 
 type DefaultTCPClientChannel struct {
-	*channel.DefaultNetClientChannel
+	*channel.DefaultNetChannel
 	bufferSize           int
 	readTimeout          int
 	writeTimeout         int
@@ -23,8 +23,8 @@ var UnknownObjectType = fmt.Errorf("unknown object type")
 var ErrNotTCPAddr = fmt.Errorf("not tcp addr")
 
 func (c *DefaultTCPClientChannel) Init() channel.Channel {
-	if c.DefaultNetClientChannel == nil {
-		c.DefaultNetClientChannel = channel.NewDefaultNetClientChannel()
+	if c.DefaultNetChannel == nil {
+		c.DefaultNetChannel = channel.NewDefaultNetClientChannel()
 		c.netClientConnectFunc = c.Unsafe.ConnectFunc
 	}
 
