@@ -91,7 +91,7 @@ func (d *DefaultFuture) AddListeners(listener ...FutureListener) Future {
 
 func (d *DefaultFuture) do(f func(f Future) interface{}) Future {
 	go func() {
-		defer kkpanic.Call(func(r *kkpanic.Caught) {
+		defer kkpanic.Call(func(r kkpanic.Caught) {
 			d.err = r
 		})
 
