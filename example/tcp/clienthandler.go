@@ -14,9 +14,9 @@ func (h *ClientHandler) ReadCompleted(ctx channel.HandlerContext) {
 	println("client read_completed")
 }
 
-func (h *ClientHandler) Disconnect(ctx channel.HandlerContext) {
+func (h *ClientHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {
 	println("client disconnect")
-	ctx.Disconnect()
+	ctx.Disconnect(future)
 }
 
 func (h *ClientHandler) Active(ctx channel.HandlerContext) {

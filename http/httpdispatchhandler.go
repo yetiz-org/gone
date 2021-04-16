@@ -58,7 +58,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		}
 
 		var rtnCatch ReturnCatch
-		defer ctx.FireWrite(obj)
+		defer ctx.Write(obj, nil)
 		defer h._UpdateSessionCookie(response)
 		defer h._PanicCatch(ctx, request, response, task, params, &rtnCatch)
 		timeMark = time.Now()
@@ -108,7 +108,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		rtnCatch.err = h.invokeMethod(task, request, response, params, isLast)
 		params["[gone]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
 	} else {
-		defer ctx.FireWrite(obj)
+		defer ctx.Write(obj, nil)
 		defer h._UpdateSessionCookie(response)
 		params["[gone]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		if upgrade := request.Header.Get(httpheadername.Upgrade); upgrade != "" {

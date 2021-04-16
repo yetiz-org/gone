@@ -26,10 +26,10 @@ const ConnChCtx = "conn_ch"
 var ClientChannelType = reflect.TypeOf(DefaultClientChannel{})
 
 func (c *DefaultServerChannel) Init() channel.Channel {
-	c.ChannelPipeline = channel.NewDefaultPipeline(c)
-	c.Unsafe.BindFunc = c.bind
-	c.Unsafe.CloseFunc = c.close
-	c.Unsafe.CloseLock.Lock()
+	c.pipeline = channel._NewDefaultPipeline(c)
+	c.unsafe.BindFunc = c.bind
+	c.unsafe.CloseFunc = c.close
+	c.unsafe.CloseLock.Lock()
 	return c
 }
 
@@ -121,7 +121,7 @@ func (c *DefaultServerChannel) close() error {
 		kklogger.ErrorJ("HttpServerChannel", err.Error())
 	}
 
-	c.Unsafe.CloseLock.Unlock()
+	c.unsafe.CloseLock.Unlock()
 	c.active = false
 	return nil
 }

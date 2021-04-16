@@ -7,16 +7,20 @@ import (
 type Handler interface {
 	Added(ctx HandlerContext)
 	Removed(ctx HandlerContext)
+	Registered(ctx HandlerContext)
+	Unregistered(ctx HandlerContext)
 	Active(ctx HandlerContext)
 	Inactive(ctx HandlerContext)
 	Read(ctx HandlerContext, obj interface{})
 	ReadCompleted(ctx HandlerContext)
-	Write(ctx HandlerContext, obj interface{})
-	Bind(ctx HandlerContext, localAddr net.Addr)
-	Close(ctx HandlerContext)
-	Connect(ctx HandlerContext, remoteAddr net.Addr)
-	Disconnect(ctx HandlerContext)
+	Write(ctx HandlerContext, obj interface{}, future Future)
+	Bind(ctx HandlerContext, localAddr net.Addr, future Future)
+	Close(ctx HandlerContext, future Future)
+	Connect(ctx HandlerContext, localAddr net.Addr, remoteAddr net.Addr, future Future)
+	Disconnect(ctx HandlerContext, future Future)
+	Deregister(ctx HandlerContext, future Future)
 	ErrorCaught(ctx HandlerContext, err error)
+	invokeRead(ctx HandlerContext)
 }
 
 type DefaultHandler struct {
@@ -24,6 +28,14 @@ type DefaultHandler struct {
 
 func NewDefaultHandler() *DefaultHandler {
 	return new(DefaultHandler)
+}
+
+func (h *DefaultHandler) Registered(ctx HandlerContext) {
+	ctx.FireRegistered()
+}
+
+func (h *DefaultHandler) Unregistered(ctx HandlerContext) {
+	ctx.FireUnregistered()
 }
 
 func (h *DefaultHandler) Active(ctx HandlerContext) {
@@ -48,26 +60,34 @@ func (h *DefaultHandler) ReadCompleted(ctx HandlerContext) {
 	(ctx).FireReadCompleted()
 }
 
-func (h *DefaultHandler) Write(ctx HandlerContext, obj interface{}) {
-	(ctx).FireWrite(obj)
+func (h *DefaultHandler) Write(ctx HandlerContext, obj interface{}, future Future) {
+	(ctx).Write(obj, future)
 }
 
-func (h *DefaultHandler) Bind(ctx HandlerContext, localAddr net.Addr) {
-	ctx.Bind(localAddr)
+func (h *DefaultHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future) {
+	ctx.Bind(localAddr, future)
 }
 
-func (h *DefaultHandler) Close(ctx HandlerContext) {
-	ctx.Close()
+func (h *DefaultHandler) Close(ctx HandlerContext, future Future) {
+	ctx.Close(future)
 }
 
-func (h *DefaultHandler) Connect(ctx HandlerContext, remoteAddr net.Addr) {
-	ctx.Connect(remoteAddr)
+func (h *DefaultHandler) Connect(ctx HandlerContext, localAddr net.Addr, remoteAddr net.Addr, future Future) {
+	ctx.Connect(localAddr, remoteAddr, future)
 }
 
-func (h *DefaultHandler) Disconnect(ctx HandlerContext) {
-	ctx.Disconnect()
+func (h *DefaultHandler) Disconnect(ctx HandlerContext, future Future) {
+	ctx.Disconnect(future)
+}
+
+func (h *DefaultHandler) Deregister(ctx HandlerContext, future Future) {
+	ctx.Deregister(future)
 }
 
 func (h *DefaultHandler) ErrorCaught(ctx HandlerContext, err error) {
 	(ctx).FireErrorCaught(err)
+}
+
+func (h *DefaultHandler) invokeRead(ctx HandlerContext) {
+	ctx.invokeRead()
 }

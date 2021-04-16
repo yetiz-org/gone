@@ -29,7 +29,7 @@ type UpgradeHandler struct {
 	UpgradeCheckFunc func(req *gtp.Request, resp *gtp.Response, params map[string]interface{}) bool
 }
 
-func (h *UpgradeHandler) Disconnect(ctx channel.HandlerContext) {
+func (h *UpgradeHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {
 	if !h.wsConnClosed {
 		if h.task != nil {
 			h.task.WSDisconnect(h.pack.Req, h.pack.Params)
@@ -38,7 +38,7 @@ func (h *UpgradeHandler) Disconnect(ctx channel.HandlerContext) {
 		h.wsConnClosed = true
 	}
 
-	ctx.Disconnect()
+	ctx.Disconnect(future)
 }
 
 func (h *UpgradeHandler) slowDisconnect(ctx channel.HandlerContext) {
@@ -128,7 +128,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 				RemoteAddr: h.pack.Req.Request.RemoteAddr,
 			})
 
-			ctx.FireWrite(obj)
+			ctx.Write(obj, nil)
 			return
 		} else {
 			if kklogger.GetLogLevel() < kklogger.TraceLevel {
@@ -149,7 +149,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	h.task = task
 	if (h.UpgradeCheckFunc != nil && !h.UpgradeCheckFunc(h.pack.Req, h.pack.Resp, h.pack.Params)) ||
 		(!h.task.Upgrade(h.pack.Req, h.pack.Resp, h.pack.Params)) {
-		ctx.FireWrite(h.pack)
+		ctx.Write(h.pack, nil)
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 			h.task.WSDisconnect(h.pack.Req, h.pack.Params)
 			h.wsConnClosed = true
-			ctx.Disconnect()
+			ctx.Channel().Disconnect()
 			return
 		}
 
@@ -225,7 +225,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	}
 }
 
-func (h *UpgradeHandler) Write(ctx channel.HandlerContext, obj interface{}) {
+func (h *UpgradeHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
 	if !ctx.Channel().IsActive() {
 		return
 	}

@@ -10,22 +10,27 @@ import (
 type HandlerContext interface {
 	Name() string
 	Channel() Channel
+	FireRegistered() HandlerContext
+	FireUnregistered() HandlerContext
 	FireActive() HandlerContext
 	FireInactive() HandlerContext
 	FireRead(obj interface{}) HandlerContext
 	FireReadCompleted() HandlerContext
-	FireWrite(obj interface{}) HandlerContext
 	FireErrorCaught(err error) HandlerContext
-	Bind(localAddr net.Addr) HandlerContext
-	Close() HandlerContext
-	Connect(remoteAddr net.Addr) HandlerContext
-	Disconnect() HandlerContext
+	Write(obj interface{}, future Future) Future
+	Bind(localAddr net.Addr, future Future) Future
+	Close(future Future) Future
+	Connect(localAddr net.Addr, remoteAddr net.Addr, future Future) Future
+	Disconnect(future Future) Future
+	Deregister(future Future) Future
 	prev() HandlerContext
 	setPrev(prev HandlerContext) HandlerContext
 	next() HandlerContext
 	setNext(prev HandlerContext) HandlerContext
 	setChannel(channel Channel) HandlerContext
+	deferErrorCaught()
 	handler() Handler
+	invokeRead() HandlerContext
 }
 
 type DefaultHandlerContext struct {
@@ -72,9 +77,27 @@ func (d *DefaultHandlerContext) Channel() Channel {
 	return d.channel
 }
 
+func (d *DefaultHandlerContext) FireRegistered() HandlerContext {
+	if d.next() != nil {
+		defer d.next().deferErrorCaught()
+		d.next().handler().Registered(d.next())
+	}
+
+	return d
+}
+
+func (d *DefaultHandlerContext) FireUnregistered() HandlerContext {
+	if d.next() != nil {
+		defer d.next().deferErrorCaught()
+		d.next().handler().Unregistered(d.next())
+	}
+
+	return d
+}
+
 func (d *DefaultHandlerContext) FireActive() HandlerContext {
 	if d.next() != nil {
-		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
+		defer d.next().deferErrorCaught()
 		d.next().handler().Active(d.next())
 	}
 
@@ -83,7 +106,7 @@ func (d *DefaultHandlerContext) FireActive() HandlerContext {
 
 func (d *DefaultHandlerContext) FireInactive() HandlerContext {
 	if d.next() != nil {
-		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
+		defer d.next().deferErrorCaught()
 		d.next().handler().Inactive(d.next())
 	}
 
@@ -92,7 +115,7 @@ func (d *DefaultHandlerContext) FireInactive() HandlerContext {
 
 func (d *DefaultHandlerContext) FireRead(obj interface{}) HandlerContext {
 	if d.next() != nil {
-		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
+		defer d.next().deferErrorCaught()
 		d.next().handler().Read(d.next(), obj)
 	}
 
@@ -101,17 +124,8 @@ func (d *DefaultHandlerContext) FireRead(obj interface{}) HandlerContext {
 
 func (d *DefaultHandlerContext) FireReadCompleted() HandlerContext {
 	if d.next() != nil {
-		defer d.next().(*DefaultHandlerContext).deferErrorCaught()
+		defer d.next().deferErrorCaught()
 		d.next().handler().ReadCompleted(d.next())
-	}
-
-	return d
-}
-
-func (d *DefaultHandlerContext) FireWrite(obj interface{}) HandlerContext {
-	if d.prev() != nil {
-		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
-		d.prev().handler().Write(d.prev(), obj)
 	}
 
 	return d
@@ -119,51 +133,84 @@ func (d *DefaultHandlerContext) FireWrite(obj interface{}) HandlerContext {
 
 func (d *DefaultHandlerContext) FireErrorCaught(err error) HandlerContext {
 	if d.prev() != nil {
-		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
+		defer d.prev().deferErrorCaught()
 		d.prev().handler().ErrorCaught(d.prev(), err)
 	}
 
 	return d
 }
 
-func (d *DefaultHandlerContext) Bind(localAddr net.Addr) HandlerContext {
+func (d *DefaultHandlerContext) Write(obj interface{}, future Future) Future {
+	future = d.checkFuture(future)
 	if d.prev() != nil {
-		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
-		d.prev().handler().Bind(d.prev(), localAddr)
+		defer d.prev().deferErrorCaught()
+		d.prev().handler().Write(d.prev(), obj, future)
 	}
 
-	return d
+	return future
 }
 
-func (d *DefaultHandlerContext) Close() HandlerContext {
+func (d *DefaultHandlerContext) Bind(localAddr net.Addr, future Future) Future {
+	future = d.checkFuture(future)
 	if d.prev() != nil {
-		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
-		d.prev().handler().Close(d.prev())
+		defer d.prev().deferErrorCaught()
+		d.prev().handler().Bind(d.prev(), localAddr, future)
 	}
 
-	return d
+	return future
 }
 
-func (d *DefaultHandlerContext) Connect(remoteAddr net.Addr) HandlerContext {
+func (d *DefaultHandlerContext) Close(future Future) Future {
+	future = d.checkFuture(future)
 	if d.prev() != nil {
-		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
-		d.prev().handler().Connect(d.prev(), remoteAddr)
+		defer d.prev().deferErrorCaught()
+		d.prev().handler().Close(d.prev(), future)
 	}
 
-	return d
+	return future
 }
 
-func (d *DefaultHandlerContext) Disconnect() HandlerContext {
+func (d *DefaultHandlerContext) Connect(localAddr net.Addr, remoteAddr net.Addr, future Future) Future {
+	future = d.checkFuture(future)
 	if d.prev() != nil {
-		defer d.prev().(*DefaultHandlerContext).deferErrorCaught()
-		d.prev().handler().Disconnect(d.prev())
+		defer d.prev().deferErrorCaught()
+		d.prev().handler().Connect(d.prev(), localAddr, remoteAddr, future)
 	}
 
-	return d
+	return future
+}
+
+func (d *DefaultHandlerContext) Disconnect(future Future) Future {
+	future = d.checkFuture(future)
+	if d.prev() != nil {
+		defer d.prev().deferErrorCaught()
+		d.prev().handler().Disconnect(d.prev(), future)
+	}
+
+	return future
+}
+
+func (d *DefaultHandlerContext) Deregister(future Future) Future {
+	future = d.checkFuture(future)
+	if d.next() != nil {
+		defer d.prev().deferErrorCaught()
+		d.next().handler().Deregister(d.next(), future)
+	}
+
+	return future
 }
 
 func (d *DefaultHandlerContext) prev() HandlerContext {
 	return d.prevCtx
+}
+
+func (d *DefaultHandlerContext) invokeRead() HandlerContext {
+	if d.prev() != nil {
+		defer d.prev().deferErrorCaught()
+		d.prev().handler().invokeRead(d.prev())
+	}
+
+	return d
 }
 
 func (d *DefaultHandlerContext) deferErrorCaught() {
@@ -172,6 +219,14 @@ func (d *DefaultHandlerContext) deferErrorCaught() {
 		kklogger.ErrorJ("HandlerContext.ErrorCaught", caught.Error())
 		d.handler().ErrorCaught(d, caught)
 	}
+}
+
+func (d *DefaultHandlerContext) checkFuture(future Future) Future {
+	if future != nil {
+		future = d.Channel().Pipeline().newFuture()
+	}
+
+	return future
 }
 
 type LogStruct struct {

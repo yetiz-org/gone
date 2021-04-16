@@ -3,14 +3,12 @@ package channel
 import (
 	"net"
 	"reflect"
-
-	"github.com/kklab-com/gone/concurrent"
 )
 
 type Bootstrap interface {
 	Handler(handler Handler) Bootstrap
 	ChannelType(ch Channel) Bootstrap
-	Connect(remoteAddr net.Addr) Future
+	Connect(localAddr net.Addr, remoteAddr net.Addr) Future
 	SetParams(key ParamKey, value interface{})
 	Params() *Params
 }
@@ -44,22 +42,30 @@ func (d *DefaultBootstrap) ChannelType(ch Channel) Bootstrap {
 	return d
 }
 
-func (d *DefaultBootstrap) Connect(remoteAddr net.Addr) Future {
-	var channel = reflect.New(d.channelType).Interface().(Channel)
+func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
+	channelType := reflect.New(d.channelType)
+	var channel = channelType.Interface().(Channel)
+	d.ValueSetFieldVal(&channelType, "pipeline", _NewDefaultPipeline(channel))
 	channel.Init()
-	if d.handler != nil {
-		channel.Pipeline().AddLast("ROOT", d.handler)
-	}
-
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		channel.SetParam(k, v)
 		return true
 	})
 
-	future := NewChannelFuture(channel, func(f concurrent.Future) interface{} {
-		channel.Connect(remoteAddr)
-		return channel
-	})
+	if d.handler != nil {
+		channel.Pipeline().AddLast("ROOT", d.handler)
+	}
 
-	return future
+	d.ValueSetFieldVal(&channelType, "closeFuture", channel.Pipeline().newFuture())
+	channel.Pipeline().fireRegistered()
+	return channel.Connect(localAddr, remoteAddr)
+}
+
+func (d *DefaultBootstrap) ValueSetFieldVal(target *reflect.Value, field string, val interface{}) bool {
+	if icc := target.Elem().FieldByName(field); icc.IsValid() && icc.CanSet() {
+		icc.Set(reflect.ValueOf(val))
+		return true
+	} else {
+		return false
+	}
 }

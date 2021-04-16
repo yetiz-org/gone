@@ -23,8 +23,8 @@ func TestServer_Start(t *testing.T) {
 			ch.Pipeline().AddLast("HANDLER", &ClientHandler{})
 		}))
 
-		ch := bootstrap.Connect(&net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel().(channel.ClientChannel)
-		nch := bootstrap.Connect(&net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel().(channel.ClientChannel)
+		ch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel().(channel.ClientChannel)
+		nch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel().(channel.ClientChannel)
 		ch.Write(buf.NewByteBuf([]byte("o12b32c49")))
 		time.Sleep(time.Millisecond * 500)
 		ch.Write(buf.NewByteBuf([]byte("a42d22e41")))

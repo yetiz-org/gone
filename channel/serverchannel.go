@@ -1,6 +1,8 @@
 package channel
 
 import (
+	"context"
+	"net"
 	"reflect"
 )
 
@@ -13,19 +15,9 @@ type ServerChannel interface {
 
 type DefaultServerChannel struct {
 	DefaultChannel
-	childHandler Handler
-	childParams  Params
-}
-
-func (c *DefaultServerChannel) Init() Channel {
-	c.ChannelPipeline = NewDefaultPipeline(c)
-	c.Unsafe.CloseFunc = func() error {
-		c.Unsafe.CloseLock.Unlock()
-		return nil
-	}
-
-	c.Unsafe.CloseLock.Lock()
-	return c
+	childHandler     Handler
+	childParams      Params
+	closeChildNotify context.CancelFunc
 }
 
 func (c *DefaultServerChannel) setChildHandler(handler Handler) ServerChannel {
@@ -52,8 +44,16 @@ func (c *DefaultServerChannel) DeriveChildChannel(typ reflect.Type) Channel {
 		return true
 	})
 
-	cc.Init()
 	cc.Pipeline().AddLast("", c.childHandler)
 	cc.Pipeline().fireActive()
 	return cc
+}
+
+func (c *DefaultServerChannel) UnsafeBind(localAddr net.Addr) error {
+	return nil
+}
+
+func (c *DefaultServerChannel) UnsafeClose() error {
+	c.closeChildNotify()
+	return nil
 }

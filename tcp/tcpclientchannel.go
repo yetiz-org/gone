@@ -25,12 +25,12 @@ var ErrNotTCPAddr = fmt.Errorf("not tcp addr")
 func (c *DefaultTCPClientChannel) Init() channel.Channel {
 	if c.DefaultNetChannel == nil {
 		c.DefaultNetChannel = channel.NewDefaultNetClientChannel()
-		c.netClientConnectFunc = c.Unsafe.ConnectFunc
+		c.netClientConnectFunc = c.unsafe.ConnectFunc
 	}
 
-	c.ChannelPipeline = channel.NewDefaultPipeline(c)
-	c.Unsafe.ConnectFunc = c.connect
-	c.Unsafe.WriteFunc = c.write
+	c.pipeline = channel._NewDefaultPipeline(c)
+	c.unsafe.ConnectFunc = c.connect
+	c.unsafe.WriteFunc = c.write
 	c.bufferSize = channel.GetParamIntDefault(c, ParamReadBufferSize, 1024)
 	c.readTimeout = channel.GetParamIntDefault(c, ParamReadTimeout, 6000)
 	c.writeTimeout = channel.GetParamIntDefault(c, ParamWriteTimeout, 3000)

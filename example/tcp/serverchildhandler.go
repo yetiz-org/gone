@@ -14,9 +14,9 @@ type ServerChildHandler struct {
 func (h *ServerChildHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	str := obj.(string)
 	if str != "h:c b:cc" {
-		ctx.FireWrite(buf.NewByteBuf([]byte(str)))
+		ctx.Write(buf.NewByteBuf([]byte(str)), nil)
 	} else {
-		ctx.FireWrite(buf.NewByteBuf([]byte(str)))
+		ctx.Write(buf.NewByteBuf([]byte(str)), nil)
 		ctx.Channel().Disconnect()
 		time.Sleep(time.Millisecond * 100)
 		ctx.Channel().(channel.NetChannel).Parent().Close()
@@ -27,9 +27,9 @@ func (h *ServerChildHandler) ReadCompleted(ctx channel.HandlerContext) {
 	println("server read_completed")
 }
 
-func (h *ServerChildHandler) Disconnect(ctx channel.HandlerContext) {
+func (h *ServerChildHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {
 	println("server disconnect")
-	ctx.Disconnect()
+	ctx.Disconnect(future)
 }
 
 func (h *ServerChildHandler) Active(ctx channel.HandlerContext) {

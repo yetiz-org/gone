@@ -19,7 +19,7 @@ func (t *testListener) OperationCompleted(f Future) {
 
 func TestDefaultFuture_Get(t *testing.T) {
 	before := time.Now()
-	fu := NewFuture(func(f Future) interface{} {
+	fu := NewFuncFuture(func(f Future) interface{} {
 		time.Sleep(time.Millisecond * 500)
 		return 1
 	}, nil)
@@ -46,7 +46,7 @@ func TestDefaultFuture_Get(t *testing.T) {
 func TestDefaultFuture_GetCancel(t *testing.T) {
 	before := time.Now()
 	listener := &testListener{}
-	fu := NewFuture(func(f Future) interface{} {
+	fu := NewFuncFuture(func(f Future) interface{} {
 		time.Sleep(time.Millisecond * 500)
 		return 1
 	}, nil)
@@ -56,7 +56,7 @@ func TestDefaultFuture_GetCancel(t *testing.T) {
 	assert.False(t, fu.IsDone())
 	assert.False(t, fu.IsCancelled())
 	assert.False(t, fu.IsSuccess())
-	fu.Cancel()
+	fu.(ManualFuture).Cancel()
 	assert.Nil(t, fu.Get())
 	assert.Less(t, time.Now().Sub(before).Nanoseconds(), (time.Millisecond * 500).Nanoseconds())
 	assert.True(t, fu.IsDone())

@@ -19,10 +19,10 @@ type DefaultTCPServerChannel struct {
 var ClientChannelType = reflect.TypeOf(DefaultTCPClientChannel{})
 
 func (c *DefaultTCPServerChannel) Init() channel.Channel {
-	c.ChannelPipeline = channel.NewDefaultPipeline(c)
-	c.Unsafe.BindFunc = c.bind
-	c.Unsafe.CloseFunc = c.close
-	c.Unsafe.CloseLock.Lock()
+	c.pipeline = channel._NewDefaultPipeline(c)
+	c.unsafe.BindFunc = c.bind
+	c.unsafe.CloseFunc = c.close
+	c.unsafe.CloseLock.Lock()
 	return c
 }
 
@@ -66,7 +66,7 @@ func (c *DefaultTCPServerChannel) acceptLoop() {
 func (c *DefaultTCPServerChannel) close() error {
 	c.active = false
 	c.listen.Close()
-	c.Unsafe.CloseLock.Unlock()
+	c.unsafe.CloseLock.Unlock()
 	return nil
 }
 

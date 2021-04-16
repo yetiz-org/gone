@@ -35,7 +35,7 @@ func (h *WSHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMessage,
 		},
 	}
 
-	ctx.FireWrite(&obj)
+	ctx.Write(&obj, nil)
 }
 
 func (h *WSHandlerTask) WSPong(ctx channel.HandlerContext, message *PongMessage, params map[string]interface{}) {

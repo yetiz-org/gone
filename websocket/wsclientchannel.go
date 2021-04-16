@@ -27,9 +27,9 @@ func (c *DefaultWSClientChannel) Init() channel.Channel {
 		c.DefaultNetChannel = channel.NewDefaultNetClientChannel()
 	}
 
-	c.ChannelPipeline = channel.NewDefaultPipeline(c)
-	c.Unsafe.ConnectFunc = c.connect
-	c.Unsafe.WriteFunc = c.write
+	c.pipeline = channel._NewDefaultPipeline(c)
+	c.unsafe.ConnectFunc = c.connect
+	c.unsafe.WriteFunc = c.write
 	return c
 }
 

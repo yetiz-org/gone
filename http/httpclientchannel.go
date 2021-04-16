@@ -15,8 +15,8 @@ type DefaultClientChannel struct {
 var UnknownObjectType = fmt.Errorf("unknown object type")
 
 func (c *DefaultClientChannel) Init() channel.Channel {
-	c.ChannelPipeline = channel.NewDefaultPipeline(c)
-	c.Unsafe.WriteFunc = c.write
+	c.pipeline = channel._NewDefaultPipeline(c)
+	c.unsafe.WriteFunc = c.write
 	return c
 }
 

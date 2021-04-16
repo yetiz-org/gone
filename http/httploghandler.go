@@ -108,10 +108,10 @@ func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
 	return logStruct
 }
 
-func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}) {
+func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
 	pack := _UnPack(obj)
 	if pack == nil {
-		ctx.FireWrite(obj)
+		ctx.Write(obj, future)
 		return
 	}
 
@@ -171,7 +171,7 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}) {
 		kklogger.InfoJ("HTTPLog", logStruct)
 	}(ctx.Channel().ID(), req, resp, params)
 
-	ctx.FireWrite(obj)
+	ctx.Write(obj, future)
 }
 
 func deferError() {

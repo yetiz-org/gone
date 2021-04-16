@@ -17,15 +17,20 @@ type Future interface {
 	IsDone() bool
 	IsSuccess() bool
 	IsCancelled() bool
-	Cancel()
 	Error() error
 	AddListener(listener FutureListener) Future
 	AddListeners(listeners ...FutureListener) Future
 }
 
+type ManualFuture interface {
+	Success()
+	Cancel()
+}
+
 type DefaultFuture struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
+	op                sync.Mutex
 	state             int32
 	result            interface{}
 	err               error
@@ -33,7 +38,7 @@ type DefaultFuture struct {
 	callListenersOnce sync.Once
 }
 
-func NewFuture(f func(f Future) interface{}, ctx context.Context) Future {
+func NewFuncFuture(f func(f Future) interface{}, ctx context.Context) Future {
 	future := &DefaultFuture{}
 	if ctx == nil {
 		ctx = context.Background()
@@ -41,6 +46,16 @@ func NewFuture(f func(f Future) interface{}, ctx context.Context) Future {
 
 	future.ctx, future.cancel = context.WithCancel(ctx)
 	future.do(f)
+	return future
+}
+
+func NewFuture(ctx context.Context) Future {
+	future := &DefaultFuture{}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	future.ctx, future.cancel = context.WithCancel(ctx)
 	return future
 }
 
@@ -76,7 +91,21 @@ func (d *DefaultFuture) Error() error {
 }
 
 func (d *DefaultFuture) Cancel() {
-	d.cancel()
+	d.op.Lock()
+	defer d.op.Unlock()
+	if !d.IsDone() {
+		d.cancel()
+	}
+}
+
+func (d *DefaultFuture) Success() {
+	d.op.Lock()
+	defer d.op.Unlock()
+	if !d.IsDone() {
+		atomic.StoreInt32(&d.state, FutureSuccess)
+		d.callListeners()
+		d.cancel()
+	}
 }
 
 func (d *DefaultFuture) AddListener(listener FutureListener) Future {
@@ -96,6 +125,8 @@ func (d *DefaultFuture) do(f func(f Future) interface{}) Future {
 		})
 
 		d.result = f(d)
+		d.op.Lock()
+		defer d.op.Unlock()
 		if !d.IsDone() {
 			atomic.StoreInt32(&d.state, FutureSuccess)
 			d.callListeners()

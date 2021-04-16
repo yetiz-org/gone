@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-kklogger"
 	kkpanic "github.com/kklab-com/goth-panic"
 )
@@ -18,16 +19,21 @@ type Pipeline interface {
 	Param(key ParamKey) interface{}
 	SetParam(key ParamKey, value interface{}) Pipeline
 	Params() *Params
+	fireRegistered() Pipeline
+	fireUnregistered() Pipeline
 	fireActive() Pipeline
 	fireInactive() Pipeline
 	fireRead(obj interface{}) Pipeline
 	fireReadCompleted() Pipeline
 	fireErrorCaught(err error) Pipeline
-	Write(obj interface{}) Pipeline
-	Bind(localAddr net.Addr) Pipeline
-	Close() Pipeline
-	Connect(remoteAddr net.Addr) Pipeline
-	Disconnect() Pipeline
+	Read() Pipeline
+	Write(obj interface{}) Future
+	Bind(localAddr net.Addr) Future
+	Close() Future
+	Connect(localAddr net.Addr, remoteAddr net.Addr) Future
+	Disconnect() Future
+	Deregister() Future
+	newFuture() Future
 }
 
 const PipelineHeadHandlerContextName = "DEFAULT_HEAD_HANDLER_CONTEXT"
@@ -61,7 +67,7 @@ func (p *DefaultPipeline) RemoveFirst() Pipeline {
 	return p
 }
 
-func NewDefaultPipeline(channel Channel) Pipeline {
+func _NewDefaultPipeline(channel Channel) Pipeline {
 	pipeline := new(DefaultPipeline)
 	pipeline.head = pipeline._NewHeadHandlerContext(channel)
 	pipeline.tail = pipeline._NewTailHandlerContext(channel)
@@ -91,44 +97,94 @@ type headHandler struct {
 	DefaultHandler
 }
 
-func (h *headHandler) Write(ctx HandlerContext, obj interface{}) {
-	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().WriteFunc(obj); err != nil {
+func (h *headHandler) Write(ctx HandlerContext, obj interface{}, future Future) {
+	if channel, ok := ctx.Channel().(UnsafeWrite); ok {
+		if err := channel.UnsafeWrite(obj); err != nil {
 			kklogger.ErrorJ("HeadHandler.Write", err.Error())
+			h.inactiveChannel(ctx)
+			h.futureCancel(future)
+		} else {
+			h.futureSuccess(future)
 		}
 	}
 }
 
-func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr) {
-	if channel, ok := ctx.Channel().(ServerChannel); ok {
-		if err := channel.unsafe().BindFunc(localAddr); err != nil {
+func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future) {
+	if channel, ok := ctx.Channel().(UnsafeBind); ok {
+		if err := channel.UnsafeBind(localAddr); err != nil {
 			kklogger.ErrorJ("HeadHandler.Bind", err.Error())
+			h.inactiveChannel(ctx)
+			h.futureCancel(future)
+		} else {
+			h.activeChannel(ctx)
+			h.futureSuccess(future)
 		}
 	}
 }
 
-func (h *headHandler) Close(ctx HandlerContext) {
-	if channel, ok := ctx.Channel().(ServerChannel); ok {
-		if err := channel.unsafe().CloseFunc(); err != nil {
+func (h *headHandler) Close(ctx HandlerContext, future Future) {
+	if channel, ok := ctx.Channel().(UnsafeClose); ok && !ctx.Channel().CloseFuture().IsDone() {
+		err := channel.UnsafeClose()
+		if err != nil {
 			kklogger.ErrorJ("HeadHandler.Close", err.Error())
 		}
-	}
-}
 
-func (h *headHandler) Connect(ctx HandlerContext, remoteAddr net.Addr) {
-	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().ConnectFunc(remoteAddr); err != nil {
-			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
+		h.inactiveChannel(ctx)
+		if err != nil {
+			h.futureCancel(future)
+		} else {
+			h.futureSuccess(future)
 		}
 	}
 }
 
-func (h *headHandler) Disconnect(ctx HandlerContext) {
-	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().DisconnectFunc(); err != nil {
+func (h *headHandler) Connect(ctx HandlerContext, localAddr net.Addr, remoteAddr net.Addr, future Future) {
+	if channel, ok := ctx.Channel().(UnsafeConnect); ok {
+		if err := channel.UnsafeConnect(localAddr, remoteAddr); err != nil {
+			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
+			h.inactiveChannel(ctx)
+			h.futureCancel(future)
+		} else {
+			h.activeChannel(ctx)
+			h.futureSuccess(future)
+		}
+	}
+}
+
+func (h *headHandler) Disconnect(ctx HandlerContext, future Future) {
+	if channel, ok := ctx.Channel().(UnsafeDisconnect); ok && !ctx.Channel().CloseFuture().IsDone() {
+		err := channel.UnsafeDisconnect()
+		if err != nil {
 			kklogger.ErrorJ("HeadHandler.Disconnect", err.Error())
 		}
+
+		h.inactiveChannel(ctx)
+		if err != nil {
+			h.futureCancel(future)
+		} else {
+			h.futureSuccess(future)
+		}
 	}
+}
+
+func (h *headHandler) activeChannel(ctx HandlerContext) {
+	ctx.Channel().setActive()
+	ctx.Channel().Pipeline().fireActive()
+}
+
+func (h *headHandler) inactiveChannel(ctx HandlerContext) {
+	ctx.Channel().setInactive()
+	ctx.Channel().Pipeline().fireInactive()
+	ctx.Channel().Pipeline().fireUnregistered()
+	ctx.Channel().CloseFuture().(concurrent.ManualFuture).Success()
+}
+
+func (h *headHandler) futureCancel(future Future) {
+	future.(concurrent.ManualFuture).Cancel()
+}
+
+func (h *headHandler) futureSuccess(future Future) {
+	future.(concurrent.ManualFuture).Success()
 }
 
 func (h *headHandler) ErrorCaught(ctx HandlerContext, err error) {
@@ -222,6 +278,16 @@ func (p *DefaultPipeline) Params() *Params {
 	return &p.carrier
 }
 
+func (p *DefaultPipeline) fireRegistered() Pipeline {
+	p.head.FireRegistered()
+	return p
+}
+
+func (p *DefaultPipeline) fireUnregistered() Pipeline {
+	p.head.FireUnregistered()
+	return p
+}
+
 func (p *DefaultPipeline) fireActive() Pipeline {
 	p.head.FireActive()
 	return p
@@ -247,27 +313,35 @@ func (p *DefaultPipeline) fireErrorCaught(err error) Pipeline {
 	return p
 }
 
-func (p *DefaultPipeline) Write(obj interface{}) Pipeline {
-	p.tail.FireWrite(obj)
+func (p *DefaultPipeline) Read() Pipeline {
+	p.tail.invokeRead()
 	return p
 }
 
-func (p *DefaultPipeline) Bind(localAddr net.Addr) Pipeline {
-	p.tail.Bind(localAddr)
-	return p
+func (p *DefaultPipeline) Write(obj interface{}) Future {
+	return p.tail.Write(obj, p.newFuture())
 }
 
-func (p *DefaultPipeline) Close() Pipeline {
-	p.tail.Close()
-	return p
+func (p *DefaultPipeline) Bind(localAddr net.Addr) Future {
+	return p.tail.Bind(localAddr, p.newFuture())
 }
 
-func (p *DefaultPipeline) Connect(remoteAddr net.Addr) Pipeline {
-	p.tail.Connect(remoteAddr)
-	return p
+func (p *DefaultPipeline) Close() Future {
+	return p.tail.Close(p.newFuture())
 }
 
-func (p *DefaultPipeline) Disconnect() Pipeline {
-	p.tail.Disconnect()
-	return p
+func (p *DefaultPipeline) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
+	return p.tail.Connect(localAddr, remoteAddr, p.newFuture())
+}
+
+func (p *DefaultPipeline) Disconnect() Future {
+	return p.tail.Disconnect(p.newFuture())
+}
+
+func (p *DefaultPipeline) Deregister() Future {
+	return p.head.Deregister(p.newFuture())
+}
+
+func (p *DefaultPipeline) newFuture() Future {
+	return NewFuture(p.Channel())
 }

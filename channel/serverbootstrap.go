@@ -3,8 +3,6 @@ package channel
 import (
 	"net"
 	"reflect"
-
-	"github.com/kklab-com/gone/concurrent"
 )
 
 type ServerBootstrap interface {
@@ -35,8 +33,15 @@ func (d *DefaultServerBootstrap) ChildParams() *Params {
 }
 
 func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
-	var serverChannel = reflect.New(d.channelType).Interface().(ServerChannel)
+	serverChannelType := reflect.New(d.channelType)
+	var serverChannel = serverChannelType.Interface().(ServerChannel)
+	d.ValueSetFieldVal(&serverChannelType, "pipeline", _NewDefaultPipeline(serverChannel))
 	serverChannel.Init()
+	d.Params().Range(func(k ParamKey, v interface{}) bool {
+		serverChannel.SetParam(k, v)
+		return true
+	})
+
 	if d.handler != nil {
 		serverChannel.Pipeline().AddLast("ROOT", d.handler)
 	}
@@ -45,18 +50,10 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 		serverChannel.setChildHandler(d.childHandler)
 	}
 
-	d.Params().Range(func(k ParamKey, v interface{}) bool {
-		serverChannel.SetParam(k, v)
-		return true
-	})
-
-	future := NewChannelFuture(serverChannel, func(f concurrent.Future) interface{} {
-		serverChannel.Bind(localAddr)
-		serverChannel.setLocalAddr(localAddr)
-		return serverChannel
-	})
-
-	return future
+	serverChannel.setLocalAddr(localAddr)
+	d.ValueSetFieldVal(&serverChannelType, "closeFuture", serverChannel.Pipeline().newFuture())
+	serverChannel.Pipeline().fireRegistered()
+	return serverChannel.Bind(localAddr)
 }
 
 func NewServerBootstrap() ServerBootstrap {

@@ -14,17 +14,17 @@ type GZipHandler struct {
 	channel.DefaultHandler
 }
 
-func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}) {
+func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
 	pack := _UnPack(obj)
 	if pack == nil {
-		ctx.FireWrite(obj)
+		ctx.Write(obj, future)
 		return
 	}
 
 	response := pack.Resp
 	params := pack.Params
 	if response == nil {
-		ctx.FireWrite(obj)
+		ctx.Write(obj, future)
 		return
 	}
 
@@ -35,7 +35,7 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}) {
 		params["[gone]compress_time"] = time.Now().Sub(st).Nanoseconds()
 	}
 
-	ctx.FireWrite(obj)
+	ctx.Write(obj, future)
 }
 
 func (h *GZipHandler) gzipWrite(buffer *bytes.Buffer) *bytes.Buffer {

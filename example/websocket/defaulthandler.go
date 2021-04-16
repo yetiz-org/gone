@@ -24,7 +24,7 @@ func (t *DefaultTask) WSText(ctx channel.HandlerContext, message *websocket.Defa
 		Message: message.StringMessage(),
 	}))
 
-	ctx.FireWrite(obj)
+	ctx.Write(obj, nil)
 }
 
 func (t *DefaultTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {

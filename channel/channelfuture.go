@@ -1,11 +1,14 @@
 package channel
 
-import "github.com/kklab-com/gone/concurrent"
+import (
+	"github.com/kklab-com/gone/concurrent"
+)
 
 type Future interface {
 	concurrent.Future
 	Sync() Future
 	Channel() Channel
+	_channel() Channel
 }
 
 type DefaultFuture struct {
@@ -13,10 +16,10 @@ type DefaultFuture struct {
 	channel Channel
 }
 
-func NewChannelFuture(channel Channel, f func(f concurrent.Future) interface{}) Future {
+func NewFuture(channel Channel) Future {
 	future := DefaultFuture{}
 	future.channel = channel
-	future.Future = concurrent.NewFuture(f, nil)
+	future.Future = concurrent.NewFuture(nil)
 	return &future
 }
 
@@ -25,6 +28,22 @@ func (d *DefaultFuture) Sync() Future {
 	return d
 }
 
+func (d *DefaultFuture) Get() interface{} {
+	return d.Sync()._channel()
+}
+
 func (d *DefaultFuture) Channel() Channel {
+	if !d.IsDone() {
+		return nil
+	} else {
+		if d.IsSuccess() {
+			return d._channel()
+		}
+	}
+
+	return nil
+}
+
+func (d *DefaultFuture) _channel() Channel {
 	return d.channel
 }

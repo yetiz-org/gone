@@ -19,10 +19,10 @@ func (h *MessageToByteEncoder) Added(ctx HandlerContext) {
 	}
 }
 
-func (h *MessageToByteEncoder) Write(ctx HandlerContext, obj interface{}) {
+func (h *MessageToByteEncoder) Write(ctx HandlerContext, obj interface{}, future Future) {
 	out := buf.EmptyByteBuf()
 	h.Encode(ctx, obj, out)
-	ctx.FireWrite(out)
+	ctx.Write(out, future)
 }
 
 func (h *MessageToByteEncoder) encode(ctx HandlerContext, msg interface{}, out buf.ByteBuf) {
