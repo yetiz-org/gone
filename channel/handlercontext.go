@@ -30,7 +30,7 @@ type HandlerContext interface {
 	setChannel(channel Channel) HandlerContext
 	deferErrorCaught()
 	handler() Handler
-	invokeRead() HandlerContext
+	read() HandlerContext
 }
 
 type DefaultHandlerContext struct {
@@ -204,10 +204,10 @@ func (d *DefaultHandlerContext) prev() HandlerContext {
 	return d.prevCtx
 }
 
-func (d *DefaultHandlerContext) invokeRead() HandlerContext {
+func (d *DefaultHandlerContext) read() HandlerContext {
 	if d.prev() != nil {
 		defer d.prev().deferErrorCaught()
-		d.prev().handler().invokeRead(d.prev())
+		d.prev().handler().read(d.prev())
 	}
 
 	return d

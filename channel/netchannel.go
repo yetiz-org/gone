@@ -107,27 +107,29 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 		return ErrNilObject
 	}
 
-	if !c.IsActive() {
-		return net.ErrClosed
-	}
+	for c.IsActive() {
+		if !c.IsActive() {
+			return net.ErrClosed
+		}
 
-	bs := make([]byte, 1024)
-	if rl, err := c.Conn().Read(bs); err != nil {
-		if c.IsActive() {
-			if err != io.EOF {
-				kklogger.WarnJ("DefaultNetChannel.UnsafeRead", err.Error())
+		bs := make([]byte, 1024)
+		if rl, err := c.Conn().Read(bs); err != nil {
+			if c.IsActive() {
+				if err != io.EOF {
+					kklogger.WarnJ("DefaultNetChannel.UnsafeRead", err.Error())
+					return ErrReadError
+				}
+			} else if err == io.EOF {
 				return ErrReadError
 			}
-		} else if err == io.EOF {
-			return ErrReadError
+		} else {
+			kkpanic.Catch(func() {
+				c.FireRead(buf.NewByteBuf(bs[:rl]))
+				c.FireReadCompleted()
+			}, func(r kkpanic.Caught) {
+				kklogger.ErrorJ("DefaultNetChannel.UnsafeRead", r.String())
+			})
 		}
-	} else {
-		kkpanic.Catch(func() {
-			c.FireRead(buf.NewByteBuf(bs[:rl]))
-			c.FireReadCompleted()
-		}, func(r kkpanic.Caught) {
-			kklogger.ErrorJ("DefaultNetChannel.UnsafeRead", r.String())
-		})
 	}
 
 	return nil
