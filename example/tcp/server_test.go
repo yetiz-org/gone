@@ -17,7 +17,7 @@ func TestServer_Start(t *testing.T) {
 		time.Sleep(time.Millisecond * 500)
 
 		bootstrap := channel.NewBootstrap()
-		bootstrap.ChannelType(&tcp.DefaultTCPClientChannel{})
+		bootstrap.ChannelType(&tcp.Channel{})
 		bootstrap.Handler(channel.NewInitializer(func(ch channel.Channel) {
 			ch.Pipeline().AddLast("DECODE_HANDLER", NewDecodeHandler())
 			ch.Pipeline().AddLast("HANDLER", &ClientHandler{})

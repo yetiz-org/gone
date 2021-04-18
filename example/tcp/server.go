@@ -13,7 +13,7 @@ type Server struct {
 
 func (k *Server) Start(localAddr net.Addr) {
 	bootstrap := channel.NewServerBootstrap()
-	bootstrap.ChannelType(&tcp.DefaultTCPServerChannel{})
+	bootstrap.ChannelType(&tcp.ServerChannel{})
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("DECODE_HANDLER", NewDecodeHandler())
 		ch.Pipeline().AddLast("HANDLER", &ServerChildHandler{})

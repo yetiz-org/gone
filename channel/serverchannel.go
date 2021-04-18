@@ -33,23 +33,32 @@ func (c *DefaultServerChannel) ChildParams() *Params {
 	return &c.childParams
 }
 
-func (c *DefaultServerChannel) DeriveChildChannel(typ reflect.Type) Channel {
-	dc := NewDefaultChannel()
-	dc.parent = c
+func (c *DefaultServerChannel) DeriveChildChannel(typ reflect.Type, parent ServerChannel) Channel {
+	channelType := reflect.New(typ)
+	var channel = channelType.Interface().(Channel)
+	ValueSetFieldVal(&channelType, "pipeline", _NewDefaultPipeline(channel))
+	ValueSetFieldVal(&channelType, "parent", parent)
+	channel.Init()
 
-	vcc := reflect.New(typ)
-	cc := vcc.Interface().(Channel)
-	c.childParams.Range(func(k ParamKey, v interface{}) bool {
-		cc.SetParam(k, v)
+	c.ChildParams().Range(func(k ParamKey, v interface{}) bool {
+		channel.SetParam(k, v)
 		return true
 	})
 
-	cc.Pipeline().AddLast("", c.childHandler)
-	cc.Pipeline().fireActive()
-	return cc
+	if c.childHandler != nil {
+		channel.Pipeline().AddLast("ROOT", c.childHandler)
+	}
+
+	ValueSetFieldVal(&channelType, "closeFuture", channel.Pipeline().newFuture())
+	//channel.Pipeline().fireRegistered()
+	return channel
 }
 
 func (c *DefaultServerChannel) UnsafeBind(localAddr net.Addr) error {
+	return nil
+}
+
+func (c *DefaultServerChannel) UnsafeAccept() error {
 	return nil
 }
 

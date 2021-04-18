@@ -44,6 +44,10 @@ type UnsafeBind interface {
 	UnsafeBind(localAddr net.Addr) error
 }
 
+type UnsafeAccept interface {
+	UnsafeAccept() error
+}
+
 type UnsafeClose interface {
 	UnsafeClose() error
 }
@@ -71,7 +75,6 @@ type DefaultChannel struct {
 	id          string
 	Name        string
 	pipeline    Pipeline
-	unsafe      Unsafe
 	atomicLock  sync.Mutex
 	parent      ServerChannel
 	parentCtx   context.Context
@@ -80,20 +83,6 @@ type DefaultChannel struct {
 	closeFuture Future
 	active      bool
 }
-
-type Unsafe struct {
-	WriteFunc      func(obj interface{}) error
-	BindFunc       func(localAddr net.Addr) error
-	CloseFunc      func() error
-	ConnectFunc    func(remoteAddr net.Addr) error
-	DisconnectFunc func() error
-	CloseLock      sync.Mutex
-	DisconnectLock sync.Mutex
-}
-
-var UnsafeDefaultWriteFunc = func(obj interface{}) error { return nil }
-var UnsafeDefaultBindFunc = func(localAddr net.Addr) error { return nil }
-var UnsafeDefaultConnectFunc = func(remoteAddr net.Addr) error { return nil }
 
 func (c *DefaultChannel) ID() string {
 	if c.id == "" {
@@ -106,31 +95,6 @@ func (c *DefaultChannel) ID() string {
 	}
 
 	return c.id
-}
-
-func EmptyDefaultChannel() *DefaultChannel {
-	u := uuid.New()
-	var channel = DefaultChannel{
-		id: IDEncoder.EncodeToString(u[:]),
-		unsafe: Unsafe{
-			WriteFunc:   UnsafeDefaultWriteFunc,
-			BindFunc:    UnsafeDefaultBindFunc,
-			ConnectFunc: UnsafeDefaultConnectFunc,
-		},
-	}
-
-	return &channel
-}
-
-func NewDefaultChannel() *DefaultChannel {
-	channel := EmptyDefaultChannel()
-	channel.unsafe.DisconnectFunc = func() error {
-		channel.unsafe.DisconnectLock.Unlock()
-		return nil
-	}
-
-	channel.unsafe.DisconnectLock.Lock()
-	return channel
 }
 
 func (c *DefaultChannel) Init() Channel {
@@ -212,10 +176,6 @@ func (c *DefaultChannel) LocalAddr() net.Addr {
 	return c.localAddr
 }
 
-func (c *DefaultChannel) Unsafe() *Unsafe {
-	return &c.unsafe
-}
-
 func (c *DefaultChannel) setLocalAddr(addr net.Addr) {
 	c.localAddr = addr
 }
@@ -229,6 +189,10 @@ func (c *DefaultChannel) setInactive() {
 }
 
 func (c *DefaultChannel) UnsafeWrite(obj interface{}) error {
+	return nil
+}
+
+func (c *DefaultChannel) UnsafeRead() error {
 	return nil
 }
 

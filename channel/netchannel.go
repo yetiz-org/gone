@@ -4,7 +4,6 @@ import (
 	"io"
 	"net"
 	"reflect"
-	"sync"
 
 	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/buf"
@@ -24,26 +23,17 @@ type NetChannelPostActive interface {
 
 type DefaultNetChannel struct {
 	DefaultChannel
-	conn           Conn
-	disconnectOnce sync.Once
-	WriteLock      sync.Mutex
+	conn         Conn
+	bufferSize   int
+	readTimeout  int
+	writeTimeout int
 }
 
-func serverNewChildChannel(conn net.Conn) *DefaultNetChannel {
-	ncc := DefaultNetChannel{
-		DefaultChannel: *NewDefaultChannel(),
-	}
-
-	ncc.conn = WrapConn(conn)
-	return &ncc
-}
-
-func NewDefaultNetClientChannel() *DefaultNetChannel {
-	ncc := DefaultNetChannel{
-		DefaultChannel: *NewDefaultChannel(),
-	}
-
-	return &ncc
+func (c *DefaultNetChannel) Init() Channel {
+	c.bufferSize = GetParamIntDefault(c, ParamReadBufferSize, 1024)
+	c.readTimeout = GetParamIntDefault(c, ParamReadTimeout, 6000)
+	c.writeTimeout = GetParamIntDefault(c, ParamWriteTimeout, 3000)
+	return c
 }
 
 func (c *DefaultNetChannel) Conn() Conn {

@@ -24,7 +24,7 @@ var ErrUnknownObjectType = fmt.Errorf("unknown object type")
 
 func (c *DefaultWSClientChannel) Init() channel.Channel {
 	if c.DefaultNetChannel == nil {
-		c.DefaultNetChannel = channel.NewDefaultNetClientChannel()
+		c.DefaultNetChannel = channel.NewNetChannel()
 	}
 
 	c.pipeline = channel._NewDefaultPipeline(c)

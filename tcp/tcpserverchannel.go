@@ -10,15 +10,15 @@ import (
 	"github.com/kklab-com/goth-kklogger"
 )
 
-type DefaultTCPServerChannel struct {
+type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	listen net.Listener
 	active bool
 }
 
-var ClientChannelType = reflect.TypeOf(DefaultTCPClientChannel{})
+var ClientChannelType = reflect.TypeOf(Channel{})
 
-func (c *DefaultTCPServerChannel) Init() channel.Channel {
+func (c *ServerChannel) Init() channel.Channel {
 	c.pipeline = channel._NewDefaultPipeline(c)
 	c.unsafe.BindFunc = c.bind
 	c.unsafe.CloseFunc = c.close
@@ -26,18 +26,18 @@ func (c *DefaultTCPServerChannel) Init() channel.Channel {
 	return c
 }
 
-func (c *DefaultTCPServerChannel) bind(localAddr net.Addr) error {
+func (c *ServerChannel) bind(localAddr net.Addr) error {
 	if c.Name == "" {
 		c.Name = fmt.Sprintf("TCPSERV_%s", localAddr.String())
 	}
 
 	if c.active {
-		kklogger.Error("DefaultTCPServerChannel.bind", fmt.Sprintf("%s bind twice", c.Name))
+		kklogger.Error("ServerChannel.bind", fmt.Sprintf("%s bind twice", c.Name))
 		os.Exit(1)
 	}
 
 	if listen, err := net.Listen("tcp4", localAddr.String()); err != nil {
-		kklogger.ErrorJ("DefaultTCPServerChannel.bind", fmt.Sprintf("bind fail, %s", err.Error()))
+		kklogger.ErrorJ("ServerChannel.bind", fmt.Sprintf("bind fail, %s", err.Error()))
 		return err
 	} else {
 		c.active = true
@@ -48,28 +48,28 @@ func (c *DefaultTCPServerChannel) bind(localAddr net.Addr) error {
 	return nil
 }
 
-func (c *DefaultTCPServerChannel) acceptLoop() {
+func (c *ServerChannel) acceptLoop() {
 	for c.active {
 		if conn, err := c.listen.Accept(); err != nil {
 			if !c.active {
 				return
 			}
 
-			kklogger.ErrorJ("DefaultTCPServerChannel.acceptLoop", err.Error())
+			kklogger.ErrorJ("ServerChannel.acceptLoop", err.Error())
 		} else {
 			cc := c.DeriveNetChildChannel(ClientChannelType, conn)
-			go cc.(*DefaultTCPClientChannel).read()
+			go cc.(*Channel).read()
 		}
 	}
 }
 
-func (c *DefaultTCPServerChannel) close() error {
+func (c *ServerChannel) close() error {
 	c.active = false
 	c.listen.Close()
 	c.unsafe.CloseLock.Unlock()
 	return nil
 }
 
-func (c *DefaultTCPServerChannel) IsActive() bool {
+func (c *ServerChannel) IsActive() bool {
 	return c.active
 }

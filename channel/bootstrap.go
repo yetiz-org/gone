@@ -45,7 +45,7 @@ func (d *DefaultBootstrap) ChannelType(ch Channel) Bootstrap {
 func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
 	channelType := reflect.New(d.channelType)
 	var channel = channelType.Interface().(Channel)
-	d.ValueSetFieldVal(&channelType, "pipeline", _NewDefaultPipeline(channel))
+	ValueSetFieldVal(&channelType, "pipeline", _NewDefaultPipeline(channel))
 	channel.Init()
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		channel.SetParam(k, v)
@@ -56,12 +56,12 @@ func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Futu
 		channel.Pipeline().AddLast("ROOT", d.handler)
 	}
 
-	d.ValueSetFieldVal(&channelType, "closeFuture", channel.Pipeline().newFuture())
+	ValueSetFieldVal(&channelType, "closeFuture", channel.Pipeline().newFuture())
 	channel.Pipeline().fireRegistered()
 	return channel.Connect(localAddr, remoteAddr)
 }
 
-func (d *DefaultBootstrap) ValueSetFieldVal(target *reflect.Value, field string, val interface{}) bool {
+func ValueSetFieldVal(target *reflect.Value, field string, val interface{}) bool {
 	if icc := target.Elem().FieldByName(field); icc.IsValid() && icc.CanSet() {
 		icc.Set(reflect.ValueOf(val))
 		return true

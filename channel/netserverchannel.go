@@ -52,3 +52,16 @@ func (c *DefaultServerChannel) DeriveNetChildChannel(typ reflect.Type, conn net.
 	cc.Pipeline().fireActive()
 	return cc
 }
+
+func (c *DefaultNetServerChannel) UnsafeBind(localAddr net.Addr) error {
+	return nil
+}
+
+func (c *DefaultNetServerChannel) UnsafeAccept() error {
+	return nil
+}
+
+func (c *DefaultNetServerChannel) UnsafeClose() error {
+	c.closeChildNotify()
+	return nil
+}

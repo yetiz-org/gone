@@ -126,6 +126,15 @@ func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future
 			h.futureCancel(future)
 		} else {
 			h.activeChannel(ctx)
+			if channel, ok := ctx.Channel().(UnsafeAccept); ok {
+				if err := channel.UnsafeAccept(); err != nil {
+					kklogger.ErrorJ("HeadHandler.UnsafeAccept", err.Error())
+					h.inactiveChannel(ctx)
+					h.futureCancel(future)
+					return
+				}
+			}
+
 			h.futureSuccess(future)
 		}
 	}
