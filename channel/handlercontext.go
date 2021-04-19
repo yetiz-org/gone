@@ -193,7 +193,7 @@ func (d *DefaultHandlerContext) Disconnect(future Future) Future {
 func (d *DefaultHandlerContext) Deregister(future Future) Future {
 	future = d.checkFuture(future)
 	if d.next() != nil {
-		defer d.prev().deferErrorCaught()
+		defer d.next().deferErrorCaught()
 		d.next().handler().Deregister(d.next(), future)
 	}
 
@@ -222,7 +222,7 @@ func (d *DefaultHandlerContext) deferErrorCaught() {
 }
 
 func (d *DefaultHandlerContext) checkFuture(future Future) Future {
-	if future != nil {
+	if future == nil {
 		future = d.Channel().Pipeline().newFuture()
 	}
 

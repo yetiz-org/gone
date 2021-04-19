@@ -11,8 +11,29 @@ type ServerChildHandler struct {
 	channel.DefaultHandler
 }
 
+func (h *ServerChildHandler) Registered(ctx channel.HandlerContext) {
+	println("server registered")
+	ctx.FireRegistered()
+}
+
+func (h *ServerChildHandler) Unregistered(ctx channel.HandlerContext) {
+	println("server unregistered")
+	ctx.FireUnregistered()
+}
+
+func (h *ServerChildHandler) Active(ctx channel.HandlerContext) {
+	println("server active")
+	ctx.FireActive()
+}
+
+func (h *ServerChildHandler) Inactive(ctx channel.HandlerContext) {
+	println("server inactive")
+	ctx.FireInactive()
+}
+
 func (h *ServerChildHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	str := obj.(string)
+	println("server read " + str)
 	if str != "h:c b:cc" {
 		ctx.Write(buf.NewByteBuf([]byte(str)), nil)
 	} else {
@@ -30,14 +51,4 @@ func (h *ServerChildHandler) ReadCompleted(ctx channel.HandlerContext) {
 func (h *ServerChildHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {
 	println("server disconnect")
 	ctx.Disconnect(future)
-}
-
-func (h *ServerChildHandler) Active(ctx channel.HandlerContext) {
-	println("server active")
-	ctx.FireActive()
-}
-
-func (h *ServerChildHandler) Inactive(ctx channel.HandlerContext) {
-	println("server inactive")
-	ctx.FireInactive()
 }

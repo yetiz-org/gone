@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-base62"
 	"github.com/pkg/errors"
 )
@@ -31,9 +32,13 @@ type Channel interface {
 	Params() *Params
 	Parent() ServerChannel
 	LocalAddr() net.Addr
+	op() *sync.Mutex
 	setLocalAddr(addr net.Addr)
-	setActive()
-	setInactive()
+	activeChannel()
+	inactiveChannel()
+	setPipeline(pipeline Pipeline)
+	setParent(channel ServerChannel)
+	setCloseFuture(future Future)
 }
 
 type UnsafeRead interface {
@@ -45,7 +50,7 @@ type UnsafeBind interface {
 }
 
 type UnsafeAccept interface {
-	UnsafeAccept() error
+	UnsafeAccept() Channel
 }
 
 type UnsafeClose interface {
@@ -74,20 +79,20 @@ var IDEncoder = base62.ShiftEncoding
 type DefaultChannel struct {
 	id          string
 	Name        string
-	pipeline    Pipeline
-	atomicLock  sync.Mutex
-	parent      ServerChannel
+	opLock      sync.Mutex
 	parentCtx   context.Context
 	params      Params
 	localAddr   net.Addr
-	closeFuture Future
 	active      bool
+	pipeline    Pipeline
+	parent      ServerChannel
+	closeFuture Future
 }
 
 func (c *DefaultChannel) ID() string {
 	if c.id == "" {
-		c.atomicLock.Lock()
-		defer c.atomicLock.Unlock()
+		c.opLock.Lock()
+		defer c.opLock.Unlock()
 		if c.id == "" {
 			u := uuid.New()
 			c.id = IDEncoder.EncodeToString(u[:])
@@ -176,16 +181,41 @@ func (c *DefaultChannel) LocalAddr() net.Addr {
 	return c.localAddr
 }
 
+func (c *DefaultChannel) op() *sync.Mutex {
+	return &c.opLock
+}
+
 func (c *DefaultChannel) setLocalAddr(addr net.Addr) {
 	c.localAddr = addr
 }
 
-func (c *DefaultChannel) setActive() {
+func (c *DefaultChannel) activeChannel() {
 	c.active = true
+	c.Pipeline().fireActive()
+	c.Read()
 }
 
-func (c *DefaultChannel) setInactive() {
-	c.active = false
+func (c *DefaultChannel) inactiveChannel() {
+	c.op().Lock()
+	defer c.op().Unlock()
+	if c.IsActive() {
+		c.active = false
+		c.Pipeline().fireInactive()
+		c.Pipeline().fireUnregistered()
+		c.CloseFuture().(concurrent.ManualFuture).Success()
+	}
+}
+
+func (c *DefaultChannel) setPipeline(pipeline Pipeline) {
+	c.pipeline = pipeline
+}
+
+func (c *DefaultChannel) setParent(channel ServerChannel) {
+	c.parent = channel
+}
+
+func (c *DefaultChannel) setCloseFuture(future Future) {
+	c.closeFuture = future
 }
 
 func (c *DefaultChannel) UnsafeWrite(obj interface{}) error {

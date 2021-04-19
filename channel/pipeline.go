@@ -101,7 +101,7 @@ func (h *headHandler) read(ctx HandlerContext) {
 	if channel, ok := ctx.Channel().(UnsafeRead); ok && !ctx.Channel().CloseFuture().IsDone() {
 		if err := channel.UnsafeRead(); err != nil {
 			kklogger.ErrorJ("HeadHandler.read", err.Error())
-			h.inactiveChannel(ctx)
+			ctx.Channel().inactiveChannel()
 		}
 	}
 }
@@ -110,7 +110,7 @@ func (h *headHandler) Write(ctx HandlerContext, obj interface{}, future Future) 
 	if channel, ok := ctx.Channel().(UnsafeWrite); ok && !ctx.Channel().CloseFuture().IsDone() {
 		if err := channel.UnsafeWrite(obj); err != nil {
 			kklogger.ErrorJ("HeadHandler.Write", err.Error())
-			h.inactiveChannel(ctx)
+			ctx.Channel().inactiveChannel()
 			h.futureCancel(future)
 		} else {
 			h.futureSuccess(future)
@@ -122,17 +122,22 @@ func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future
 	if channel, ok := ctx.Channel().(UnsafeBind); ok && !ctx.Channel().CloseFuture().IsDone() {
 		if err := channel.UnsafeBind(localAddr); err != nil {
 			kklogger.ErrorJ("HeadHandler.Bind", err.Error())
-			h.inactiveChannel(ctx)
+			ctx.Channel().inactiveChannel()
 			h.futureCancel(future)
 		} else {
-			h.activeChannel(ctx)
+			ctx.Channel().activeChannel()
 			if channel, ok := ctx.Channel().(UnsafeAccept); ok {
-				if err := channel.UnsafeAccept(); err != nil {
-					kklogger.ErrorJ("HeadHandler.UnsafeAccept", err.Error())
-					h.inactiveChannel(ctx)
-					h.futureCancel(future)
-					return
-				}
+				go func() {
+					for ctx.Channel().IsActive() {
+						if child := channel.UnsafeAccept(); child == nil {
+							kklogger.ErrorJ("HeadHandler.UnsafeAccept", "nil child")
+							return
+						} else {
+							child.Pipeline().fireRegistered()
+							child.activeChannel()
+						}
+					}
+				}()
 			}
 
 			h.futureSuccess(future)
@@ -147,7 +152,7 @@ func (h *headHandler) Close(ctx HandlerContext, future Future) {
 			kklogger.ErrorJ("HeadHandler.Close", err.Error())
 		}
 
-		h.inactiveChannel(ctx)
+		ctx.Channel().inactiveChannel()
 		if err != nil {
 			h.futureCancel(future)
 		} else {
@@ -160,10 +165,10 @@ func (h *headHandler) Connect(ctx HandlerContext, localAddr net.Addr, remoteAddr
 	if channel, ok := ctx.Channel().(UnsafeConnect); ok && !ctx.Channel().CloseFuture().IsDone() {
 		if err := channel.UnsafeConnect(localAddr, remoteAddr); err != nil {
 			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
-			h.inactiveChannel(ctx)
+			ctx.Channel().inactiveChannel()
 			h.futureCancel(future)
 		} else {
-			h.activeChannel(ctx)
+			ctx.Channel().activeChannel()
 			h.futureSuccess(future)
 		}
 	}
@@ -176,25 +181,13 @@ func (h *headHandler) Disconnect(ctx HandlerContext, future Future) {
 			kklogger.ErrorJ("HeadHandler.Disconnect", err.Error())
 		}
 
-		h.inactiveChannel(ctx)
+		ctx.Channel().inactiveChannel()
 		if err != nil {
 			h.futureCancel(future)
 		} else {
 			h.futureSuccess(future)
 		}
 	}
-}
-
-func (h *headHandler) activeChannel(ctx HandlerContext) {
-	ctx.Channel().setActive()
-	ctx.Channel().Pipeline().fireActive()
-}
-
-func (h *headHandler) inactiveChannel(ctx HandlerContext) {
-	ctx.Channel().setInactive()
-	ctx.Channel().Pipeline().fireInactive()
-	ctx.Channel().Pipeline().fireUnregistered()
-	ctx.Channel().CloseFuture().(concurrent.ManualFuture).Success()
 }
 
 func (h *headHandler) futureCancel(future Future) {
@@ -222,6 +215,11 @@ type tailHandler struct {
 
 func (h *tailHandler) Read(ctx HandlerContext, obj interface{}) {
 	ctx.FireErrorCaught(fmt.Errorf("message doesn't be catched"))
+}
+
+func (h *tailHandler) Deregister(ctx HandlerContext, future Future) {
+	ctx.Channel().inactiveChannel()
+	future.(concurrent.ManualFuture).Success()
 }
 
 func (p *DefaultPipeline) AddLast(name string, elem Handler) Pipeline {

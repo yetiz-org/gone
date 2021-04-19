@@ -45,18 +45,18 @@ func (d *DefaultBootstrap) ChannelType(ch Channel) Bootstrap {
 func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
 	channelType := reflect.New(d.channelType)
 	var channel = channelType.Interface().(Channel)
-	ValueSetFieldVal(&channelType, "pipeline", _NewDefaultPipeline(channel))
-	channel.Init()
+	channel.setPipeline(_NewDefaultPipeline(channel))
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		channel.SetParam(k, v)
 		return true
 	})
 
+	channel.Init()
 	if d.handler != nil {
 		channel.Pipeline().AddLast("ROOT", d.handler)
 	}
 
-	ValueSetFieldVal(&channelType, "closeFuture", channel.Pipeline().newFuture())
+	channel.setCloseFuture(channel.Pipeline().newFuture())
 	channel.Pipeline().fireRegistered()
 	return channel.Connect(localAddr, remoteAddr)
 }

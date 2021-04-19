@@ -4,6 +4,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"sync/atomic"
 
 	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/buf"
@@ -15,6 +16,7 @@ type NetChannel interface {
 	Channel
 	Conn() Conn
 	RemoteAddr() net.Addr
+	setConn(conn net.Conn)
 }
 
 type NetChannelPostActive interface {
@@ -27,6 +29,7 @@ type DefaultNetChannel struct {
 	bufferSize   int
 	readTimeout  int
 	writeTimeout int
+	rState       int32
 }
 
 func (c *DefaultNetChannel) Init() Channel {
@@ -57,6 +60,14 @@ func (c *DefaultNetChannel) LocalAddr() net.Addr {
 	}
 
 	return nil
+}
+
+func (c *DefaultNetChannel) setConn(conn net.Conn) {
+	c.conn = WrapConn(conn)
+}
+
+func (c *DefaultNetChannel) IsActive() bool {
+	return c.active
 }
 
 func (c *DefaultNetChannel) PostActive(conn net.Conn) {
@@ -97,31 +108,48 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 		return ErrNilObject
 	}
 
-	for c.IsActive() {
-		if !c.IsActive() {
-			return net.ErrClosed
-		}
-
-		bs := make([]byte, 1024)
-		if rl, err := c.Conn().Read(bs); err != nil {
-			if c.IsActive() {
-				if err != io.EOF {
-					kklogger.WarnJ("DefaultNetChannel.UnsafeRead", err.Error())
-					return ErrReadError
-				}
-			} else if err == io.EOF {
-				return ErrReadError
-			}
-		} else {
-			kkpanic.Catch(func() {
-				c.FireRead(buf.NewByteBuf(bs[:rl]))
-				c.FireReadCompleted()
-			}, func(r kkpanic.Caught) {
-				kklogger.ErrorJ("DefaultNetChannel.UnsafeRead", r.String())
-			})
-		}
+	if !c.IsActive() {
+		return net.ErrClosed
 	}
 
+	if !atomic.CompareAndSwapInt32(&c.rState, 0, 1) {
+		return nil
+	}
+
+	kklogger.DebugJ("DefaultNetChannel.UnsafeRead", "change read state to 1")
+	go func() {
+		for c.IsActive() {
+			if !c.IsActive() {
+				return
+			}
+
+			bs := make([]byte, 1024)
+			if rl, err := c.Conn().Read(bs); err != nil {
+				if c.IsActive() {
+					if err != io.EOF {
+						kklogger.WarnJ("DefaultNetChannel.UnsafeRead", err.Error())
+					}
+
+					if !c.Conn().IsActive() {
+						c.Deregister()
+						return
+					}
+				} else if err == io.EOF {
+					return
+				}
+			} else {
+				kkpanic.Catch(func() {
+					c.FireRead(buf.NewByteBuf(bs[:rl]))
+					c.FireReadCompleted()
+				}, func(r kkpanic.Caught) {
+					kklogger.ErrorJ("DefaultNetChannel.UnsafeRead", r.String())
+				})
+			}
+		}
+	}()
+
+	atomic.StoreInt32(&c.rState, 0)
+	kklogger.DebugJ("DefaultNetChannel.UnsafeRead", "change read state to 0")
 	return nil
 }
 

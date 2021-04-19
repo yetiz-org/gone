@@ -9,19 +9,9 @@ import (
 
 type Channel struct {
 	channel.DefaultNetChannel
-	bufferSize   int
-	readTimeout  int
-	writeTimeout int
 }
 
 var ErrNotTCPAddr = fmt.Errorf("not tcp addr")
-
-func (c *Channel) Init() channel.Channel {
-	c.bufferSize = channel.GetParamIntDefault(c, ParamReadBufferSize, 1024)
-	c.readTimeout = channel.GetParamIntDefault(c, ParamReadTimeout, 6000)
-	c.writeTimeout = channel.GetParamIntDefault(c, ParamWriteTimeout, 3000)
-	return c
-}
 
 func (c *Channel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error {
 	if remoteAddr == nil {

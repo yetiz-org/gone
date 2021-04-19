@@ -35,13 +35,13 @@ func (d *DefaultServerBootstrap) ChildParams() *Params {
 func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	serverChannelType := reflect.New(d.channelType)
 	var serverChannel = serverChannelType.Interface().(ServerChannel)
-	ValueSetFieldVal(&serverChannelType, "pipeline", _NewDefaultPipeline(serverChannel))
-	serverChannel.Init()
+	serverChannel.setPipeline(_NewDefaultPipeline(serverChannel))
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		serverChannel.SetParam(k, v)
 		return true
 	})
 
+	serverChannel.Init()
 	if d.handler != nil {
 		serverChannel.Pipeline().AddLast("ROOT", d.handler)
 	}
@@ -51,7 +51,7 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	}
 
 	serverChannel.setLocalAddr(localAddr)
-	ValueSetFieldVal(&serverChannelType, "closeFuture", serverChannel.Pipeline().newFuture())
+	serverChannel.setCloseFuture(serverChannel.Pipeline().newFuture())
 	serverChannel.Pipeline().fireRegistered()
 	return serverChannel.Bind(localAddr)
 }
