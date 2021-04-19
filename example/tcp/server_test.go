@@ -30,7 +30,7 @@ func TestServer_Start(t *testing.T) {
 
 	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel()
 	go func() {
-		time.Sleep(time.Minute * 1)
+		time.Sleep(time.Second * 3)
 		ch.Close()
 	}()
 
@@ -45,17 +45,19 @@ func TestServer_Start(t *testing.T) {
 		}))
 
 		bwg := sync.BurstWaitGroup{}
-		bwg.Add(100)
-		for i := 0; i < 100; i++ {
-			go func() {
+		for i := 0; i < 10; i++ {
+			bwg.Add(1)
+			go func(i int) {
 				ch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel().(channel.ClientChannel)
 				ch.Write(buf.NewByteBuf([]byte("o12b32c49")))
 				time.Sleep(time.Millisecond * 10)
 				ch.Write(buf.NewByteBuf([]byte("a42d22e41")))
-				time.Sleep(time.Millisecond * 10)
-				ch.Disconnect()
+				if i%2 == 0 {
+					ch.Disconnect()
+				}
+
 				bwg.Done()
-			}()
+			}(i)
 		}
 
 		bwg.Wait()

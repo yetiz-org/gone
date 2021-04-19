@@ -48,6 +48,7 @@ func (c *DefaultServerChannel) DeriveChildChannel(child Channel, parent ServerCh
 	}
 
 	child.setCloseFuture(child.Pipeline().newFuture())
+	c.closeWG.Add(1)
 	return child
 }
 

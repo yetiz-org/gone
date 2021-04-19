@@ -22,8 +22,8 @@ type DefaultConn struct {
 func (c *DefaultConn) Read(b []byte) (n int, err error) {
 	if read, err := c.conn.Read(b); err != nil {
 		if c.IsActive() {
-			if err != io.EOF && !err.(net.Error).Timeout() {
-				kklogger.WarnJ("DefaultConn.Read", err.Error())
+			if cast, ok := err.(net.Error); ok && cast.Timeout() {
+				return 0, nil
 			}
 
 			c.active = false

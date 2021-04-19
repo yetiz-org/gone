@@ -147,12 +147,12 @@ func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future
 
 func (h *headHandler) Close(ctx HandlerContext, future Future) {
 	if channel, ok := ctx.Channel().(UnsafeClose); ok && !ctx.Channel().CloseFuture().IsDone() {
+		ctx.Channel().inactiveChannel()
 		err := channel.UnsafeClose()
 		//if err != nil {
 		//	kklogger.ErrorJ("HeadHandler.Close", err.Error())
 		//}
 
-		ctx.Channel().inactiveChannel()
 		if err != nil {
 			h.futureCancel(future)
 		} else {
@@ -176,12 +176,12 @@ func (h *headHandler) Connect(ctx HandlerContext, localAddr net.Addr, remoteAddr
 
 func (h *headHandler) Disconnect(ctx HandlerContext, future Future) {
 	if channel, ok := ctx.Channel().(UnsafeDisconnect); ok && !ctx.Channel().CloseFuture().IsDone() {
+		ctx.Channel().inactiveChannel()
 		err := channel.UnsafeDisconnect()
 		//if err != nil {
 		//	kklogger.ErrorJ("HeadHandler.Disconnect", err.Error())
 		//}
 
-		ctx.Channel().inactiveChannel()
 		if err != nil {
 			h.futureCancel(future)
 		} else {

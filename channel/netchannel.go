@@ -119,12 +119,13 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 	kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 1")
 	go func() {
 		for c.IsActive() {
-			if !c.IsActive() {
-				return
-			}
+			bs := make([]byte, c.bufferSize)
+			rc, err := c.Conn().Read(bs)
+			if err != nil {
+				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() && c.Conn().IsActive() {
+					continue
+				}
 
-			bs := make([]byte, 1024)
-			if rl, err := c.Conn().Read(bs); err != nil {
 				if c.IsActive() {
 					if err != io.EOF {
 						kklogger.WarnJ("DefaultNetChannel.UnsafeRead", err.Error())
@@ -139,10 +140,10 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 				}
 			} else {
 				kkpanic.Catch(func() {
-					c.FireRead(buf.NewByteBuf(bs[:rl]))
+					c.FireRead(buf.NewByteBuf(bs[:rc]))
 					c.FireReadCompleted()
 				}, func(r kkpanic.Caught) {
-					kklogger.ErrorJ("DefaultNetChannel.UnsafeRead", r.String())
+					kklogger.ErrorJ("DefaultNetChannel.UnsafeRead#Fire", r.String())
 				})
 			}
 		}

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-base62"
+	sync2 "github.com/kklab-com/goth-kkutil/sync"
 	"github.com/pkg/errors"
 )
 
@@ -38,6 +38,7 @@ type Channel interface {
 	setLocalAddr(addr net.Addr)
 	activeChannel()
 	inactiveChannel()
+	closeWaitGroup() *sync2.BurstWaitGroup
 	setPipeline(pipeline Pipeline)
 	setParent(channel ServerChannel)
 	setContext(ctx context.Context)
@@ -92,6 +93,7 @@ type DefaultChannel struct {
 	pipeline      Pipeline
 	parent        ServerChannel
 	closeFuture   Future
+	closeWG       sync2.BurstWaitGroup
 }
 
 func (c *DefaultChannel) ID() string {
@@ -205,17 +207,27 @@ func (c *DefaultChannel) activeChannel() {
 	go func(c *DefaultChannel) {
 		<-c.ctx.Done()
 		if c.IsActive() {
-			c.active = false
-			c.Pipeline().fireInactive()
-			c.Pipeline().fireUnregistered()
-			c.CloseFuture().(concurrent.ManualFuture).Success()
+			c.Disconnect()
 		}
 	}(c)
 }
 
 func (c *DefaultChannel) inactiveChannel() {
 	c.ctxCancelFunc()
-	time.Sleep(time.Second)
+	c.closeWG.Wait()
+	if c.IsActive() {
+		c.active = false
+		c.Pipeline().fireInactive()
+		c.Pipeline().fireUnregistered()
+		c.CloseFuture().(concurrent.ManualFuture).Success()
+		if c.Parent() != nil {
+			c.Parent().closeWaitGroup().Done()
+		}
+	}
+}
+
+func (c *DefaultChannel) closeWaitGroup() *sync2.BurstWaitGroup {
+	return &c.closeWG
 }
 
 func (c *DefaultChannel) setPipeline(pipeline Pipeline) {
