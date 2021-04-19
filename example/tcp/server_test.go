@@ -13,7 +13,7 @@ import (
 )
 
 func TestServer_Start(t *testing.T) {
-	kklogger.SetLogLevel("TRACE")
+	kklogger.SetLogLevel("DEBUG")
 	bootstrap := channel.NewServerBootstrap()
 	bootstrap.ChannelType(&tcp.ServerChannel{})
 	bootstrap.Handler(channel.NewInitializer(func(ch channel.Channel) {

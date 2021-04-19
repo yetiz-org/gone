@@ -14,9 +14,8 @@ type ServerChannel interface {
 
 type DefaultServerChannel struct {
 	DefaultChannel
-	childHandler     Handler
-	childParams      Params
-	closeChildNotify context.CancelFunc
+	childHandler Handler
+	childParams  Params
 }
 
 func (c *DefaultServerChannel) setChildHandler(handler Handler) ServerChannel {
@@ -35,6 +34,9 @@ func (c *DefaultServerChannel) ChildParams() *Params {
 func (c *DefaultServerChannel) DeriveChildChannel(child Channel, parent ServerChannel) Channel {
 	child.setPipeline(_NewDefaultPipeline(child))
 	child.setParent(parent)
+	cancel, cancelFunc := context.WithCancel(c.ctx)
+	child.setContext(cancel)
+	child.setContextCancelFunc(cancelFunc)
 	c.ChildParams().Range(func(k ParamKey, v interface{}) bool {
 		child.SetParam(k, v)
 		return true
@@ -58,6 +60,5 @@ func (c *DefaultServerChannel) UnsafeAccept() Channel {
 }
 
 func (c *DefaultServerChannel) UnsafeClose() error {
-	c.closeChildNotify()
 	return nil
 }

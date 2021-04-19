@@ -96,7 +96,7 @@ func (c *DefaultNetChannel) UnsafeWrite(obj interface{}) error {
 	}
 
 	if _, err := c.Conn().Write(bs); err != nil {
-		kklogger.ErrorJ("DefaultNetChannel.UnsafeWrite", err.Error())
+		kklogger.WarnJ("DefaultNetChannel.UnsafeWrite", err.Error())
 		return err
 	}
 
@@ -116,7 +116,7 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 		return nil
 	}
 
-	kklogger.DebugJ("DefaultNetChannel.UnsafeRead", "change read state to 1")
+	kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 1")
 	go func() {
 		for c.IsActive() {
 			if !c.IsActive() {
@@ -149,7 +149,7 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 	}()
 
 	atomic.StoreInt32(&c.rState, 0)
-	kklogger.DebugJ("DefaultNetChannel.UnsafeRead", "change read state to 0")
+	kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 0")
 	return nil
 }
 

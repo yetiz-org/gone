@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kklab-com/gone/concurrent"
@@ -32,12 +33,15 @@ type Channel interface {
 	Params() *Params
 	Parent() ServerChannel
 	LocalAddr() net.Addr
+	context() context.Context
 	op() *sync.Mutex
 	setLocalAddr(addr net.Addr)
 	activeChannel()
 	inactiveChannel()
 	setPipeline(pipeline Pipeline)
 	setParent(channel ServerChannel)
+	setContext(ctx context.Context)
+	setContextCancelFunc(cancel context.CancelFunc)
 	setCloseFuture(future Future)
 }
 
@@ -77,16 +81,17 @@ var ErrReadError = fmt.Errorf("read error")
 var IDEncoder = base62.ShiftEncoding
 
 type DefaultChannel struct {
-	id          string
-	Name        string
-	opLock      sync.Mutex
-	parentCtx   context.Context
-	params      Params
-	localAddr   net.Addr
-	active      bool
-	pipeline    Pipeline
-	parent      ServerChannel
-	closeFuture Future
+	id            string
+	Name          string
+	opLock        sync.Mutex
+	ctx           context.Context
+	ctxCancelFunc context.CancelFunc
+	params        Params
+	localAddr     net.Addr
+	active        bool
+	pipeline      Pipeline
+	parent        ServerChannel
+	closeFuture   Future
 }
 
 func (c *DefaultChannel) ID() string {
@@ -181,6 +186,10 @@ func (c *DefaultChannel) LocalAddr() net.Addr {
 	return c.localAddr
 }
 
+func (c *DefaultChannel) context() context.Context {
+	return c.ctx
+}
+
 func (c *DefaultChannel) op() *sync.Mutex {
 	return &c.opLock
 }
@@ -193,17 +202,20 @@ func (c *DefaultChannel) activeChannel() {
 	c.active = true
 	c.Pipeline().fireActive()
 	c.Read()
+	go func(c *DefaultChannel) {
+		<-c.ctx.Done()
+		if c.IsActive() {
+			c.active = false
+			c.Pipeline().fireInactive()
+			c.Pipeline().fireUnregistered()
+			c.CloseFuture().(concurrent.ManualFuture).Success()
+		}
+	}(c)
 }
 
 func (c *DefaultChannel) inactiveChannel() {
-	c.op().Lock()
-	defer c.op().Unlock()
-	if c.IsActive() {
-		c.active = false
-		c.Pipeline().fireInactive()
-		c.Pipeline().fireUnregistered()
-		c.CloseFuture().(concurrent.ManualFuture).Success()
-	}
+	c.ctxCancelFunc()
+	time.Sleep(time.Second)
 }
 
 func (c *DefaultChannel) setPipeline(pipeline Pipeline) {
@@ -212,6 +224,14 @@ func (c *DefaultChannel) setPipeline(pipeline Pipeline) {
 
 func (c *DefaultChannel) setParent(channel ServerChannel) {
 	c.parent = channel
+}
+
+func (c *DefaultChannel) setContext(ctx context.Context) {
+	c.ctx = ctx
+}
+
+func (c *DefaultChannel) setContextCancelFunc(cancel context.CancelFunc) {
+	c.ctxCancelFunc = cancel
 }
 
 func (c *DefaultChannel) setCloseFuture(future Future) {

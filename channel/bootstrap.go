@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"context"
 	"net"
 	"reflect"
 )
@@ -46,6 +47,9 @@ func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Futu
 	channelType := reflect.New(d.channelType)
 	var channel = channelType.Interface().(Channel)
 	channel.setPipeline(_NewDefaultPipeline(channel))
+	cancel, cancelFunc := context.WithCancel(context.Background())
+	channel.setContext(cancel)
+	channel.setContextCancelFunc(cancelFunc)
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		channel.SetParam(k, v)
 		return true

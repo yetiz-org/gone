@@ -1,29 +1,24 @@
 package http
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/kklab-com/gone/channel"
 )
 
-type DefaultClientChannel struct {
-	*channel.DefaultNetChannel
+type Channel struct {
+	channel.DefaultNetChannel
 	writer ResponseWriter
 }
 
-var UnknownObjectType = fmt.Errorf("unknown object type")
-
-func (c *DefaultClientChannel) Init() channel.Channel {
-	c.pipeline = channel._NewDefaultPipeline(c)
-	c.unsafe.WriteFunc = c.write
-	return c
+func (c *Channel) UnsafeRead() error {
+	return nil
 }
 
-func (c *DefaultClientChannel) write(obj interface{}) error {
+func (c *Channel) UnsafeWrite(obj interface{}) error {
 	pack := _UnPack(obj)
 	if pack == nil {
-		return UnknownObjectType
+		return channel.ErrUnknownObjectType
 	}
 
 	response := pack.Resp

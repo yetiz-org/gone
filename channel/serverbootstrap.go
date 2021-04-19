@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"context"
 	"net"
 	"reflect"
 )
@@ -36,6 +37,9 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	serverChannelType := reflect.New(d.channelType)
 	var serverChannel = serverChannelType.Interface().(ServerChannel)
 	serverChannel.setPipeline(_NewDefaultPipeline(serverChannel))
+	cancel, cancelFunc := context.WithCancel(context.Background())
+	serverChannel.setContext(cancel)
+	serverChannel.setContextCancelFunc(cancelFunc)
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		serverChannel.SetParam(k, v)
 		return true

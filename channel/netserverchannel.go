@@ -43,6 +43,6 @@ func (c *DefaultNetServerChannel) UnsafeAccept() Channel {
 }
 
 func (c *DefaultNetServerChannel) UnsafeClose() error {
-	c.closeChildNotify()
+	c.DefaultServerChannel.UnsafeClose()
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	listen net.Listener
+	active bool
 }
 
 var ErrBindTwice = fmt.Errorf("bind twice")
@@ -32,6 +33,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		return err
 	} else {
 		c.listen = listen
+		c.active = true
 	}
 
 	return nil
@@ -43,7 +45,7 @@ func (c *ServerChannel) UnsafeAccept() channel.Channel {
 			return nil
 		}
 
-		kklogger.ErrorJ("ServerChannel.UnsafeAccept", err.Error())
+		kklogger.ErrorJ("tcp:ServerChannel.UnsafeAccept", err.Error())
 	} else {
 		return c.DeriveNetChildChannel(&Channel{}, c, conn)
 	}
@@ -52,5 +54,11 @@ func (c *ServerChannel) UnsafeAccept() channel.Channel {
 }
 
 func (c *ServerChannel) UnsafeClose() error {
+	c.DefaultNetServerChannel.UnsafeClose()
+	c.active = false
 	return c.listen.Close()
+}
+
+func (c *ServerChannel) IsActive() bool {
+	return c.active
 }

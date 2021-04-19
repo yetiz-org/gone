@@ -13,7 +13,7 @@ type Server struct {
 
 func (k *Server) Start(localAddr net.Addr) {
 	bootstrap := channel.NewServerBootstrap()
-	bootstrap.ChannelType(&http.DefaultServerChannel{})
+	bootstrap.ChannelType(&http.ServerChannel{})
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("GZIP_HANDLER", new(http.GZipHandler))
 		ch.Pipeline().AddLast("LOG_HANDLER", http.NewLogHandler(false))
