@@ -23,7 +23,7 @@ func TestServer_Start(t *testing.T) {
 			ch.Pipeline().AddLast("HANDLER", &ClientHandler{})
 		}))
 
-		ch := bootstrap.Connect(nil, &websocket.WSCustomConnectConfig{Url: "ws://localhost:18081/echo", Header: nil}).Sync().Channel().(channel.ClientChannel)
+		ch := bootstrap.Connect(nil, &websocket.WSCustomConnectConfig{Url: "ws://localhost:18081/echo", Header: nil}).Sync().Channel()
 		ch.Write(&websocket.DefaultMessage{
 			MessageType: websocket.TextMessageType,
 			Message:     []byte("write data"),

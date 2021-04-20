@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"reflect"
@@ -17,37 +16,38 @@ import (
 type WSUpgradeProcessor struct {
 	channel.DefaultHandler
 	ch               channel.Channel
-	wsConnClosed     bool
-	wsConn           *websocket.Conn
-	upgrader         *websocket.Upgrader
-	pack             *gtp.Pack
+	upgrade          *websocket.Upgrader
 	task             ServerHandlerTask
-	writeLock        sync.Mutex
 	UpgradeCheckFunc func(req *gtp.Request, resp *gtp.Response, params map[string]interface{}) bool
 }
 
-func (h *WSUpgradeProcessor) Disconnect(ctx channel.HandlerContext, future channel.Future) {
-	if !h.wsConnClosed {
-		if h.task != nil {
-			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
-		}
-
-		h.wsConnClosed = true
+func (h *WSUpgradeProcessor) Registered(ctx channel.HandlerContext) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.Registered(ctx)
 	}
-
-	ctx.Disconnect(future)
 }
 
-func (h *WSUpgradeProcessor) slowDisconnect(ctx channel.HandlerContext) {
-	go func() {
-		time.Sleep(time.Second)
-		ctx.Channel().Disconnect()
-	}()
+func (h *WSUpgradeProcessor) Unregistered(ctx channel.HandlerContext) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.Unregistered(ctx)
+	}
+}
+
+func (h *WSUpgradeProcessor) Active(ctx channel.HandlerContext) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.Active(ctx)
+	}
+}
+
+func (h *WSUpgradeProcessor) Inactive(ctx channel.HandlerContext) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.Inactive(ctx)
+	}
 }
 
 func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
 	h.ch = ctx.Channel()
-	h.upgrader = &websocket.Upgrader{
+	h.upgrade = &websocket.Upgrader{
 		CheckOrigin: func() func(r *http.Request) bool {
 			if channel.GetParamBoolDefault(ctx.Channel(), ParamCheckOrigin, true) {
 				return nil
@@ -58,16 +58,38 @@ func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
 			}
 		}(),
 	}
+
 }
 
-func (h *WSUpgradeProcessor) Active(ctx channel.HandlerContext) {
-	kklogger.DebugJ("WSUpgradeProcessor.Active", fmt.Sprintf("connection %s active", ctx.Channel().ID()))
-	ctx.FireActive()
+func (h *WSUpgradeProcessor) ReadCompleted(ctx channel.HandlerContext) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.ReadCompleted(ctx)
+	}
 }
 
-func (h *WSUpgradeProcessor) Inactive(ctx channel.HandlerContext) {
-	kklogger.DebugJ("WSUpgradeProcessor.Inactive", fmt.Sprintf("connection %s inactive", ctx.Channel().ID()))
-	ctx.FireInactive()
+func (h *WSUpgradeProcessor) Disconnect(ctx channel.HandlerContext, future channel.Future) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.Disconnect(ctx, future)
+	}
+}
+
+func (h *WSUpgradeProcessor) Deregister(ctx channel.HandlerContext, future channel.Future) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.Deregister(ctx,future)
+	}
+}
+
+func (h *WSUpgradeProcessor) ErrorCaught(ctx channel.HandlerContext, err error) {
+	if handler, ok := h.task.(channel.Handler); ok {
+		handler.ErrorCaught(ctx,err)
+	}
+}
+
+func (h *WSUpgradeProcessor) slowDisconnect(ctx channel.HandlerContext) {
+	go func() {
+		time.Sleep(time.Second)
+		ctx.Channel().Disconnect()
+	}()
 }
 
 func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
@@ -152,7 +174,7 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 
 	timeMark := time.Now()
 	wsConn := func() *websocket.Conn {
-		wsConn, err := h.upgrader.Upgrade(h.pack.Writer, &h.pack.Req.Request, h.pack.Resp.Header())
+		wsConn, err := h.upgrade.Upgrade(h.pack.Writer, &h.pack.Req.Request, h.pack.Resp.Header())
 		if err != nil {
 			kklogger.ErrorJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(nil, err))
 			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)

@@ -91,24 +91,25 @@ func (c *ChildChannel) UnsafeRead() error {
 
 					if err == websocket.ErrReadLimit {
 						c.Disconnect()
-						return
+						break
 					}
 
 					if !c.Conn().IsActive() {
 						c.Deregister()
-						return
+						break
 					}
 				} else if err == io.EOF {
-					return
+					break
 				}
 			} else {
 				c.FireRead(_ParseMessage(typ, bs))
 				c.FireReadCompleted()
 			}
 		}
+
+		c.ReleaseRead()
 	}()
 
-	c.ReleaseRead()
 	return nil
 }
 
@@ -156,7 +157,7 @@ func (c *ChildChannel) _NewWSLog(message Message, err error) *WSLogStruct {
 	log := &WSLogStruct{
 		LogType:    WSLogType,
 		ChannelID:  c.ID(),
-		RequestURI: c.response.Request.RequestURI,
+		RequestURI: c.Request.RequestURI,
 		Message:    message,
 		Error:      err,
 	}

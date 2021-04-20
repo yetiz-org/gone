@@ -48,7 +48,7 @@ func TestServer_Start(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			bwg.Add(1)
 			go func(i int) {
-				ch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel().(channel.ClientChannel)
+				ch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel()
 				ch.Write(buf.NewByteBuf([]byte("o12b32c49")))
 				time.Sleep(time.Millisecond * 10)
 				ch.Write(buf.NewByteBuf([]byte("a42d22e41")))
@@ -62,7 +62,7 @@ func TestServer_Start(t *testing.T) {
 		}
 
 		bwg.Wait()
-		nch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel().(channel.ClientChannel)
+		nch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel()
 		nch.Write(buf.NewByteBuf([]byte("ccc")))
 	}()
 

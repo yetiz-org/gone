@@ -150,10 +150,10 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 
 					if !c.Conn().IsActive() {
 						c.Deregister()
-						return
+						break
 					}
 				} else if err == io.EOF {
-					return
+					break
 				}
 			} else {
 				if rc == 0 {
@@ -164,10 +164,11 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 				c.FireReadCompleted()
 			}
 		}
+
+		c.ReleaseRead()
+		kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 0")
 	}()
 
-	c.ReleaseRead()
-	kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 0")
 	return nil
 }
 
