@@ -36,6 +36,10 @@ type Pipeline interface {
 	newFuture() Future
 }
 
+type PipelineSetChannel interface {
+	SetChannel(channel Channel)
+}
+
 const PipelineHeadHandlerContextName = "DEFAULT_HEAD_HANDLER_CONTEXT"
 const PipelineTailHandlerContextName = "DEFAULT_TAIL_HANDLER_CONTEXT"
 
@@ -81,7 +85,7 @@ func (p *DefaultPipeline) _NewHeadHandlerContext(channel Channel) HandlerContext
 	context := new(DefaultHandlerContext)
 	context.name = PipelineHeadHandlerContextName
 	context._handler = &headHandler{}
-	context.channel = channel
+	context.pipeline = p
 	return context
 }
 
@@ -89,7 +93,7 @@ func (p *DefaultPipeline) _NewTailHandlerContext(channel Channel) HandlerContext
 	context := new(DefaultHandlerContext)
 	context.name = PipelineTailHandlerContextName
 	context._handler = &tailHandler{}
-	context.channel = channel
+	context.pipeline = p
 	return context
 }
 
@@ -98,18 +102,16 @@ type headHandler struct {
 }
 
 func (h *headHandler) read(ctx HandlerContext) {
-	if channel, ok := ctx.Channel().(UnsafeRead); ok && !ctx.Channel().CloseFuture().IsDone() {
+	if channel, ok := ctx.Channel().(UnsafeRead); ok && ctx.Channel().IsActive() {
 		if err := channel.UnsafeRead(); err != nil {
-			//kklogger.ErrorJ("HeadHandler.read", err.Error())
 			ctx.Channel().inactiveChannel()
 		}
 	}
 }
 
 func (h *headHandler) Write(ctx HandlerContext, obj interface{}, future Future) {
-	if channel, ok := ctx.Channel().(UnsafeWrite); ok && !ctx.Channel().CloseFuture().IsDone() {
+	if channel, ok := ctx.Channel().(UnsafeWrite); ok && ctx.Channel().IsActive() {
 		if err := channel.UnsafeWrite(obj); err != nil {
-			//kklogger.ErrorJ("HeadHandler.Write", err.Error())
 			ctx.Channel().inactiveChannel()
 			h.futureCancel(future)
 		} else {
@@ -121,7 +123,7 @@ func (h *headHandler) Write(ctx HandlerContext, obj interface{}, future Future) 
 func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future) {
 	if channel, ok := ctx.Channel().(UnsafeBind); ok && !ctx.Channel().CloseFuture().IsDone() {
 		if err := channel.UnsafeBind(localAddr); err != nil {
-			//kklogger.ErrorJ("HeadHandler.Bind", err.Error())
+			kklogger.WarnJ("HeadHandler.Bind", err.Error())
 			ctx.Channel().inactiveChannel()
 			h.futureCancel(future)
 		} else {
@@ -130,7 +132,7 @@ func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future
 				go func() {
 					for ctx.Channel().IsActive() {
 						if child := channel.UnsafeAccept(); child == nil {
-							//kklogger.ErrorJ("HeadHandler.UnsafeAccept", "nil child")
+							kklogger.WarnJ("HeadHandler.UnsafeAccept", "nil child")
 							return
 						} else {
 							child.Pipeline().fireRegistered()
@@ -149,9 +151,9 @@ func (h *headHandler) Close(ctx HandlerContext, future Future) {
 	if channel, ok := ctx.Channel().(UnsafeClose); ok && !ctx.Channel().CloseFuture().IsDone() {
 		ctx.Channel().inactiveChannel()
 		err := channel.UnsafeClose()
-		//if err != nil {
-		//	kklogger.ErrorJ("HeadHandler.Close", err.Error())
-		//}
+		if err != nil {
+			kklogger.ErrorJ("HeadHandler.Close", err.Error())
+		}
 
 		if err != nil {
 			h.futureCancel(future)
@@ -164,7 +166,7 @@ func (h *headHandler) Close(ctx HandlerContext, future Future) {
 func (h *headHandler) Connect(ctx HandlerContext, localAddr net.Addr, remoteAddr net.Addr, future Future) {
 	if channel, ok := ctx.Channel().(UnsafeConnect); ok && !ctx.Channel().CloseFuture().IsDone() {
 		if err := channel.UnsafeConnect(localAddr, remoteAddr); err != nil {
-			//kklogger.ErrorJ("HeadHandler.Connect", err.Error())
+			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
 			ctx.Channel().inactiveChannel()
 			h.futureCancel(future)
 		} else {
@@ -225,7 +227,7 @@ func (h *tailHandler) Deregister(ctx HandlerContext, future Future) {
 func (p *DefaultPipeline) AddLast(name string, elem Handler) Pipeline {
 	final := p.tail
 	ctx := NewHandlerContext()
-	ctx.setChannel(p.channel)
+	ctx.pipeline = p
 	ctx.name = name
 	ctx.setNext(final)
 	ctx.setPrev(final.prev())
@@ -360,4 +362,8 @@ func (p *DefaultPipeline) Deregister() Future {
 
 func (p *DefaultPipeline) newFuture() Future {
 	return NewFuture(p.Channel())
+}
+
+func (p *DefaultPipeline) SetChannel(channel Channel) {
+	p.channel = channel
 }

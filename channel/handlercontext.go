@@ -27,7 +27,6 @@ type HandlerContext interface {
 	setPrev(prev HandlerContext) HandlerContext
 	next() HandlerContext
 	setNext(prev HandlerContext) HandlerContext
-	setChannel(channel Channel) HandlerContext
 	deferErrorCaught()
 	handler() Handler
 	read() HandlerContext
@@ -35,7 +34,7 @@ type HandlerContext interface {
 
 type DefaultHandlerContext struct {
 	name     string
-	channel  Channel
+	pipeline Pipeline
 	_handler Handler
 	nextCtx  HandlerContext
 	prevCtx  HandlerContext
@@ -55,11 +54,6 @@ func (d *DefaultHandlerContext) setNext(next HandlerContext) HandlerContext {
 	return d
 }
 
-func (d *DefaultHandlerContext) setChannel(channel Channel) HandlerContext {
-	d.channel = channel
-	return d
-}
-
 func (d *DefaultHandlerContext) handler() Handler {
 	return d._handler
 }
@@ -74,7 +68,7 @@ func (d *DefaultHandlerContext) Name() string {
 }
 
 func (d *DefaultHandlerContext) Channel() Channel {
-	return d.channel
+	return d.pipeline.Channel()
 }
 
 func (d *DefaultHandlerContext) FireRegistered() HandlerContext {

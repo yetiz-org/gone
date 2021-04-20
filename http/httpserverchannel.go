@@ -112,6 +112,7 @@ func (c *ServerChannel) UnsafeClose() error {
 		return nil
 	}
 
+	c.DefaultNetServerChannel.UnsafeClose()
 	shutdownTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	if err := c.server.Shutdown(shutdownTimeout); err != nil {

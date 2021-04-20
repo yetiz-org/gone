@@ -2,63 +2,47 @@ package websocket
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/goth-kklogger"
-	"github.com/pkg/errors"
+	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type InvokeHandler struct {
-	channel.DefaultHandler
+	WSHandler
 }
 
 func (h *InvokeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
-	pack := _UnPack(obj)
+	pack := _HttpWebsocketPackCast(obj)
 	if pack == nil {
 		ctx.FireRead(obj)
 		return
 	}
 
-	h.invokeMethod(ctx, pack.Req, pack.Task, pack.Message, pack.Params)
+	h._Call(ctx, pack.Request, pack.HandlerTask, pack.Message, pack.Params)
 }
 
-func (h *InvokeHandler) invokeMethod(ctx channel.HandlerContext, req *http.Request, task HandlerTask, msg Message, params map[string]interface{}) {
-	defer func() {
-		var err error = nil
-		if r := recover(); r != nil {
-			switch er := r.(type) {
-			case error:
-				err = er
-			case string:
-				err = errors.Errorf(er)
-			default:
-				panic(er)
-			}
-
-			kklogger.ErrorJ("InvokeHandler.invokeMethod#Error", fmt.Sprintf("error occurred, %s", err.Error()))
-			task.ErrorCaught(ctx, req, msg, err)
-			ctx.Channel().Param(ParamWSDisconnectOnce).(*sync.Once).Do(func() {
-				ctx.Channel().Disconnect()
-			})
+func (h *InvokeHandler) _Call(ctx channel.HandlerContext, req *http.Request, task ServerHandlerTask, msg Message, params map[string]interface{}) {
+	kkpanic.Catch(func() {
+		switch msg.Type() {
+		case TextMessageType:
+			task.WSText(ctx, msg.(*DefaultMessage), params)
+		case BinaryMessageType:
+			task.WSBinary(ctx, msg.(*DefaultMessage), params)
+		case CloseMessageType:
+			task.WSClose(ctx, msg.(*CloseMessage), params)
+		case PingMessageType:
+			task.WSPing(ctx, msg.(*PingMessage), params)
+		case PongMessageType:
+			task.WSPong(ctx, msg.(*PongMessage), params)
 		}
-	}()
-
-	switch msg.Type() {
-	case TextMessageType:
-		task.WSText(ctx, msg.(*DefaultMessage), params)
-	case BinaryMessageType:
-		task.WSBinary(ctx, msg.(*DefaultMessage), params)
-	case CloseMessageType:
-		task.WSClose(ctx, msg.(*CloseMessage), params)
-	case PingMessageType:
-		task.WSPing(ctx, msg.(*PingMessage), params)
-	case PongMessageType:
-		task.WSPong(ctx, msg.(*PongMessage), params)
-	}
+	}, func(r kkpanic.Caught) {
+		kklogger.ErrorJ("websocket:InvokeHandler._Call", fmt.Sprintf("error occurred, %s", r.Error()))
+		task.WSErrorCaught(ctx, req, msg, r)
+	})
 }
 
 func (h *InvokeHandler) ErrorCaught(ctx channel.HandlerContext, err error) {
-	kklogger.ErrorJ("InvokeHandler", err.Error())
+	kklogger.ErrorJ("websocket:InvokeHandler", err.Error())
 }

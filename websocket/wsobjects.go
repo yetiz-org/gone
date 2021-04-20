@@ -110,15 +110,15 @@ func _ParseMessage(messageType int, bs []byte) *DefaultMessage {
 	return nil
 }
 
-type WSPack struct {
-	Req     *http.Request          `json:"req"`
-	Task    HandlerTask            `json:"task"`
-	Message Message                `json:"message"`
-	Params  map[string]interface{} `json:"params"`
+type HttpWebsocketPack struct {
+	Request     *http.Request          `json:"req"`
+	HandlerTask ServerHandlerTask      `json:"task"`
+	Message     Message                `json:"message"`
+	Params      map[string]interface{} `json:"params"`
 }
 
-func _UnPack(obj interface{}) *WSPack {
-	if pkg, true := obj.(*WSPack); true {
+func _HttpWebsocketPackCast(obj interface{}) *HttpWebsocketPack {
+	if pkg, true := obj.(*HttpWebsocketPack); true {
 		return pkg
 	}
 

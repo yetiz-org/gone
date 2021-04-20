@@ -52,6 +52,7 @@ func TestServer_Start(t *testing.T) {
 				ch.Write(buf.NewByteBuf([]byte("o12b32c49")))
 				time.Sleep(time.Millisecond * 10)
 				ch.Write(buf.NewByteBuf([]byte("a42d22e41")))
+				time.Sleep(time.Millisecond * 10)
 				if i%2 == 0 {
 					ch.Disconnect()
 				}

@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"net"
 	"time"
 
 	"github.com/kklab-com/gone/channel"
@@ -38,14 +39,24 @@ func (h *ServerChildHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		ctx.Write(buf.NewByteBuf([]byte(str)), nil)
 	} else {
 		ctx.Write(buf.NewByteBuf([]byte(str)), nil)
-		ctx.Channel().Disconnect()
 		time.Sleep(time.Millisecond * 100)
+		ctx.Channel().Disconnect()
 		ctx.Channel().(channel.NetChannel).Parent().Close()
 	}
 }
 
 func (h *ServerChildHandler) ReadCompleted(ctx channel.HandlerContext) {
 	println("server read_completed")
+}
+
+func (h *ServerChildHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
+	println("server write")
+	(ctx).Write(obj, future)
+}
+
+func (h *ServerChildHandler) Connect(ctx channel.HandlerContext, localAddr net.Addr, remoteAddr net.Addr, future channel.Future) {
+	println("server connect")
+	ctx.Connect(localAddr, remoteAddr, future)
 }
 
 func (h *ServerChildHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {

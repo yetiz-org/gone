@@ -1,15 +1,17 @@
 package channel
 
 import (
+	"errors"
 	"io"
 	"net"
+	"os"
 	"reflect"
 	"sync/atomic"
+	"time"
 
 	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/buf"
-	kkpanic "github.com/kklab-com/goth-panic"
-	"github.com/pkg/errors"
+	errors2 "github.com/pkg/errors"
 )
 
 type NetChannel interface {
@@ -19,23 +21,23 @@ type NetChannel interface {
 	setConn(conn net.Conn)
 }
 
-type NetChannelPostActive interface {
-	PostActive(conn net.Conn)
+type NetChannelSetConn interface {
+	SetConn(conn net.Conn)
 }
 
 type DefaultNetChannel struct {
 	DefaultChannel
 	conn         Conn
-	bufferSize   int
-	readTimeout  int
-	writeTimeout int
+	BufferSize   int
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
 	rState       int32
 }
 
 func (c *DefaultNetChannel) Init() Channel {
-	c.bufferSize = GetParamIntDefault(c, ParamReadBufferSize, 1024)
-	c.readTimeout = GetParamIntDefault(c, ParamReadTimeout, 6000)
-	c.writeTimeout = GetParamIntDefault(c, ParamWriteTimeout, 3000)
+	c.BufferSize = GetParamIntDefault(c, ParamReadBufferSize, 1024)
+	c.ReadTimeout = time.Duration(GetParamIntDefault(c, ParamReadTimeout, 100)) * time.Millisecond
+	c.WriteTimeout = time.Duration(GetParamIntDefault(c, ParamWriteTimeout, 100)) * time.Millisecond
 	return c
 }
 
@@ -70,9 +72,16 @@ func (c *DefaultNetChannel) IsActive() bool {
 	return c.active
 }
 
-func (c *DefaultNetChannel) PostActive(conn net.Conn) {
-	c.conn = WrapConn(conn)
-	c.Pipeline().fireActive()
+func (c *DefaultNetChannel) SetConn(conn net.Conn) {
+	c.setConn(conn)
+}
+
+func (c *DefaultNetChannel) DoRead() bool {
+	return atomic.CompareAndSwapInt32(&c.rState, 0, 1)
+}
+
+func (c *DefaultNetChannel) ReleaseRead() {
+	atomic.StoreInt32(&c.rState, 0)
 }
 
 func (c *DefaultNetChannel) UnsafeWrite(obj interface{}) error {
@@ -80,7 +89,7 @@ func (c *DefaultNetChannel) UnsafeWrite(obj interface{}) error {
 		return ErrNilObject
 	}
 
-	if !c.IsActive() {
+	if !c.Conn().IsActive() {
 		return net.ErrClosed
 	}
 
@@ -91,8 +100,12 @@ func (c *DefaultNetChannel) UnsafeWrite(obj interface{}) error {
 	case []byte:
 		bs = v
 	default:
-		kklogger.ErrorJ("DefaultNetChannel.UnsafeWrite", errors.Wrap(ErrUnknownObjectType, reflect.TypeOf(v).String()))
+		kklogger.ErrorJ("DefaultNetChannel.UnsafeWrite", errors2.Wrap(ErrUnknownObjectType, reflect.TypeOf(v).String()))
 		return ErrUnknownObjectType
+	}
+
+	if c.WriteTimeout > 0 {
+		c.Conn().SetWriteDeadline(time.Now().Add(c.WriteTimeout))
 	}
 
 	if _, err := c.Conn().Write(bs); err != nil {
@@ -112,17 +125,21 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 		return net.ErrClosed
 	}
 
-	if !atomic.CompareAndSwapInt32(&c.rState, 0, 1) {
+	if !c.DoRead() {
 		return nil
 	}
 
 	kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 1")
 	go func() {
 		for c.IsActive() {
-			bs := make([]byte, c.bufferSize)
+			bs := make([]byte, c.BufferSize)
+			if c.ReadTimeout > 0 {
+				c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout))
+			}
+
 			rc, err := c.Conn().Read(bs)
 			if err != nil {
-				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() && c.Conn().IsActive() {
+				if errors.Is(err, os.ErrDeadlineExceeded) && c.Conn().IsActive() {
 					continue
 				}
 
@@ -139,17 +156,17 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 					return
 				}
 			} else {
-				kkpanic.Catch(func() {
-					c.FireRead(buf.NewByteBuf(bs[:rc]))
-					c.FireReadCompleted()
-				}, func(r kkpanic.Caught) {
-					kklogger.ErrorJ("DefaultNetChannel.UnsafeRead#Fire", r.String())
-				})
+				if rc == 0 {
+					continue
+				}
+
+				c.FireRead(buf.NewByteBuf(bs[:rc]))
+				c.FireReadCompleted()
 			}
 		}
 	}()
 
-	atomic.StoreInt32(&c.rState, 0)
+	c.ReleaseRead()
 	kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 0")
 	return nil
 }

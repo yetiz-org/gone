@@ -204,10 +204,12 @@ func (c *DefaultChannel) activeChannel() {
 	c.active = true
 	c.Pipeline().fireActive()
 	c.Read()
-	go func(c *DefaultChannel) {
-		<-c.ctx.Done()
+	go func(c Channel) {
+		<-c.context().Done()
 		if c.IsActive() {
-			c.Disconnect()
+			if _, ok := c.(ServerChannel); !ok {
+				c.Disconnect()
+			}
 		}
 	}(c)
 }

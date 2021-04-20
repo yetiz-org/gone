@@ -26,10 +26,6 @@ type Handler interface {
 type DefaultHandler struct {
 }
 
-func NewDefaultHandler() *DefaultHandler {
-	return new(DefaultHandler)
-}
-
 func (h *DefaultHandler) Registered(ctx HandlerContext) {
 	ctx.FireRegistered()
 }
@@ -53,15 +49,15 @@ func (h *DefaultHandler) Removed(ctx HandlerContext) {
 }
 
 func (h *DefaultHandler) Read(ctx HandlerContext, obj interface{}) {
-	(ctx).FireRead(obj)
+	ctx.FireRead(obj)
 }
 
 func (h *DefaultHandler) ReadCompleted(ctx HandlerContext) {
-	(ctx).FireReadCompleted()
+	ctx.FireReadCompleted()
 }
 
 func (h *DefaultHandler) Write(ctx HandlerContext, obj interface{}, future Future) {
-	(ctx).Write(obj, future)
+	ctx.Write(obj, future)
 }
 
 func (h *DefaultHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future) {
@@ -85,9 +81,35 @@ func (h *DefaultHandler) Deregister(ctx HandlerContext, future Future) {
 }
 
 func (h *DefaultHandler) ErrorCaught(ctx HandlerContext, err error) {
-	(ctx).FireErrorCaught(err)
+	ctx.FireErrorCaught(err)
 }
 
 func (h *DefaultHandler) read(ctx HandlerContext) {
 	ctx.read()
+}
+
+type readWriteHandler struct {
+	DefaultHandler
+	r func(ctx HandlerContext, obj interface{})
+	w func(ctx HandlerContext, obj interface{}, future Future)
+}
+
+func NewRWHandler(r func(ctx HandlerContext, obj interface{}), w func(ctx HandlerContext, obj interface{}, future Future)) Handler {
+	return &readWriteHandler{r: r, w: w}
+}
+
+func (h *readWriteHandler) Read(ctx HandlerContext, obj interface{}) {
+	if h.r != nil {
+		h.r(ctx, obj)
+	} else {
+		ctx.FireRead(obj)
+	}
+}
+
+func (h *readWriteHandler) Write(ctx HandlerContext, obj interface{}, future Future) {
+	if h.w != nil {
+		h.w(ctx, obj, future)
+	} else {
+		ctx.Write(obj, future)
+	}
 }

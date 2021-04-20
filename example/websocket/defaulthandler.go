@@ -2,13 +2,12 @@ package websocket
 
 import (
 	"github.com/kklab-com/gone/channel"
-	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/gone/websocket"
 	"github.com/kklab-com/goth-kkutil/value"
 )
 
 type DefaultTask struct {
-	websocket.WSHandlerTask
+	websocket.WSServerHandler
 }
 
 func (t *DefaultTask) WSPing(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {
@@ -29,13 +28,4 @@ func (t *DefaultTask) WSText(ctx channel.HandlerContext, message *websocket.Defa
 
 func (t *DefaultTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
 	println("server ws close")
-}
-
-func (*DefaultTask) WSConnected(req *http.Request, params map[string]interface{}) {
-	println("server ws connected")
-}
-
-func (*DefaultTask) WSDisconnect(req *http.Request, params map[string]interface{}) {
-	println("server ws disconnect")
-	req.Channel().Parent().Close()
 }

@@ -54,6 +54,6 @@ func (h *ClientHandler) WSText(ctx channel.HandlerContext, message *DefaultMessa
 }
 
 func (h *ClientHandler) ErrorCaught(ctx channel.HandlerContext, err error) {
-	kklogger.ErrorJ("ClientHandler", err.Error())
+	kklogger.ErrorJ("websocket:ClientHandler", err.Error())
 	ctx.Channel().Disconnect()
 }

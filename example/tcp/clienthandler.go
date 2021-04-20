@@ -1,6 +1,10 @@
 package tcp
 
-import "github.com/kklab-com/gone/channel"
+import (
+	"net"
+
+	"github.com/kklab-com/gone/channel"
+)
 
 type ClientHandler struct {
 	channel.DefaultHandler
@@ -32,6 +36,16 @@ func (h *ClientHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 func (h *ClientHandler) ReadCompleted(ctx channel.HandlerContext) {
 	println("client read_completed")
+}
+
+func (h *ClientHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
+	println("client write")
+	ctx.Write(obj, future)
+}
+
+func (h *ClientHandler) Connect(ctx channel.HandlerContext, localAddr net.Addr, remoteAddr net.Addr, future channel.Future) {
+	println("client connect")
+	ctx.Connect(localAddr, remoteAddr, future)
 }
 
 func (h *ClientHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {

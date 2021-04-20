@@ -18,7 +18,7 @@ func TestServer_Start(t *testing.T) {
 		time.Sleep(time.Millisecond * 500)
 
 		bootstrap := channel.NewBootstrap()
-		bootstrap.ChannelType(&websocket.DefaultWSClientChannel{})
+		bootstrap.ChannelType(&websocket.Channel{})
 		bootstrap.Handler(channel.NewInitializer(func(ch channel.Channel) {
 			ch.Pipeline().AddLast("HANDLER", &ClientHandler{})
 		}))

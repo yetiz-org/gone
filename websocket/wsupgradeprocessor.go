@@ -14,10 +14,7 @@ import (
 	"github.com/kklab-com/goth-kklogger"
 )
 
-var ErrWrongObjectType = fmt.Errorf("wrong object type")
-var WSConnNotExist = fmt.Errorf("WSConn not exist")
-
-type UpgradeHandler struct {
+type WSUpgradeProcessor struct {
 	channel.DefaultHandler
 	ch               channel.Channel
 	wsConnClosed     bool
@@ -29,7 +26,7 @@ type UpgradeHandler struct {
 	UpgradeCheckFunc func(req *gtp.Request, resp *gtp.Response, params map[string]interface{}) bool
 }
 
-func (h *UpgradeHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {
+func (h *WSUpgradeProcessor) Disconnect(ctx channel.HandlerContext, future channel.Future) {
 	if !h.wsConnClosed {
 		if h.task != nil {
 			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
@@ -41,14 +38,14 @@ func (h *UpgradeHandler) Disconnect(ctx channel.HandlerContext, future channel.F
 	ctx.Disconnect(future)
 }
 
-func (h *UpgradeHandler) slowDisconnect(ctx channel.HandlerContext) {
+func (h *WSUpgradeProcessor) slowDisconnect(ctx channel.HandlerContext) {
 	go func() {
 		time.Sleep(time.Second)
 		ctx.Channel().Disconnect()
 	}()
 }
 
-func (h *UpgradeHandler) Added(ctx channel.HandlerContext) {
+func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
 	h.ch = ctx.Channel()
 	h.upgrader = &websocket.Upgrader{
 		CheckOrigin: func() func(r *http.Request) bool {
@@ -63,17 +60,17 @@ func (h *UpgradeHandler) Added(ctx channel.HandlerContext) {
 	}
 }
 
-func (h *UpgradeHandler) Active(ctx channel.HandlerContext) {
-	kklogger.DebugJ("UpgradeHandler.Active", fmt.Sprintf("connection %s active", ctx.Channel().ID()))
+func (h *WSUpgradeProcessor) Active(ctx channel.HandlerContext) {
+	kklogger.DebugJ("WSUpgradeProcessor.Active", fmt.Sprintf("connection %s active", ctx.Channel().ID()))
 	ctx.FireActive()
 }
 
-func (h *UpgradeHandler) Inactive(ctx channel.HandlerContext) {
-	kklogger.DebugJ("UpgradeHandler.Inactive", fmt.Sprintf("connection %s inactive", ctx.Channel().ID()))
+func (h *WSUpgradeProcessor) Inactive(ctx channel.HandlerContext) {
+	kklogger.DebugJ("WSUpgradeProcessor.Inactive", fmt.Sprintf("connection %s inactive", ctx.Channel().ID()))
 	ctx.FireInactive()
 }
 
-func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
+func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 	if obj == nil {
 		return
 	}
@@ -89,7 +86,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	if v, f := h.pack.Params["[gone]node"]; f {
 		node = v.(gtp.RouteNode)
 	} else {
-		kklogger.ErrorJ("UpgradeHandler.Read#NotFound", "node is not in [gone]node")
+		kklogger.ErrorJ("WSUpgradeProcessor.Read#NotFound", "node is not in [gone]node")
 		return
 	}
 
@@ -157,7 +154,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	wsConn := func() *websocket.Conn {
 		wsConn, err := h.upgrader.Upgrade(h.pack.Writer, &h.pack.Req.Request, h.pack.Resp.Header())
 		if err != nil {
-			kklogger.ErrorJ("UpgradeHandler.Read#WSUpgrade", h._NewWSLog(nil, err))
+			kklogger.ErrorJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(nil, err))
 			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
 			h.wsConnClosed = true
 			h.slowDisconnect(ctx)
@@ -172,7 +169,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	}
 
 	h.wsConn = wsConn
-	kklogger.DebugJ("UpgradeHandler.Read#WSUpgrade", h._NewWSLog(nil, nil))
+	kklogger.DebugJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(nil, nil))
 	ctx.Channel().SetParam(ParamWSUpgrader, h)
 	ctx.Channel().SetParam(ParamWSDisconnectOnce, &sync.Once{})
 	h.pack.Params["[gone]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
@@ -185,9 +182,9 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		messageType, message, err := wsConn.ReadMessage()
 		if err != nil {
 			if _, ok := err.(*websocket.CloseError); ok {
-				kklogger.DebugJ("UpgradeHandler.Read#Close", h._NewWSLog(nil, err))
+				kklogger.DebugJ("WSUpgradeProcessor.Read#Close", h._NewWSLog(nil, err))
 			} else {
-				kklogger.WarnJ("UpgradeHandler.Read#ReadMessage", h._NewWSLog(nil, err))
+				kklogger.WarnJ("WSUpgradeProcessor.Read#ReadMessage", h._NewWSLog(nil, err))
 			}
 
 			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
@@ -212,7 +209,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 					Params:      params,
 				}
 
-				kklogger.TraceJ("UpgradeHandler.Read#Read", h._NewWSLog(msg, nil))
+				kklogger.TraceJ("WSUpgradeProcessor.Read#Read", h._NewWSLog(msg, nil))
 				ctx.FireRead(obj)
 				params["[gone]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
 			}()
@@ -220,7 +217,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	}
 }
 
-func (h *UpgradeHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
+func (h *WSUpgradeProcessor) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
 	if !ctx.Channel().IsActive() {
 		return
 	}
@@ -234,13 +231,13 @@ func (h *UpgradeHandler) Write(ctx channel.HandlerContext, obj interface{}, futu
 	}()
 
 	if message == nil {
-		kklogger.ErrorJ("UpgradeHandler.Write#Cast", h._NewWSLog(message, ErrWrongObjectType))
+		kklogger.ErrorJ("WSUpgradeProcessor.Write#Cast", h._NewWSLog(message, ErrWrongObjectType))
 		return
 	}
 
 	wsConn := func() *websocket.Conn {
 		if obj := ctx.Channel().Param(ParamWSUpgrader); obj != nil {
-			if v, ok := obj.(*UpgradeHandler); ok {
+			if v, ok := obj.(*WSUpgradeProcessor); ok {
 				return v.wsConn
 			}
 		}
@@ -249,7 +246,7 @@ func (h *UpgradeHandler) Write(ctx channel.HandlerContext, obj interface{}, futu
 	}()
 
 	if wsConn == nil {
-		kklogger.ErrorJ("UpgradeHandler.Write#WSConn", h._NewWSLog(message, WSConnNotExist))
+		kklogger.ErrorJ("WSUpgradeProcessor.Write#WSConn", h._NewWSLog(message, WSConnNotExist))
 		return
 	}
 
@@ -287,12 +284,12 @@ func (h *UpgradeHandler) Write(ctx channel.HandlerContext, obj interface{}, futu
 	if err != nil {
 		ctx.Channel().Param(ParamWSDisconnectOnce).(*sync.Once).Do(func() {
 			ctx.Channel().Disconnect()
-			kklogger.WarnJ("UpgradeHandler.Write#Write", h._NewWSLog(message, err))
+			kklogger.WarnJ("WSUpgradeProcessor.Write#Write", h._NewWSLog(message, err))
 		})
 	}
 }
 
-func (h *UpgradeHandler) _PingHandler(message string) error {
+func (h *WSUpgradeProcessor) _PingHandler(message string) error {
 	msg := &PingMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: PingMessageType,
@@ -312,12 +309,12 @@ func (h *UpgradeHandler) _PingHandler(message string) error {
 		Params:      params,
 	}
 
-	kklogger.TraceJ("UpgradeHandler._PingHandler#Read", h._NewWSLog(msg, nil))
+	kklogger.TraceJ("WSUpgradeProcessor._PingHandler#Read", h._NewWSLog(msg, nil))
 	h.ch.FireRead(obj)
 	return nil
 }
 
-func (h *UpgradeHandler) _PongHandler(message string) error {
+func (h *WSUpgradeProcessor) _PongHandler(message string) error {
 	msg := &PongMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: PongMessageType,
@@ -337,12 +334,12 @@ func (h *UpgradeHandler) _PongHandler(message string) error {
 		Params:      params,
 	}
 
-	kklogger.TraceJ("UpgradeHandler._PongHandler#Read", h._NewWSLog(msg, nil))
+	kklogger.TraceJ("WSUpgradeProcessor._PongHandler#Read", h._NewWSLog(msg, nil))
 	h.ch.FireRead(obj)
 	return nil
 }
 
-func (h *UpgradeHandler) _CloseHandler(code int, text string) error {
+func (h *WSUpgradeProcessor) _CloseHandler(code int, text string) error {
 	msg := &CloseMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: CloseMessageType,
@@ -363,7 +360,7 @@ func (h *UpgradeHandler) _CloseHandler(code int, text string) error {
 		Params:      params,
 	}
 
-	kklogger.TraceJ("UpgradeHandler._CloseHandler#Read", h._NewWSLog(msg, nil))
+	kklogger.TraceJ("WSUpgradeProcessor._CloseHandler#Read", h._NewWSLog(msg, nil))
 	h.ch.FireRead(obj)
 	return nil
 }
@@ -381,7 +378,7 @@ type WSLogStruct struct {
 
 const WSLogType = "websocket"
 
-func (h *UpgradeHandler) _NewWSLog(message Message, err error) *WSLogStruct {
+func (h *WSUpgradeProcessor) _NewWSLog(message Message, err error) *WSLogStruct {
 	log := &WSLogStruct{
 		LogType:    WSLogType,
 		ChannelID:  h.ch.ID(),

@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/websocket v1.4.2
+	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/kklab-com/gone-httpheadername v0.0.0-20210329103811-5b020e1d815f
 	github.com/kklab-com/gone-httpstatus v0.0.0-20210329103101-07f17310ce7c
 	github.com/kklab-com/goth-base62 v0.0.0-20210329091412-ca32cedc0914
