@@ -36,7 +36,7 @@ type DefaultNetChannel struct {
 
 func (c *DefaultNetChannel) Init() Channel {
 	c.BufferSize = GetParamIntDefault(c, ParamReadBufferSize, 1024)
-	c.ReadTimeout = time.Duration(GetParamIntDefault(c, ParamReadTimeout, 100)) * time.Millisecond
+	c.ReadTimeout = time.Duration(GetParamIntDefault(c, ParamReadTimeout, 1000)) * time.Millisecond
 	c.WriteTimeout = time.Duration(GetParamIntDefault(c, ParamWriteTimeout, 100)) * time.Millisecond
 	return c
 }

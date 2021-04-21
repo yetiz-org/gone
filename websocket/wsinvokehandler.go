@@ -20,12 +20,12 @@ func NewInvokeHandler(task HandlerTask, params map[string]interface{}) *InvokeHa
 	if params == nil {
 		params = map[string]interface{}{}
 	}
-	
+
 	return &InvokeHandler{task: task, params: params}
 }
 
 func (h *InvokeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
-	if ch, ok := ctx.Channel().(*Channel); !ok {
+	if ch, ok := ctx.Channel().(*Channel); ok {
 		if msg, ok := obj.(Message); ok {
 			h._Call(ctx, ch.Request, ch.Response, h.task, msg, h.params)
 			return
@@ -34,6 +34,22 @@ func (h *InvokeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 	ctx.FireRead(obj)
 	return
+}
+
+func (h *InvokeHandler) Active(ctx channel.HandlerContext) {
+	if ch, ok := ctx.Channel().(*Channel); ok {
+		h.task.WSConnected(ch.Request, ch.Response, h.params)
+	}
+
+	ctx.FireActive()
+}
+
+func (h *InvokeHandler) Inactive(ctx channel.HandlerContext) {
+	if ch, ok := ctx.Channel().(*Channel); ok {
+		h.task.WSDisconnected(ch.Request, ch.Response, h.params)
+	}
+
+	ctx.FireInactive()
 }
 
 func (h *InvokeHandler) _Call(ctx channel.HandlerContext, req *http.Request, resp *http.Response, task HandlerTask, msg Message, params map[string]interface{}) {

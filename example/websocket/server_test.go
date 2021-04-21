@@ -33,7 +33,7 @@ func TestServer_Start(t *testing.T) {
 	bootstrap := channel.NewBootstrap()
 	bootstrap.ChannelType(&websocket.Channel{})
 	bootstrap.Handler(channel.NewInitializer(func(ch channel.Channel) {
-		ch.Pipeline().AddLast("HANDLER", websocket.NewInvokeHandler(&ClientHandler{}, nil))
+		ch.Pipeline().AddLast("HANDLER", websocket.NewInvokeHandler(&ClientHandlerTask{}, nil))
 	}))
 
 	ch := bootstrap.Connect(nil, &websocket.WSCustomConnectConfig{Url: "ws://localhost:18081/echo", Header: nil}).Sync().Channel()
@@ -51,8 +51,6 @@ func TestServer_Start(t *testing.T) {
 		CloseCode: websocket.CloseNormalClosure,
 	})
 
-	time.Sleep(time.Millisecond * 500)
-	ch.Disconnect()
 	time.Sleep(time.Millisecond * 500)
 
 	server.CloseFuture().Sync()

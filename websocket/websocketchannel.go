@@ -1,12 +1,9 @@
 package websocket
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -42,10 +39,6 @@ func (c *Channel) UnsafeWrite(obj interface{}) error {
 		return channel.ErrUnknownObjectType
 	} else {
 		if err := func() error {
-			if c.WriteTimeout > 0 {
-				c.Conn().SetWriteDeadline(time.Now().Add(c.WriteTimeout))
-			}
-
 			switch message.(type) {
 			case *CloseMessage, *PingMessage, *PongMessage:
 				dead := func() time.Time {
@@ -87,41 +80,30 @@ func (c *Channel) UnsafeRead() error {
 	go func() {
 		for c.IsActive() {
 			c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, 0))
-			if c.ReadTimeout > 0 {
-				c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout))
-			}
-
 			typ, bs, err := c.wsConn.ReadMessage()
 			if err != nil {
-				if errors.Is(err, os.ErrDeadlineExceeded) && c.Conn().IsActive() {
-					continue
-				}
-
 				if c.IsActive() {
-					if err != io.EOF {
+					if wsErr, ok := err.(*websocket.CloseError); !(ok && wsErr.Code == 1000) {
 						kklogger.WarnJ("websocket:Channel.read", err.Error())
 					}
 
-					if err == websocket.ErrReadLimit {
+					if c.Conn().IsActive() {
 						c.Disconnect()
-						return
-					}
-
-					if !c.Conn().IsActive() {
+					} else {
 						c.Deregister()
-						return
 					}
-				} else if err == io.EOF {
-					return
 				}
+
+				return
 			} else {
 				c.FireRead(_ParseMessage(typ, bs))
 				c.FireReadCompleted()
 			}
 		}
+
+		c.ReleaseRead()
 	}()
 
-	c.ReleaseRead()
 	return nil
 }
 
