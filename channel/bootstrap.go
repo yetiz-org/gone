@@ -14,6 +14,14 @@ type Bootstrap interface {
 	Params() *Params
 }
 
+type BootstrapChannelPreInit interface {
+	BootstrapPreInit()
+}
+
+type BootstrapChannelPostInit interface {
+	BootstrapPostInit()
+}
+
 type DefaultBootstrap struct {
 	handler     Handler
 	channelType reflect.Type
@@ -46,6 +54,10 @@ func (d *DefaultBootstrap) ChannelType(ch Channel) Bootstrap {
 func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
 	channelType := reflect.New(d.channelType)
 	var channel = channelType.Interface().(Channel)
+	if preInit, ok := channel.(BootstrapChannelPreInit); ok {
+		preInit.BootstrapPreInit()
+	}
+
 	channel.setPipeline(_NewDefaultPipeline(channel))
 	cancel, cancelFunc := context.WithCancel(context.Background())
 	channel.setContext(cancel)
@@ -58,6 +70,10 @@ func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Futu
 	channel.Init()
 	if d.handler != nil {
 		channel.Pipeline().AddLast("ROOT", d.handler)
+	}
+
+	if preInit, ok := channel.(BootstrapChannelPostInit); ok {
+		preInit.BootstrapPostInit()
 	}
 
 	channel.setCloseFuture(channel.Pipeline().newFuture())

@@ -36,6 +36,10 @@ func (d *DefaultServerBootstrap) ChildParams() *Params {
 func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	serverChannelType := reflect.New(d.channelType)
 	var serverChannel = serverChannelType.Interface().(ServerChannel)
+	if preInit, ok := serverChannel.(BootstrapChannelPreInit); ok {
+		preInit.BootstrapPreInit()
+	}
+
 	serverChannel.setPipeline(_NewDefaultPipeline(serverChannel))
 	cancel, cancelFunc := context.WithCancel(context.Background())
 	serverChannel.setContext(cancel)
@@ -55,6 +59,10 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	}
 
 	serverChannel.setLocalAddr(localAddr)
+	if postInit, ok := serverChannel.(BootstrapChannelPostInit); ok {
+		postInit.BootstrapPostInit()
+	}
+
 	serverChannel.setCloseFuture(serverChannel.Pipeline().newFuture())
 	serverChannel.Pipeline().fireRegistered()
 	return serverChannel.Bind(localAddr)

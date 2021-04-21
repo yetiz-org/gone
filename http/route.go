@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kklogger"
 )
 
@@ -44,7 +43,7 @@ func (r *DefaultRoute) RouteEndPoint(req *Request) (node RouteNode, nodeParams m
 					if current == r.root && resourceID != "" {
 						return nil, nil, false
 					} else {
-						params[fmt.Sprintf("[gone]%s_id", current.Name())] = resourceID
+						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
 						return current, params, false
 					}
 				} else {
@@ -53,7 +52,7 @@ func (r *DefaultRoute) RouteEndPoint(req *Request) (node RouteNode, nodeParams m
 			} else {
 				if next == nil {
 					if _, f := current.Resources()[resources[idx+1]]; f {
-						params[fmt.Sprintf("[gone]%s_id", current.Name())] = resourceID
+						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
 						continue
 					} else {
 						return nil, nil, false
@@ -64,7 +63,7 @@ func (r *DefaultRoute) RouteEndPoint(req *Request) (node RouteNode, nodeParams m
 			}
 		case RouteTypeRecursiveEndPoint:
 			if next == nil {
-				params[fmt.Sprintf("[gone]%s_id", current.Name())] = resourceID
+				params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
 			}
 
 			return current, params, false
@@ -137,7 +136,7 @@ func (r *DefaultRoute) AddEndPoint(point *_EndPoint) *DefaultRoute {
 
 type RouteNode interface {
 	Parent() RouteNode
-	HandlerTask() channel.HandlerTask
+	HandlerTask() HandlerTask
 	Name() string
 	AggregatedAcceptances() []Acceptance
 	Acceptances() []Acceptance
@@ -147,7 +146,7 @@ type RouteNode interface {
 
 type _Node struct {
 	parent      RouteNode
-	handler     channel.HandlerTask
+	handler     HandlerTask
 	name        string
 	acceptances []Acceptance
 	resources   map[string]RouteNode
@@ -158,7 +157,7 @@ func (n *_Node) Parent() RouteNode {
 	return n.parent
 }
 
-func (n *_Node) HandlerTask() channel.HandlerTask {
+func (n *_Node) HandlerTask() HandlerTask {
 	return n.handler
 }
 
@@ -203,7 +202,7 @@ type _EndPoint struct {
 	_Node
 }
 
-func NewEndPoint(name string, task channel.HandlerTask, acceptances []Acceptance) *_EndPoint {
+func NewEndPoint(name string, task HandlerTask, acceptances []Acceptance) *_EndPoint {
 	if task == nil {
 		return nil
 	}

@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"net"
 	"net/http"
 	"reflect"
 	"time"
@@ -95,33 +96,27 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 			}
 
 			kklogger.DebugJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI, wsConn, nil))
-			pack.Params["[gone]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
+			pack.Params["[gone-http]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
 
 			// create ws channel and replace it
-			ch := &ChildChannel{
-				wsConn: wsConn,
+			ch := &Channel{
+				DefaultNetChannel: &ctx.Channel().(*gtp.Channel).DefaultNetChannel,
+				wsConn:            wsConn,
+				Response:          pack.Response,
+				Request:           pack.Request,
 			}
 
-			ch.DefaultNetChannel = &ctx.Channel().(*gtp.Channel).DefaultNetChannel
 			ch.Pipeline().(channel.PipelineSetChannel).SetChannel(ch)
 			ch.Pipeline().Clear()
-			ch.Pipeline().AddLast("WS_INVOKER", NewInvokeHandler(task))
-
-			params := map[string]interface{}{}
-			for k, v := range pack.Params {
-				params[k] = v
-			}
-
-			task.WSConnected(pack.Request, pack.Response, params)
+			ch.Pipeline().AddLast("WS_INVOKER", NewInvokeHandler(task, pack.Params))
+			task.WSConnected(pack.Request, pack.Response, pack.Params)
 			ch.Read()
-		} else {
-			ctx.FireRead(obj)
 			return
 		}
-	} else {
-		ctx.FireRead(obj)
-		return
 	}
+
+	ctx.FireRead(obj)
+	return
 }
 
 func (h *WSUpgradeProcessor) _NewWSLog(cID string, tID string, uri string, wsConn *websocket.Conn, err error) *WSLogStruct {
@@ -140,3 +135,16 @@ func (h *WSUpgradeProcessor) _NewWSLog(cID string, tID string, uri string, wsCon
 
 	return log
 }
+
+type WSLogStruct struct {
+	LogType    string   `json:"log_type,omitempty"`
+	RemoteAddr net.Addr `json:"remote_addr,omitempty"`
+	LocalAddr  net.Addr `json:"local_addr,omitempty"`
+	RequestURI string   `json:"request_uri,omitempty"`
+	ChannelID  string   `json:"channel_id,omitempty"`
+	TrackID    string   `json:"trace_id,omitempty"`
+	Message    Message  `json:"message,omitempty"`
+	Error      error    `json:"error,omitempty"`
+}
+
+const WSLogType = "websocket"

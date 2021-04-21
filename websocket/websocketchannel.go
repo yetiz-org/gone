@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -14,10 +15,17 @@ import (
 	kklogger "github.com/kklab-com/goth-kklogger"
 )
 
+var ErrWrongObjectType = fmt.Errorf("wrong object type")
+
 type Channel struct {
-	channel.DefaultNetChannel
+	*channel.DefaultNetChannel
 	wsConn   *websocket.Conn
 	Response *gtp.Response
+	Request  *gtp.Request
+}
+
+func (c *Channel) BootstrapPreInit() {
+	c.DefaultNetChannel = &channel.DefaultNetChannel{}
 }
 
 func (c *Channel) Init() channel.Channel {

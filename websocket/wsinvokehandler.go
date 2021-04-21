@@ -12,24 +12,27 @@ import (
 type InvokeHandler struct {
 	channel.DefaultHandler
 	DefaultHandlerTask
-	task HandlerTask
+	task   HandlerTask
+	params map[string]interface{}
 }
 
-func NewInvokeHandler(task HandlerTask) *InvokeHandler {
-	return &InvokeHandler{task: task}
+func NewInvokeHandler(task HandlerTask, params map[string]interface{}) *InvokeHandler {
+	return &InvokeHandler{task: task, params: params}
 }
 
 func (h *InvokeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
-	pack := _HttpWebsocketPackCast(obj)
-	if pack == nil {
-		ctx.FireRead(obj)
-		return
+	if ch, ok := ctx.Channel().(*Channel); !ok {
+		if msg, ok := obj.(Message); ok {
+			h._Call(ctx, ch.Request, ch.Response, h.task, msg, h.params)
+			return
+		}
 	}
 
-	h._Call(ctx, pack.Request, pack.HandlerTask, pack.Message, pack.Params)
+	ctx.FireRead(obj)
+	return
 }
 
-func (h *InvokeHandler) _Call(ctx channel.HandlerContext, req *http.Request, task ServerHandlerTask, msg Message, params map[string]interface{}) {
+func (h *InvokeHandler) _Call(ctx channel.HandlerContext, req *http.Request, resp *http.Response, task HandlerTask, msg Message, params map[string]interface{}) {
 	kkpanic.Catch(func() {
 		switch msg.Type() {
 		case TextMessageType:
@@ -45,7 +48,7 @@ func (h *InvokeHandler) _Call(ctx channel.HandlerContext, req *http.Request, tas
 		}
 	}, func(r kkpanic.Caught) {
 		kklogger.ErrorJ("websocket:InvokeHandler._Call", fmt.Sprintf("error occurred, %s", r.Error()))
-		task.WSErrorCaught(ctx, req, msg, r)
+		task.WSErrorCaught(ctx, req, resp, msg, r)
 	})
 }
 

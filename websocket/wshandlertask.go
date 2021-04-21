@@ -20,7 +20,6 @@ type HandlerTask interface {
 }
 
 type ServerHandlerTask interface {
-	channel.HandlerTask
 	HandlerTask
 	WSUpgrade(req *http.Request, resp *http.Response, params map[string]interface{}) bool
 }

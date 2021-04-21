@@ -144,27 +144,27 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}, future c
 			ProcessTime: time.Now().UnixNano() - req.CreatedAt.UnixNano(),
 		}
 
-		if v := params["[gone]h_locate_time"]; v != nil {
+		if v := params["[gone-http]h_locate_time"]; v != nil {
 			logStruct.HLocateTime = v.(int64)
 		}
 
-		if v := params["[gone]h_acceptance_time"]; v != nil {
+		if v := params["[gone-http]h_acceptance_time"]; v != nil {
 			logStruct.HAcceptanceTime = v.(int64)
 		}
 
-		if v := params["[gone]handler_time"]; v != nil {
+		if v := params["[gone-http]handler_time"]; v != nil {
 			logStruct.HandlerTime = v.(int64)
 		}
 
-		if v := params["[gone]h_error_time"]; v != nil {
+		if v := params["[gone-http]h_error_time"]; v != nil {
 			logStruct.HErrorTime = v.(int64)
 		}
 
-		if v := params["[gone]compress_time"]; v != nil {
+		if v := params["[gone-http]compress_time"]; v != nil {
 			logStruct.CompressTime = v.(int64)
 		}
 
-		if v := params["[gone]extend"]; v != nil {
+		if v := params["[gone-http]extend"]; v != nil {
 			logStruct.Extend = v
 		}
 

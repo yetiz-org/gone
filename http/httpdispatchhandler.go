@@ -42,17 +42,17 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	timeMark := time.Now()
 	if node, nodeParams, isLast := h.route.RouteEndPoint(request); node != nil {
 		pack.RouteNode = node
-		params["[gone]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
-		params["[gone]node"] = node
-		params["[gone]node_name"] = node.Name()
-		params["[gone]is_index"] = isLast
+		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]node"] = node
+		params["[gone-http]node_name"] = node.Name()
+		params["[gone-http]is_index"] = isLast
 		if nodeParams != nil {
 			for k, v := range nodeParams {
 				params[k] = v
 			}
 		}
 
-		task, ok := node.HandlerTask().(HandlerTask)
+		task, ok := node.HandlerTask().(HttpHandlerTask)
 		if !ok {
 			ctx.FireRead(obj)
 			return
@@ -70,7 +70,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 					return
 				}
 
-				params["[gone]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
+				params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
 				kklogger.WarnJ("Acceptance", ObjectLogStruct{
 					ChannelID:  ctx.Channel().ID(),
 					TrackID:    request.TrackID(),
@@ -98,14 +98,14 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 			}
 		}
 
-		params["[gone]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		timeMark = time.Now()
 		rtnCatch.err = h.invokeMethod(task, request, response, params, isLast)
-		params["[gone]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
 	} else {
 		defer ctx.Write(obj, nil)
 		defer h._UpdateSessionCookie(response)
-		params["[gone]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		if upgrade := request.Header.Get(httpheadername.Upgrade); upgrade != "" {
 			response.Header().Set(httpheadername.Upgrade, upgrade)
 		}
@@ -125,7 +125,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	}
 }
 
-func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Request, response *Response, task HandlerTask, params map[string]interface{}, rtnCatch *ReturnCatch) {
+func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Request, response *Response, task HttpHandlerTask, params map[string]interface{}, rtnCatch *ReturnCatch) {
 	erErr := rtnCatch.err
 	timeMark := time.Now()
 	var err error
@@ -169,7 +169,7 @@ func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Reque
 		erErr.ErrorData()["tid"] = request.TrackID()
 		timeMark = time.Now()
 		err := task.ErrorCaught(request, response, params, erErr)
-		params["[gone]h_error_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]h_error_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		if err != nil {
 			h.ErrorCaught(ctx, err)
 		}
@@ -180,7 +180,7 @@ type ReturnCatch struct {
 	err ErrorResponse
 }
 
-func (h *DispatchHandler) invokeMethod(task HandlerTask, request *Request, response *Response, params map[string]interface{}, isLast bool) ErrorResponse {
+func (h *DispatchHandler) invokeMethod(task HttpHandlerTask, request *Request, response *Response, params map[string]interface{}, isLast bool) ErrorResponse {
 	if err := task.PreCheck(request, response, params); err != nil {
 		return err
 	}

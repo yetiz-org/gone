@@ -32,7 +32,7 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}, future 
 		st := time.Now()
 		response.SetHeader(httpheadername.ContentEncoding, "gzip")
 		response.SetBody(h.gzipWrite(response.body))
-		params["[gone]compress_time"] = time.Now().Sub(st).Nanoseconds()
+		params["[gone-http]compress_time"] = time.Now().Sub(st).Nanoseconds()
 	}
 
 	ctx.Write(obj, future)
