@@ -21,7 +21,7 @@ func (c *Channel) UnsafeWrite(obj interface{}) error {
 		return channel.ErrUnknownObjectType
 	}
 
-	response := pack.Resp
+	response := pack.Response
 	for key, values := range response.header {
 		for _, value := range values {
 			c.writer.Header().Add(key, value)

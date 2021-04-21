@@ -274,8 +274,16 @@ func (p *DefaultPipeline) RemoveByName(name string) Pipeline {
 }
 
 func (p *DefaultPipeline) Clear() Pipeline {
-	p.head.setNext(nil)
-	p.tail.setPrev(nil)
+	if next := p.head.next(); next != nil {
+		next.setPrev(nil)
+	}
+
+	if prev := p.tail.prev(); prev != nil {
+		prev.setNext(nil)
+	}
+
+	p.head.setNext(p.tail)
+	p.tail.setPrev(p.head)
 	return p
 }
 

@@ -1,10 +1,8 @@
 package websocket
 
 import (
-	"net"
 	"net/http"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -15,38 +13,11 @@ import (
 
 type WSUpgradeProcessor struct {
 	channel.DefaultHandler
-	ch               channel.Channel
 	upgrade          *websocket.Upgrader
-	task             ServerHandlerTask
 	UpgradeCheckFunc func(req *gtp.Request, resp *gtp.Response, params map[string]interface{}) bool
 }
 
-func (h *WSUpgradeProcessor) Registered(ctx channel.HandlerContext) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.Registered(ctx)
-	}
-}
-
-func (h *WSUpgradeProcessor) Unregistered(ctx channel.HandlerContext) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.Unregistered(ctx)
-	}
-}
-
-func (h *WSUpgradeProcessor) Active(ctx channel.HandlerContext) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.Active(ctx)
-	}
-}
-
-func (h *WSUpgradeProcessor) Inactive(ctx channel.HandlerContext) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.Inactive(ctx)
-	}
-}
-
 func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
-	h.ch = ctx.Channel()
 	h.upgrade = &websocket.Upgrader{
 		CheckOrigin: func() func(r *http.Request) bool {
 			if channel.GetParamBoolDefault(ctx.Channel(), ParamCheckOrigin, true) {
@@ -58,38 +29,6 @@ func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
 			}
 		}(),
 	}
-
-}
-
-func (h *WSUpgradeProcessor) ReadCompleted(ctx channel.HandlerContext) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.ReadCompleted(ctx)
-	}
-}
-
-func (h *WSUpgradeProcessor) Disconnect(ctx channel.HandlerContext, future channel.Future) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.Disconnect(ctx, future)
-	}
-}
-
-func (h *WSUpgradeProcessor) Deregister(ctx channel.HandlerContext, future channel.Future) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.Deregister(ctx,future)
-	}
-}
-
-func (h *WSUpgradeProcessor) ErrorCaught(ctx channel.HandlerContext, err error) {
-	if handler, ok := h.task.(channel.Handler); ok {
-		handler.ErrorCaught(ctx,err)
-	}
-}
-
-func (h *WSUpgradeProcessor) slowDisconnect(ctx channel.HandlerContext) {
-	go func() {
-		time.Sleep(time.Second)
-		ctx.Channel().Disconnect()
-	}()
 }
 
 func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
@@ -97,322 +36,106 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 		return
 	}
 
-	if pkg, cast := obj.(*gtp.Pack); cast {
-		h.pack = pkg
-	} else if _, cast := obj.(*HttpWebsocketPack); cast {
-		ctx.FireRead(obj)
-		return
-	}
+	if pack, cast := obj.(*gtp.Pack); cast && pack.RouteNode != nil {
+		if task, ok := pack.RouteNode.HandlerTask().(ServerHandlerTask); ok {
+			for _, acceptance := range pack.RouteNode.AggregatedAcceptances() {
+				if err := acceptance.Do(pack.Request, pack.Response, pack.Params); err != nil {
+					if err == gtp.AcceptanceInterrupt {
+						return
+					}
 
-	var node gtp.RouteNode
-	if v, f := h.pack.Params["[gone]node"]; f {
-		node = v.(gtp.RouteNode)
-	} else {
-		kklogger.ErrorJ("WSUpgradeProcessor.Read#NotFound", "node is not in [gone]node")
-		return
-	}
+					kklogger.WarnJ("Acceptance", gtp.ObjectLogStruct{
+						ChannelID:  ctx.Channel().ID(),
+						TrackID:    pack.Request.TrackID(),
+						State:      "Fail",
+						URI:        pack.Request.RequestURI,
+						Handler:    reflect.TypeOf(acceptance).String(),
+						Message:    err.Error(),
+						RemoteAddr: pack.Request.Request.RemoteAddr,
+					})
 
-	task := func() ServerHandlerTask {
-		if task, ok := node.HandlerTask().(ServerHandlerTask); ok {
-			return task
-		}
+					ctx.Write(obj, nil)
+					return
+				} else {
+					if kklogger.GetLogLevel() < kklogger.TraceLevel {
+						continue
+					}
 
-		return nil
-	}()
+					kklogger.TraceJ("Acceptance", gtp.ObjectLogStruct{
+						ChannelID:  ctx.Channel().ID(),
+						TrackID:    pack.Request.TrackID(),
+						State:      "Pass",
+						URI:        pack.Request.RequestURI,
+						Handler:    reflect.TypeOf(acceptance).String(),
+						RemoteAddr: pack.Request.Request.RemoteAddr,
+					})
+				}
+			}
 
-	if task == nil {
-		return
-	}
-
-	var acceptances []gtp.Acceptance
-	for n := node; n != nil; n = n.Parent() {
-		if n.Acceptances() != nil && len(n.Acceptances()) > 0 {
-			acceptances = append(n.Acceptances(), acceptances...)
-		}
-	}
-
-	for _, acceptance := range acceptances {
-		if err := acceptance.Do(h.pack.Req, h.pack.Resp, h.pack.Params); err != nil {
-			if err == gtp.AcceptanceInterrupt {
+			if (h.UpgradeCheckFunc != nil && !h.UpgradeCheckFunc(pack.Request, pack.Response, pack.Params)) ||
+				(!task.WSUpgrade(pack.Request, pack.Response, pack.Params)) {
+				ctx.Write(pack, nil)
 				return
 			}
 
-			kklogger.WarnJ("Acceptance", gtp.ObjectLogStruct{
-				ChannelID:  ctx.Channel().ID(),
-				TrackID:    h.pack.Req.TrackID(),
-				State:      "Fail",
-				URI:        h.pack.Req.RequestURI,
-				Handler:    reflect.TypeOf(acceptance).String(),
-				Message:    err.Error(),
-				RemoteAddr: h.pack.Req.Request.RemoteAddr,
-			})
-
-			ctx.Write(obj, nil)
-			return
-		} else {
-			if kklogger.GetLogLevel() < kklogger.TraceLevel {
-				continue
-			}
-
-			kklogger.TraceJ("Acceptance", gtp.ObjectLogStruct{
-				ChannelID:  ctx.Channel().ID(),
-				TrackID:    h.pack.Req.TrackID(),
-				State:      "Pass",
-				URI:        h.pack.Req.RequestURI,
-				Handler:    reflect.TypeOf(acceptance).String(),
-				RemoteAddr: h.pack.Req.Request.RemoteAddr,
-			})
-		}
-	}
-
-	h.task = task
-	if (h.UpgradeCheckFunc != nil && !h.UpgradeCheckFunc(h.pack.Req, h.pack.Resp, h.pack.Params)) ||
-		(!h.task.WSUpgrade(h.pack.Req, h.pack.Resp, h.pack.Params)) {
-		ctx.Write(h.pack, nil)
-		return
-	}
-
-	timeMark := time.Now()
-	wsConn := func() *websocket.Conn {
-		wsConn, err := h.upgrade.Upgrade(h.pack.Writer, &h.pack.Req.Request, h.pack.Resp.Header())
-		if err != nil {
-			kklogger.ErrorJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(nil, err))
-			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
-			h.wsConnClosed = true
-			h.slowDisconnect(ctx)
-			return nil
-		}
-
-		return wsConn
-	}()
-
-	if wsConn == nil {
-		return
-	}
-
-	h.wsConn = wsConn
-	kklogger.DebugJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(nil, nil))
-	ctx.Channel().SetParam(ParamWSUpgrader, h)
-	ctx.Channel().SetParam(ParamWSDisconnectOnce, &sync.Once{})
-	h.pack.Params["[gone]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
-	wsConn.SetCloseHandler(h._CloseHandler)
-	wsConn.SetPingHandler(h._PingHandler)
-	wsConn.SetPongHandler(h._PongHandler)
-	h.task.WSConnected(nil, h.pack.Req, h.pack.Params)
-	for ctx.Channel().IsActive() {
-		timeMark = time.Now()
-		messageType, message, err := wsConn.ReadMessage()
-		if err != nil {
-			if _, ok := err.(*websocket.CloseError); ok {
-				kklogger.DebugJ("WSUpgradeProcessor.Read#Close", h._NewWSLog(nil, err))
-			} else {
-				kklogger.WarnJ("WSUpgradeProcessor.Read#ReadMessage", h._NewWSLog(nil, err))
-			}
-
-			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
-			h.wsConnClosed = true
-			ctx.Channel().Disconnect()
-			return
-		}
-
-		msg := _ParseMessage(messageType, message)
-		if msg != nil {
-			func() {
-				params := map[string]interface{}{"[gone]ws_read_time": time.Now().Sub(timeMark).Nanoseconds()}
-				for k, v := range h.pack.Params {
-					params[k] = v
+			timeMark := time.Now()
+			wsConn := func() *websocket.Conn {
+				wsConn, err := h.upgrade.Upgrade(pack.Writer, &pack.Request.Request, pack.Response.Header())
+				if err != nil {
+					kklogger.WarnJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI, nil, err))
+					ctx.Channel().Disconnect()
+					return nil
 				}
 
-				timeMark = time.Now()
-				var obj interface{} = &HttpWebsocketPack{
-					Request:     h.pack.Req,
-					HandlerTask: h.task,
-					Message:     msg,
-					Params:      params,
-				}
-
-				kklogger.TraceJ("WSUpgradeProcessor.Read#Read", h._NewWSLog(msg, nil))
-				ctx.FireRead(obj)
-				params["[gone]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
+				return wsConn
 			}()
-		}
-	}
-}
 
-func (h *WSUpgradeProcessor) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
-	if !ctx.Channel().IsActive() {
-		return
-	}
-
-	var message = func() Message {
-		if msg, ok := obj.(Message); ok {
-			return msg
-		}
-
-		return nil
-	}()
-
-	if message == nil {
-		kklogger.ErrorJ("WSUpgradeProcessor.Write#Cast", h._NewWSLog(message, ErrWrongObjectType))
-		return
-	}
-
-	wsConn := func() *websocket.Conn {
-		if obj := ctx.Channel().Param(ParamWSUpgrader); obj != nil {
-			if v, ok := obj.(*WSUpgradeProcessor); ok {
-				return v.wsConn
-			}
-		}
-
-		return nil
-	}()
-
-	if wsConn == nil {
-		kklogger.ErrorJ("WSUpgradeProcessor.Write#WSConn", h._NewWSLog(message, WSConnNotExist))
-		return
-	}
-
-	var err error
-	switch obj.(type) {
-	case *CloseMessage, *PingMessage, *PongMessage:
-		dead := func() time.Time {
-			if message.Deadline() == nil {
-				return time.Now().Add(time.Second)
+			if wsConn == nil {
+				return
 			}
 
-			return *message.Deadline()
-		}()
+			kklogger.DebugJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI, wsConn, nil))
+			pack.Params["[gone]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
 
-		h.writeLock.Lock()
-		err = func(message Message, dead time.Time) error {
-			defer h.writeLock.Unlock()
-			return wsConn.WriteControl(message.Type().wsLibType(), message.Encoded(), dead)
-		}(message, dead)
+			// create ws channel and replace it
+			ch := &ChildChannel{
+				wsConn: wsConn,
+			}
 
-		if err == websocket.ErrCloseSent {
-		} else if e, ok := err.(net.Error); ok && e.Temporary() {
-			err = nil
+			ch.DefaultNetChannel = &ctx.Channel().(*gtp.Channel).DefaultNetChannel
+			ch.Pipeline().(channel.PipelineSetChannel).SetChannel(ch)
+			ch.Pipeline().Clear()
+			ch.Pipeline().AddLast("WS_INVOKER", NewInvokeHandler(task))
+
+			params := map[string]interface{}{}
+			for k, v := range pack.Params {
+				params[k] = v
+			}
+
+			task.WSConnected(pack.Request, pack.Response, params)
+			ch.Read()
+		} else {
+			ctx.FireRead(obj)
+			return
 		}
-	case *DefaultMessage:
-		h.writeLock.Lock()
-		err = func(message Message) error {
-			defer h.writeLock.Unlock()
-			return wsConn.WriteMessage(message.Type().wsLibType(), message.Encoded())
-		}(message)
-	default:
-		err = ErrWrongObjectType
-	}
-
-	if err != nil {
-		ctx.Channel().Param(ParamWSDisconnectOnce).(*sync.Once).Do(func() {
-			ctx.Channel().Disconnect()
-			kklogger.WarnJ("WSUpgradeProcessor.Write#Write", h._NewWSLog(message, err))
-		})
+	} else {
+		ctx.FireRead(obj)
+		return
 	}
 }
 
-func (h *WSUpgradeProcessor) _PingHandler(message string) error {
-	msg := &PingMessage{
-		DefaultMessage: DefaultMessage{
-			MessageType: PingMessageType,
-			Message:     []byte(message),
-		},
-	}
-
-	params := map[string]interface{}{}
-	for k, v := range h.pack.Params {
-		params[k] = v
-	}
-
-	var obj interface{} = &HttpWebsocketPack{
-		Request:     h.pack.Req,
-		HandlerTask: h.task,
-		Message:     msg,
-		Params:      params,
-	}
-
-	kklogger.TraceJ("WSUpgradeProcessor._PingHandler#Read", h._NewWSLog(msg, nil))
-	h.ch.FireRead(obj)
-	return nil
-}
-
-func (h *WSUpgradeProcessor) _PongHandler(message string) error {
-	msg := &PongMessage{
-		DefaultMessage: DefaultMessage{
-			MessageType: PongMessageType,
-			Message:     []byte(message),
-		},
-	}
-
-	params := map[string]interface{}{}
-	for k, v := range h.pack.Params {
-		params[k] = v
-	}
-
-	var obj interface{} = &HttpWebsocketPack{
-		Request:     h.pack.Req,
-		HandlerTask: h.task,
-		Message:     msg,
-		Params:      params,
-	}
-
-	kklogger.TraceJ("WSUpgradeProcessor._PongHandler#Read", h._NewWSLog(msg, nil))
-	h.ch.FireRead(obj)
-	return nil
-}
-
-func (h *WSUpgradeProcessor) _CloseHandler(code int, text string) error {
-	msg := &CloseMessage{
-		DefaultMessage: DefaultMessage{
-			MessageType: CloseMessageType,
-			Message:     []byte(text),
-		},
-		CloseCode: CloseCode(code),
-	}
-
-	params := map[string]interface{}{}
-	for k, v := range h.pack.Params {
-		params[k] = v
-	}
-
-	var obj interface{} = &HttpWebsocketPack{
-		Request:     h.pack.Req,
-		HandlerTask: h.task,
-		Message:     msg,
-		Params:      params,
-	}
-
-	kklogger.TraceJ("WSUpgradeProcessor._CloseHandler#Read", h._NewWSLog(msg, nil))
-	h.ch.FireRead(obj)
-	return nil
-}
-
-type WSLogStruct struct {
-	LogType    string   `json:"log_type,omitempty"`
-	RemoteAddr net.Addr `json:"remote_addr,omitempty"`
-	LocalAddr  net.Addr `json:"local_addr,omitempty"`
-	RequestURI string   `json:"request_uri,omitempty"`
-	ChannelID  string   `json:"channel_id,omitempty"`
-	TrackID    string   `json:"trace_id,omitempty"`
-	Message    Message  `json:"message,omitempty"`
-	Error      error    `json:"error,omitempty"`
-}
-
-const WSLogType = "websocket"
-
-func (h *WSUpgradeProcessor) _NewWSLog(message Message, err error) *WSLogStruct {
+func (h *WSUpgradeProcessor) _NewWSLog(cID string, tID string, uri string, wsConn *websocket.Conn, err error) *WSLogStruct {
 	log := &WSLogStruct{
 		LogType:    WSLogType,
-		ChannelID:  h.ch.ID(),
-		TrackID:    h.pack.Req.TrackID(),
-		RequestURI: h.pack.Req.RequestURI,
-		Message:    message,
+		ChannelID:  cID,
+		TrackID:    tID,
+		RequestURI: uri,
 		Error:      err,
 	}
 
-	if h.wsConn != nil {
-		log.RemoteAddr = h.wsConn.RemoteAddr()
-		log.LocalAddr = h.wsConn.LocalAddr()
+	if wsConn != nil {
+		log.RemoteAddr = wsConn.RemoteAddr()
+		log.LocalAddr = wsConn.LocalAddr()
 	}
 
 	return log

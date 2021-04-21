@@ -7,7 +7,7 @@ import (
 
 type ClientHandler struct {
 	channel.DefaultHandler
-	WSTask
+	HandlerTask
 	params map[string]interface{}
 }
 

@@ -37,10 +37,11 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		return
 	}
 
-	request, response, params := pack.Req, pack.Resp, pack.Params
+	request, response, params := pack.Request, pack.Response, pack.Params
 	response.SetStatusCode(h.DefaultStatusCode)
 	timeMark := time.Now()
 	if node, nodeParams, isLast := h.route.RouteEndPoint(request); node != nil {
+		pack.RouteNode = node
 		params["[gone]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		params["[gone]node"] = node
 		params["[gone]node_name"] = node.Name()
@@ -62,14 +63,8 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		defer h._UpdateSessionCookie(response)
 		defer h._PanicCatch(ctx, request, response, task, params, &rtnCatch)
 		timeMark = time.Now()
-		var acceptances []Acceptance
-		for n := node; n != nil; n = n.Parent() {
-			if n.Acceptances() != nil && len(n.Acceptances()) > 0 {
-				acceptances = append(n.Acceptances(), acceptances...)
-			}
-		}
 
-		for _, acceptance := range acceptances {
+		for _, acceptance := range node.AggregatedAcceptances() {
 			if err := acceptance.Do(request, response, params); err != nil {
 				if err == AcceptanceInterrupt {
 					return

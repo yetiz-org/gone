@@ -139,6 +139,7 @@ type RouteNode interface {
 	Parent() RouteNode
 	HandlerTask() channel.HandlerTask
 	Name() string
+	AggregatedAcceptances() []Acceptance
 	Acceptances() []Acceptance
 	Resources() map[string]RouteNode
 	RouteType() RouteType
@@ -163,6 +164,18 @@ func (n *_Node) HandlerTask() channel.HandlerTask {
 
 func (n *_Node) Name() string {
 	return n.name
+}
+
+func (n *_Node) AggregatedAcceptances() []Acceptance {
+	var acceptances []Acceptance
+	var node RouteNode = n
+	for ; node != nil; node = node.Parent() {
+		if node.Acceptances() != nil && len(node.Acceptances()) > 0 {
+			acceptances = append(node.Acceptances(), acceptances...)
+		}
+	}
+
+	return acceptances
 }
 
 func (n *_Node) Acceptances() []Acceptance {

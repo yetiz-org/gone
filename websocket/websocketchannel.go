@@ -10,13 +10,14 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/kklab-com/gone/channel"
+	gtp "github.com/kklab-com/gone/http"
 	kklogger "github.com/kklab-com/goth-kklogger"
 )
 
 type Channel struct {
 	channel.DefaultNetChannel
 	wsConn   *websocket.Conn
-	Response *http.Response
+	Response *gtp.Response
 }
 
 func (c *Channel) Init() channel.Channel {
@@ -125,7 +126,7 @@ func (c *Channel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error {
 			return err
 		}
 
-		c.Response = resp
+		c.Response = gtp.WrapResponse(c, resp)
 		c.wsConn = wsConn
 		c.wsConn.SetPingHandler(c._PingHandler)
 		c.wsConn.SetPongHandler(c._PongHandler)
@@ -180,7 +181,7 @@ func (c *Channel) _NewWSLog(message Message, err error) *WSLogStruct {
 	log := &WSLogStruct{
 		LogType:    WSLogType,
 		ChannelID:  c.ID(),
-		RequestURI: c.Response.Request.RequestURI,
+		RequestURI: c.Response.Request().RequestURI,
 		Message:    message,
 		Error:      err,
 	}

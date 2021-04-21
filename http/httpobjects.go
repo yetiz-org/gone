@@ -224,6 +224,20 @@ type Response struct {
 	body       *bytes.Buffer
 }
 
+func WrapResponse(ch channel.NetChannel, response *http.Response) *Response {
+	resp := &Response{
+		request: &Request{
+			Request:   *response.Request,
+			CreatedAt: time.Now(),
+			channel:   ch,
+		},
+		statusCode: response.StatusCode,
+		header:     response.Header,
+	}
+
+	return resp
+}
+
 func (r *Response) Request() *Request {
 	return r.request
 }
@@ -338,10 +352,11 @@ type ResponseWriter interface {
 }
 
 type Pack struct {
-	Req    *Request               `json:"req"`
-	Resp   *Response              `json:"resp"`
-	Params map[string]interface{} `json:"params"`
-	Writer ResponseWriter         `json:"writer"`
+	Request   *Request               `json:"request"`
+	Response  *Response              `json:"response"`
+	RouteNode RouteNode              `json:"route_node"`
+	Params    map[string]interface{} `json:"params"`
+	Writer    ResponseWriter         `json:"writer"`
 }
 
 func _UnPack(obj interface{}) *Pack {

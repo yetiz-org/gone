@@ -7,7 +7,7 @@ import (
 )
 
 type DefaultTask struct {
-	websocket.WSServerHandler
+	websocket.DefaultServerHandlerTask
 }
 
 func (t *DefaultTask) WSPing(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {

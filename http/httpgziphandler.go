@@ -21,7 +21,7 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}, future 
 		return
 	}
 
-	response := pack.Resp
+	response := pack.Response
 	params := pack.Params
 	if response == nil {
 		ctx.Write(obj, future)

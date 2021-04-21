@@ -32,7 +32,7 @@ type UpgradeHandler struct {
 func (h *UpgradeHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {
 	if !h.wsConnClosed {
 		if h.task != nil {
-			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
+			h.task.WSDisconnected(nil, h.pack.Request, h.pack.Params)
 		}
 
 		h.wsConnClosed = true
@@ -113,19 +113,19 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	}
 
 	for _, acceptance := range acceptances {
-		if err := acceptance.Do(h.pack.Req, h.pack.Resp, h.pack.Params); err != nil {
+		if err := acceptance.Do(h.pack.Request, h.pack.Response, h.pack.Params); err != nil {
 			if err == gtp.AcceptanceInterrupt {
 				return
 			}
 
 			kklogger.WarnJ("Acceptance", gtp.ObjectLogStruct{
 				ChannelID:  ctx.Channel().ID(),
-				TrackID:    h.pack.Req.TrackID(),
+				TrackID:    h.pack.Request.TrackID(),
 				State:      "Fail",
-				URI:        h.pack.Req.RequestURI,
+				URI:        h.pack.Request.RequestURI,
 				Handler:    reflect.TypeOf(acceptance).String(),
 				Message:    err.Error(),
-				RemoteAddr: h.pack.Req.Request.RemoteAddr,
+				RemoteAddr: h.pack.Request.Request.RemoteAddr,
 			})
 
 			ctx.Write(obj, nil)
@@ -137,28 +137,28 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 			kklogger.TraceJ("Acceptance", gtp.ObjectLogStruct{
 				ChannelID:  ctx.Channel().ID(),
-				TrackID:    h.pack.Req.TrackID(),
+				TrackID:    h.pack.Request.TrackID(),
 				State:      "Pass",
-				URI:        h.pack.Req.RequestURI,
+				URI:        h.pack.Request.RequestURI,
 				Handler:    reflect.TypeOf(acceptance).String(),
-				RemoteAddr: h.pack.Req.Request.RemoteAddr,
+				RemoteAddr: h.pack.Request.Request.RemoteAddr,
 			})
 		}
 	}
 
 	h.task = task
-	if (h.UpgradeCheckFunc != nil && !h.UpgradeCheckFunc(h.pack.Req, h.pack.Resp, h.pack.Params)) ||
-		(!h.task.WSUpgrade(h.pack.Req, h.pack.Resp, h.pack.Params)) {
+	if (h.UpgradeCheckFunc != nil && !h.UpgradeCheckFunc(h.pack.Request, h.pack.Response, h.pack.Params)) ||
+		(!h.task.WSUpgrade(h.pack.Request, h.pack.Response, h.pack.Params)) {
 		ctx.Write(h.pack, nil)
 		return
 	}
 
 	timeMark := time.Now()
 	wsConn := func() *websocket.Conn {
-		wsConn, err := h.upgrader.Upgrade(h.pack.Writer, &h.pack.Req.Request, h.pack.Resp.Header())
+		wsConn, err := h.upgrader.Upgrade(h.pack.Writer, &h.pack.Request.Request, h.pack.Response.Header())
 		if err != nil {
 			kklogger.ErrorJ("UpgradeHandler.Read#WSUpgrade", h._NewWSLog(nil, err))
-			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
+			h.task.WSDisconnected(nil, h.pack.Request, h.pack.Params)
 			h.wsConnClosed = true
 			h.slowDisconnect(ctx)
 			return nil
@@ -179,7 +179,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	wsConn.SetCloseHandler(h._CloseHandler)
 	wsConn.SetPingHandler(h._PingHandler)
 	wsConn.SetPongHandler(h._PongHandler)
-	h.task.WSConnected(nil, h.pack.Req, h.pack.Params)
+	h.task.WSConnected(nil, h.pack.Request, h.pack.Params)
 	for ctx.Channel().IsActive() {
 		timeMark = time.Now()
 		messageType, message, err := wsConn.ReadMessage()
@@ -190,7 +190,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 				kklogger.WarnJ("UpgradeHandler.Read#ReadMessage", h._NewWSLog(nil, err))
 			}
 
-			h.task.WSDisconnected(nil, h.pack.Req, h.pack.Params)
+			h.task.WSDisconnected(nil, h.pack.Request, h.pack.Params)
 			h.wsConnClosed = true
 			ctx.Channel().Disconnect()
 			return
@@ -206,7 +206,7 @@ func (h *UpgradeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 				timeMark = time.Now()
 				var obj interface{} = &HttpWebsocketPack{
-					Request:     h.pack.Req,
+					Request:     h.pack.Request,
 					HandlerTask: h.task,
 					Message:     msg,
 					Params:      params,
@@ -306,7 +306,7 @@ func (h *UpgradeHandler) _PingHandler(message string) error {
 	}
 
 	var obj interface{} = &HttpWebsocketPack{
-		Request:     h.pack.Req,
+		Request:     h.pack.Request,
 		HandlerTask: h.task,
 		Message:     msg,
 		Params:      params,
@@ -331,7 +331,7 @@ func (h *UpgradeHandler) _PongHandler(message string) error {
 	}
 
 	var obj interface{} = &HttpWebsocketPack{
-		Request:     h.pack.Req,
+		Request:     h.pack.Request,
 		HandlerTask: h.task,
 		Message:     msg,
 		Params:      params,
@@ -357,7 +357,7 @@ func (h *UpgradeHandler) _CloseHandler(code int, text string) error {
 	}
 
 	var obj interface{} = &HttpWebsocketPack{
-		Request:     h.pack.Req,
+		Request:     h.pack.Request,
 		HandlerTask: h.task,
 		Message:     msg,
 		Params:      params,
@@ -385,8 +385,8 @@ func (h *UpgradeHandler) _NewWSLog(message Message, err error) *WSLogStruct {
 	log := &WSLogStruct{
 		LogType:    WSLogType,
 		ChannelID:  h.ch.ID(),
-		TrackID:    h.pack.Req.TrackID(),
-		RequestURI: h.pack.Req.RequestURI,
+		TrackID:    h.pack.Request.TrackID(),
+		RequestURI: h.pack.Request.RequestURI,
 		Message:    message,
 		Error:      err,
 	}

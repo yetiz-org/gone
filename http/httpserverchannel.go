@@ -40,10 +40,10 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cch.writer = w
 	request := NewRequest(cch, *r)
 	var pkg = &Pack{
-		Req:    request,
-		Resp:   NewResponse(request),
-		Params: map[string]interface{}{},
-		Writer: w,
+		Request:  request,
+		Response: NewResponse(request),
+		Params:   map[string]interface{}{},
+		Writer:   w,
 	}
 
 	var obj interface{} = pkg

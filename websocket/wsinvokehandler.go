@@ -10,7 +10,13 @@ import (
 )
 
 type InvokeHandler struct {
-	WSHandler
+	channel.DefaultHandler
+	DefaultHandlerTask
+	task HandlerTask
+}
+
+func NewInvokeHandler(task HandlerTask) *InvokeHandler {
+	return &InvokeHandler{task: task}
 }
 
 func (h *InvokeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
@@ -44,5 +50,5 @@ func (h *InvokeHandler) _Call(ctx channel.HandlerContext, req *http.Request, tas
 }
 
 func (h *InvokeHandler) ErrorCaught(ctx channel.HandlerContext, err error) {
-	kklogger.ErrorJ("websocket:InvokeHandler", err.Error())
+	kklogger.ErrorJ("websocket:InvokeHandler.ErrorCaught", err.Error())
 }
