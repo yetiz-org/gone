@@ -9,7 +9,7 @@ import (
 type ServerBootstrap interface {
 	Bootstrap
 	ChildHandler(handler Handler) ServerBootstrap
-	SetChildParams(key ParamKey, value interface{})
+	SetChildParams(key ParamKey, value interface{}) ServerBootstrap
 	ChildParams() *Params
 	Bind(localAddr net.Addr) Future
 }
@@ -25,8 +25,9 @@ func (d *DefaultServerBootstrap) ChildHandler(handler Handler) ServerBootstrap {
 	return d
 }
 
-func (d *DefaultServerBootstrap) SetChildParams(key ParamKey, value interface{}) {
+func (d *DefaultServerBootstrap) SetChildParams(key ParamKey, value interface{}) ServerBootstrap{
 	d.childParams.Store(key, value)
+	return d
 }
 
 func (d *DefaultServerBootstrap) ChildParams() *Params {

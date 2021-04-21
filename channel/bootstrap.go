@@ -10,7 +10,7 @@ type Bootstrap interface {
 	Handler(handler Handler) Bootstrap
 	ChannelType(ch Channel) Bootstrap
 	Connect(localAddr net.Addr, remoteAddr net.Addr) Future
-	SetParams(key ParamKey, value interface{})
+	SetParams(key ParamKey, value interface{}) Bootstrap
 	Params() *Params
 }
 
@@ -28,8 +28,9 @@ type DefaultBootstrap struct {
 	params      Params
 }
 
-func (d *DefaultBootstrap) SetParams(key ParamKey, value interface{}) {
+func (d *DefaultBootstrap) SetParams(key ParamKey, value interface{}) Bootstrap {
 	d.params.Store(key, value)
+	return d
 }
 
 func (d *DefaultBootstrap) Params() *Params {

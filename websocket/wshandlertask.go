@@ -25,6 +25,7 @@ type ServerHandlerTask interface {
 }
 
 type DefaultHandlerTask struct {
+	http.DefaultHandlerTask
 	Builder DefaultMessageBuilder
 }
 

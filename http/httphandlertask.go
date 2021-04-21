@@ -34,6 +34,7 @@ type HttpHandlerTask interface {
 var NotImplemented = erresponse.NotImplemented
 
 type DefaultHTTPTask struct {
+	DefaultHandlerTask
 }
 
 func (h *DefaultHTTPTask) Index(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
@@ -72,45 +73,44 @@ func (h *DefaultHTTPTask) Connect(req *Request, resp *Response, params map[strin
 	return nil
 }
 
-type DefaultHandlerTask struct {
-	DefaultHTTPTask
-}
-
-func NewDefaultHandlerTask() *DefaultHandlerTask {
-	return new(DefaultHandlerTask)
-}
-
-func (h *DefaultHandlerTask) ThrowErrorResponse(err ErrorResponse) {
+func (h *DefaultHTTPTask) ThrowErrorResponse(err ErrorResponse) {
 	panic(err)
 }
 
-func (h *DefaultHandlerTask) PreCheck(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) PreCheck(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHandlerTask) Before(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Before(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHandlerTask) After(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) After(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHandlerTask) ErrorCaught(req *Request, resp *Response, params map[string]interface{}, err ErrorResponse) error {
+func (h *DefaultHTTPTask) ErrorCaught(req *Request, resp *Response, params map[string]interface{}, err ErrorResponse) error {
 	resp.ResponseError(err)
 	return nil
 }
 
-func (h *DefaultHandlerTask) GetNodeName(params map[string]interface{}) string {
-	if rtn := params["[gone-http]node_name"]; rtn != nil {
+func (h *DefaultHandlerTask) IsIndex(params map[string]interface{}) string {
+	if rtn := params["[gone-http]is_index"]; rtn != nil {
 		return rtn.(string)
 	}
 
 	return ""
 }
 
-func (h *DefaultHandlerTask) IsIndex(params map[string]interface{}) string {
-	if rtn := params["[gone-http]is_index"]; rtn != nil {
+type DefaultHandlerTask struct {
+}
+
+func NewDefaultHandlerTask() *DefaultHandlerTask {
+	return new(DefaultHandlerTask)
+}
+
+func (h *DefaultHandlerTask) GetNodeName(params map[string]interface{}) string {
+	if rtn := params["[gone-http]node_name"]; rtn != nil {
 		return rtn.(string)
 	}
 

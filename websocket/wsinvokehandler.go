@@ -17,6 +17,10 @@ type InvokeHandler struct {
 }
 
 func NewInvokeHandler(task HandlerTask, params map[string]interface{}) *InvokeHandler {
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+	
 	return &InvokeHandler{task: task, params: params}
 }
 

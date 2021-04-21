@@ -2,32 +2,30 @@ package websocket
 
 import (
 	"github.com/kklab-com/gone/channel"
+	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/gone/websocket"
 )
 
 type ClientHandler struct {
-	websocket.ClientHandler
+	websocket.DefaultHandlerTask
 }
 
 func (h *ClientHandler) WSText(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]interface{}) {
 	println(message.StringMessage())
 }
 
-func (h *ClientHandler) ReadCompleted(ctx channel.HandlerContext) {
-	println("client read_completed")
+func (h *ClientHandler) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
+	println("client WSClose")
 }
 
-func (h *ClientHandler) Disconnect(ctx channel.HandlerContext, future channel.Future) {
-	println("client disconnect")
-	ctx.Disconnect(future)
+func (h *ClientHandler) WSBinary(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]interface{}) {
+	println("client WSBinary")
 }
 
-func (h *ClientHandler) Active(ctx channel.HandlerContext) {
-	println("client active")
-	ctx.FireActive()
+func (h *ClientHandler) WSConnected(req *http.Request, resp *http.Response, params map[string]interface{}) {
+	println("client WSConnected")
 }
 
-func (h *ClientHandler) Inactive(ctx channel.HandlerContext) {
-	println("client inactive")
-	ctx.FireInactive()
+func (h *ClientHandler) WSDisconnected(req *http.Request, resp *http.Response, params map[string]interface{}) {
+	println("client WSDisconnected")
 }
