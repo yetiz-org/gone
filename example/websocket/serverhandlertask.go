@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"fmt"
+
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/gone/websocket"
@@ -11,14 +13,20 @@ type ServerHandlerTask struct {
 	websocket.DefaultServerHandlerTask
 }
 
-func (t *ServerHandlerTask) WSPing(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {
+func (h *ServerHandlerTask) WSPing(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {
 	println("server WSPing")
+	h.DefaultServerHandlerTask.WSPing(ctx, message, params)
+	ctx.Channel().Write(h.Builder.Ping(nil, nil))
 }
 
-func (t *ServerHandlerTask) WSText(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]interface{}) {
-	println(message.StringMessage())
+func (h *ServerHandlerTask) WSPong(ctx channel.HandlerContext, message *websocket.PongMessage, params map[string]interface{}) {
+	println("server WSPong")
+}
+
+func (h *ServerHandlerTask) WSText(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]interface{}) {
 	println("server WSText")
-	var obj interface{} = t.Builder.Text(value.JsonMarshal(struct {
+	println(message.StringMessage())
+	var obj interface{} = h.Builder.Text(value.JsonMarshal(struct {
 		Params  map[string]interface{} `json:"params"`
 		Message string                 `json:"message"`
 	}{
@@ -29,15 +37,15 @@ func (t *ServerHandlerTask) WSText(ctx channel.HandlerContext, message *websocke
 	ctx.Write(obj, nil)
 }
 
-func (t *ServerHandlerTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
-	println("server WSClose")
+func (h *ServerHandlerTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
+	println(fmt.Sprintf("%s server WSClose %s", ctx.Channel().ID(), message.StringMessage()))
 }
 
-func (t *ServerHandlerTask) WSConnected(req *http.Request, resp *http.Response, params map[string]interface{}) {
-	println("server WSConnected")
+func (h *ServerHandlerTask) WSConnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{}) {
+	println(fmt.Sprintf("%s server WSConnected", ch.ID()))
 }
 
-func (t *ServerHandlerTask) WSDisconnected(req *http.Request, resp *http.Response, params map[string]interface{}) {
-	println("server WSDisconnected")
-	req.Channel().Parent().Close()
+func (h *ServerHandlerTask) WSDisconnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{}) {
+	println(fmt.Sprintf("%s server WSDisconnected", ch.ID()))
+	ch.Parent().Close()
 }

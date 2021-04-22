@@ -69,6 +69,5 @@ func (h *IndicateHandlerOutbound) Connect(ctx HandlerContext, localAddr net.Addr
 }
 
 func (h *IndicateHandlerOutbound) Disconnect(ctx HandlerContext, future Future) {
-	println(fmt.Sprintf("%s disconnect", ctx.Channel().ID()))
 	ctx.Disconnect(future)
 }

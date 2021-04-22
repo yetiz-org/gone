@@ -38,7 +38,7 @@ func (h *InvokeHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 func (h *InvokeHandler) Active(ctx channel.HandlerContext) {
 	if ch, ok := ctx.Channel().(*Channel); ok {
-		h.task.WSConnected(ch.Request, ch.Response, h.params)
+		h.task.WSConnected(ch, ch.Request, ch.Response, h.params)
 	}
 
 	ctx.FireActive()
@@ -46,7 +46,7 @@ func (h *InvokeHandler) Active(ctx channel.HandlerContext) {
 
 func (h *InvokeHandler) Inactive(ctx channel.HandlerContext) {
 	if ch, ok := ctx.Channel().(*Channel); ok {
-		h.task.WSDisconnected(ch.Request, ch.Response, h.params)
+		h.task.WSDisconnected(ch, ch.Request, ch.Response, h.params)
 	}
 
 	ctx.FireInactive()

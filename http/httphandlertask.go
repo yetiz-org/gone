@@ -3,19 +3,20 @@ package http
 import (
 	"fmt"
 
+	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-erresponse"
 )
 
 type HttpTask interface {
-	Index(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Get(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Post(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Put(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Delete(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Options(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Patch(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Trace(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
-	Connect(req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Index(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Post(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Put(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Delete(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Options(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Patch(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Trace(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
+	Connect(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse
 }
 
 type HandlerTask interface {
@@ -37,39 +38,39 @@ type DefaultHTTPTask struct {
 	DefaultHandlerTask
 }
 
-func (h *DefaultHTTPTask) Index(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Index(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return NotImplemented
 }
 
-func (h *DefaultHTTPTask) Get(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Post(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Post(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Put(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Put(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Delete(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Delete(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Options(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Options(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Patch(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Patch(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Trace(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Trace(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Connect(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPTask) Connect(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 

@@ -46,11 +46,10 @@ func (c *ServerChannel) UnsafeAccept() channel.Channel {
 		}
 
 		kklogger.ErrorJ("tcp:ServerChannel.UnsafeAccept", err.Error())
+		return nil
 	} else {
 		return c.DeriveNetChildChannel(&Channel{}, c, conn)
 	}
-
-	return nil
 }
 
 func (c *ServerChannel) UnsafeClose() error {

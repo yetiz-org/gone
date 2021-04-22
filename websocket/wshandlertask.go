@@ -14,8 +14,8 @@ type HandlerTask interface {
 	WSClose(ctx channel.HandlerContext, message *CloseMessage, params map[string]interface{})
 	WSBinary(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{})
 	WSText(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{})
-	WSConnected(req *http.Request, resp *http.Response, params map[string]interface{})
-	WSDisconnected(req *http.Request, resp *http.Response, params map[string]interface{})
+	WSConnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{})
+	WSDisconnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{})
 	WSErrorCaught(ctx channel.HandlerContext, req *http.Request, resp *http.Response, msg Message, err error)
 }
 
@@ -35,7 +35,7 @@ func (h *DefaultHandlerTask) ErrorCaught(ctx channel.HandlerContext, err error) 
 
 func (h *DefaultHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMessage, params map[string]interface{}) {
 	dead := time.Now().Add(time.Minute)
-	var obj interface{} = PongMessage{
+	rtn := &PongMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: PongMessageType,
 			Message:     message.Message,
@@ -43,7 +43,7 @@ func (h *DefaultHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMes
 		},
 	}
 
-	ctx.Write(&obj, nil)
+	ctx.Write(rtn, nil)
 }
 
 func (h *DefaultHandlerTask) WSPong(ctx channel.HandlerContext, message *PongMessage, params map[string]interface{}) {
@@ -58,10 +58,10 @@ func (h *DefaultHandlerTask) WSBinary(ctx channel.HandlerContext, message *Defau
 func (h *DefaultHandlerTask) WSText(ctx channel.HandlerContext, message *DefaultMessage, params map[string]interface{}) {
 }
 
-func (h *DefaultHandlerTask) WSConnected(req *http.Request, resp *http.Response, params map[string]interface{}) {
+func (h *DefaultHandlerTask) WSConnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{}) {
 }
 
-func (h *DefaultHandlerTask) WSDisconnected(req *http.Request, resp *http.Response, params map[string]interface{}) {
+func (h *DefaultHandlerTask) WSDisconnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{}) {
 }
 
 func (h *DefaultHandlerTask) WSErrorCaught(ctx channel.HandlerContext, req *http.Request, resp *http.Response, msg Message, err error) {
@@ -101,22 +101,22 @@ func (b *DefaultMessageBuilder) Close(msg []byte, closeCode CloseCode) *CloseMes
 	}
 }
 
-func (b *DefaultMessageBuilder) Ping(msg []byte, deadline time.Time) *PingMessage {
+func (b *DefaultMessageBuilder) Ping(msg []byte, deadline *time.Time) *PingMessage {
 	return &PingMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: PingMessageType,
 			Message:     msg,
-			Dead:        &deadline,
+			Dead:        deadline,
 		},
 	}
 }
 
-func (b *DefaultMessageBuilder) Pong(msg []byte, deadline time.Time) *PongMessage {
+func (b *DefaultMessageBuilder) Pong(msg []byte, deadline *time.Time) *PongMessage {
 	return &PongMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: PongMessageType,
 			Message:     msg,
-			Dead:        &deadline,
+			Dead:        deadline,
 		},
 	}
 }

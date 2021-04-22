@@ -207,7 +207,7 @@ func (c *DefaultChannel) activeChannel() {
 	go func(c Channel) {
 		<-c.context().Done()
 		if c.IsActive() {
-			if _, ok := c.(ServerChannel); !ok {
+			if _, ok := c.Pipeline().Channel().(ServerChannel); !ok {
 				c.Disconnect()
 			}
 		}
@@ -216,16 +216,18 @@ func (c *DefaultChannel) activeChannel() {
 
 func (c *DefaultChannel) inactiveChannel() {
 	c.ctxCancelFunc()
-	c.closeWG.Wait()
-	if c.IsActive() {
-		c.active = false
-		c.Pipeline().fireInactive()
-		c.Pipeline().fireUnregistered()
-		c.CloseFuture().(concurrent.ManualFuture).Success()
-		if c.Parent() != nil {
-			c.Parent().closeWaitGroup().Done()
+	go func(c *DefaultChannel) {
+		c.closeWG.Wait()
+		if c.IsActive() {
+			c.active = false
+			c.Pipeline().fireInactive()
+			c.Pipeline().fireUnregistered()
+			c.CloseFuture().(concurrent.ManualFuture).Success()
+			if c.Parent() != nil {
+				c.Parent().closeWaitGroup().Done()
+			}
 		}
-	}
+	}(c)
 }
 
 func (c *DefaultChannel) closeWaitGroup() *sync2.BurstWaitGroup {

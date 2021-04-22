@@ -100,7 +100,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 		params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		timeMark = time.Now()
-		rtnCatch.err = h.invokeMethod(task, request, response, params, isLast)
+		rtnCatch.err = h.invokeMethod(ctx, task, request, response, params, isLast)
 		params["[gone-http]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
 	} else {
 		defer ctx.Write(obj, nil)
@@ -180,7 +180,7 @@ type ReturnCatch struct {
 	err ErrorResponse
 }
 
-func (h *DispatchHandler) invokeMethod(task HttpHandlerTask, request *Request, response *Response, params map[string]interface{}, isLast bool) ErrorResponse {
+func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHandlerTask, request *Request, response *Response, params map[string]interface{}, isLast bool) ErrorResponse {
 	if err := task.PreCheck(request, response, params); err != nil {
 		return err
 	}
@@ -193,9 +193,9 @@ func (h *DispatchHandler) invokeMethod(task HttpHandlerTask, request *Request, r
 		switch {
 		case request.Method == httpmethod.GET:
 			if isLast {
-				if err := task.Index(request, response, params); err != nil {
+				if err := task.Index(ctx, request, response, params); err != nil {
 					if err == NotImplemented {
-						return task.Get(request, response, params)
+						return task.Get(ctx, request, response, params)
 					}
 
 					return err
@@ -203,22 +203,22 @@ func (h *DispatchHandler) invokeMethod(task HttpHandlerTask, request *Request, r
 
 				return nil
 			} else {
-				return task.Get(request, response, params)
+				return task.Get(ctx, request, response, params)
 			}
 		case request.Method == httpmethod.POST:
-			return task.Post(request, response, params)
+			return task.Post(ctx, request, response, params)
 		case request.Method == httpmethod.PUT:
-			return task.Put(request, response, params)
+			return task.Put(ctx, request, response, params)
 		case request.Method == httpmethod.DELETE:
-			return task.Delete(request, response, params)
+			return task.Delete(ctx, request, response, params)
 		case request.Method == httpmethod.OPTIONS:
-			return task.Options(request, response, params)
+			return task.Options(ctx, request, response, params)
 		case request.Method == httpmethod.PATCH:
-			return task.Patch(request, response, params)
+			return task.Patch(ctx, request, response, params)
 		case request.Method == httpmethod.TRACE:
-			return task.Trace(request, response, params)
+			return task.Trace(ctx, request, response, params)
 		case request.Method == httpmethod.CONNECT:
-			return task.Connect(request, response, params)
+			return task.Connect(ctx, request, response, params)
 		}
 
 		kklogger.WarnJ("DispatchHandler", fmt.Sprintf("no match method %s", request.Method))

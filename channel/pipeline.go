@@ -132,7 +132,10 @@ func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future
 				go func() {
 					for ctx.Channel().IsActive() {
 						if child := channel.UnsafeAccept(); child == nil {
-							kklogger.WarnJ("HeadHandler.UnsafeAccept", "nil child")
+							if ctx.Channel().IsActive() {
+								kklogger.WarnJ("HeadHandler.UnsafeAccept", "nil child")
+							}
+
 							return
 						} else {
 							child.Pipeline().fireRegistered()

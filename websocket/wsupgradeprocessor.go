@@ -109,7 +109,10 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 			ch.Pipeline().(channel.PipelineSetChannel).SetChannel(ch)
 			ch.Pipeline().Clear()
 			ch.Pipeline().AddLast("WS_INVOKER", NewInvokeHandler(task, pack.Params))
-			task.WSConnected(pack.Request, pack.Response, pack.Params)
+			ch.wsConn.SetPingHandler(ch._PingHandler)
+			ch.wsConn.SetPongHandler(ch._PongHandler)
+			ch.wsConn.SetCloseHandler(ch._CloseHandler)
+			task.WSConnected(ch, pack.Request, pack.Response, pack.Params)
 			ch.Read()
 			return
 		}

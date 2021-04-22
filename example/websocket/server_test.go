@@ -9,6 +9,7 @@ import (
 	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/gone/websocket"
 	"github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/sync"
 )
 
 func TestServer_Start(t *testing.T) {
@@ -42,7 +43,21 @@ func TestServer_Start(t *testing.T) {
 		Message:     []byte("write data"),
 	})
 
-	time.Sleep(time.Millisecond * 500)
+	bwg := sync.BurstWaitGroup{}
+	for i := 0; i < 100; i++ {
+		bwg.Add(1)
+		go func(i int) {
+			chs := bootstrap.Connect(nil, &websocket.WSCustomConnectConfig{Url: "ws://localhost:18081/echo", Header: nil}).Sync().Channel()
+			time.Sleep(time.Millisecond * 500)
+			if i%2 == 0 {
+				chs.Disconnect()
+			}
+
+			bwg.Done()
+		}(i)
+	}
+
+	bwg.Wait()
 	ch.Write(&websocket.CloseMessage{
 		DefaultMessage: websocket.DefaultMessage{
 			MessageType: websocket.CloseMessageType,
@@ -52,6 +67,5 @@ func TestServer_Start(t *testing.T) {
 	})
 
 	time.Sleep(time.Millisecond * 500)
-
 	server.CloseFuture().Sync()
 }

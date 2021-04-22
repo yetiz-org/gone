@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/kklab-com/gone/channel"
@@ -18,6 +19,7 @@ type ServerChannel struct {
 	server    *http.Server
 	active    bool
 	newChChan chan channel.Channel
+	chMap     sync.Map
 }
 
 const ConnCtx = "conn"
@@ -83,7 +85,14 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 			case http.StateActive:
 			case http.StateIdle:
 			case http.StateHijacked:
+				c.chMap.Delete(conn)
 			case http.StateClosed:
+				if v, f := c.chMap.LoadAndDelete(conn); f {
+					ch := v.(channel.Channel)
+					if ch.IsActive() {
+						ch.Deregister()
+					}
+				}
 			default:
 			}
 		},
@@ -94,6 +103,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 			ctx = context.WithValue(ctx, ConnCtx, conn)
 			ctx = context.WithValue(ctx, ConnChCtx, ch)
 			c.newChChan <- ch
+			c.chMap.Store(conn, ch)
 			return ctx
 		},
 	}

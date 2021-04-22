@@ -145,7 +145,7 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 
 				if c.IsActive() {
 					if err != io.EOF {
-						kklogger.WarnJ("DefaultNetChannel.UnsafeRead", err.Error())
+						kklogger.TraceJ("DefaultNetChannel.UnsafeRead", err.Error())
 					}
 
 					if !c.Conn().IsActive() {
