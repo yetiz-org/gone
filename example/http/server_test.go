@@ -51,7 +51,7 @@ func TestServer_Start(t *testing.T) {
 	} else {
 		assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 	}
-
+	
 	http2.DefaultClient.CloseIdleConnections()
 	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/close"); err != nil {
 		assert.Fail(t, err.Error())

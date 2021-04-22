@@ -73,36 +73,28 @@ func (c *Channel) UnsafeRead() error {
 		return net.ErrClosed
 	}
 
-	if !c.DoRead() {
-		return nil
-	}
-
-	go func() {
-		for c.IsActive() {
-			c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, 0))
-			typ, bs, err := c.wsConn.ReadMessage()
-			if err != nil {
-				if c.IsActive() {
-					if wsErr, ok := err.(*websocket.CloseError); !(ok && wsErr.Code == 1000) {
-						kklogger.WarnJ("websocket:Channel.read", err.Error())
-					}
-
-					if c.Conn().IsActive() {
-						c.Disconnect()
-					} else {
-						c.Deregister()
-					}
+	for c.IsActive() {
+		c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, 0))
+		typ, bs, err := c.wsConn.ReadMessage()
+		if err != nil {
+			if c.IsActive() {
+				if wsErr, ok := err.(*websocket.CloseError); !(ok && wsErr.Code == 1000) {
+					kklogger.WarnJ("websocket:Channel.read", err.Error())
 				}
 
-				return
-			} else {
-				c.FireRead(_ParseMessage(typ, bs))
-				c.FireReadCompleted()
+				if c.Conn().IsActive() {
+					c.Disconnect()
+				} else {
+					c.Deregister()
+				}
 			}
-		}
 
-		c.ReleaseRead()
-	}()
+			return nil
+		} else {
+			c.FireRead(_ParseMessage(typ, bs))
+			c.FireReadCompleted()
+		}
+	}
 
 	return nil
 }

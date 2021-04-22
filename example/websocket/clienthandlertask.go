@@ -36,7 +36,7 @@ func (h *ClientHandlerTask) WSBinary(ctx channel.HandlerContext, message *websoc
 
 func (h *ClientHandlerTask) WSConnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{}) {
 	println(fmt.Sprintf("%s client WSConnected", ch.ID()))
-	ch.Write(h.Builder.Ping(nil, nil))
+	ch.Write(h.Builder.Ping(nil, nil)).Sync()
 }
 
 func (h *ClientHandlerTask) WSDisconnected(ch channel.Channel, req *http.Request, resp *http.Response, params map[string]interface{}) {

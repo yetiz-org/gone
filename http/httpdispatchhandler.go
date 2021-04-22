@@ -10,6 +10,7 @@ import (
 	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone-httpstatus"
 	"github.com/kklab-com/gone/channel"
+	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/gone/http/httpmethod"
 	"github.com/kklab-com/goth-erresponse"
 	"github.com/kklab-com/goth-kklogger"
@@ -59,7 +60,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		}
 
 		var rtnCatch ReturnCatch
-		defer ctx.Write(obj, nil)
+		defer func() { ctx.Write(obj, &channel.DefaultFuture{Future: concurrent.NewFuture(nil)}).Sync() }()
 		defer h._UpdateSessionCookie(response)
 		defer h._PanicCatch(ctx, request, response, task, params, &rtnCatch)
 		timeMark = time.Now()
@@ -103,7 +104,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		rtnCatch.err = h.invokeMethod(ctx, task, request, response, params, isLast)
 		params["[gone-http]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
 	} else {
-		defer ctx.Write(obj, nil)
+		defer func() { ctx.Write(obj, &channel.DefaultFuture{Future: concurrent.NewFuture(nil)}).Sync() }()
 		defer h._UpdateSessionCookie(response)
 		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		if upgrade := request.Header.Get(httpheadername.Upgrade); upgrade != "" {

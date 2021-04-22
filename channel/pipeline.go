@@ -11,6 +11,7 @@ import (
 
 type Pipeline interface {
 	AddLast(name string, elem Handler) Pipeline
+	AddBefore(target string, name string, elem Handler) Pipeline
 	RemoveFirst() Pipeline
 	Remove(elem Handler) Pipeline
 	RemoveByName(name string) Pipeline
@@ -48,27 +49,6 @@ type DefaultPipeline struct {
 	tail    HandlerContext
 	carrier Params
 	channel Channel
-}
-
-func (p *DefaultPipeline) Channel() Channel {
-	return p.channel
-}
-
-func (p *DefaultPipeline) RemoveFirst() Pipeline {
-	final := p.head
-	if final.next() == nil {
-		return p
-	}
-
-	next := final.next()
-	if next.next() != nil {
-		next.next().setPrev(final)
-		final.setNext(next.next())
-	}
-
-	next.setNext(nil)
-	next.setPrev(nil)
-	return p
 }
 
 func _NewDefaultPipeline(channel Channel) Pipeline {
@@ -173,6 +153,49 @@ func (p *DefaultPipeline) AddLast(name string, elem Handler) Pipeline {
 	return p
 }
 
+func (p *DefaultPipeline) AddBefore(target string, name string, elem Handler) Pipeline {
+	targetCtx := p.head
+	for targetCtx != nil {
+		if targetCtx.Name() == target {
+			break
+		}
+
+		targetCtx = targetCtx.next()
+	}
+
+	if targetCtx == nil {
+		return p
+	}
+
+	ctx := NewHandlerContext()
+	ctx.pipeline = p
+	ctx.name = name
+	ctx.setNext(targetCtx)
+	ctx.setPrev(targetCtx.prev())
+	ctx.next().setPrev(ctx)
+	ctx.prev().setNext(ctx)
+	ctx._handler = elem
+	ctx._handler.Added(p.head)
+	return p
+}
+
+func (p *DefaultPipeline) RemoveFirst() Pipeline {
+	final := p.head
+	if final.next() == nil {
+		return p
+	}
+
+	next := final.next()
+	if next.next() != nil {
+		next.next().setPrev(final)
+		final.setNext(next.next())
+	}
+
+	next.setNext(nil)
+	next.setPrev(nil)
+	return p
+}
+
 func (p *DefaultPipeline) Remove(elem Handler) Pipeline {
 	final := p.head.next()
 	for final != nil && final != p.tail {
@@ -205,6 +228,10 @@ func (p *DefaultPipeline) RemoveByName(name string) Pipeline {
 	}
 
 	return p
+}
+
+func (p *DefaultPipeline) Channel() Channel {
+	return p.channel
 }
 
 func (p *DefaultPipeline) Clear() Pipeline {
@@ -307,5 +334,7 @@ func (p *DefaultPipeline) newFuture() Future {
 }
 
 func (p *DefaultPipeline) SetChannel(channel Channel) {
+	p.channel.unsafe().Destroy()
 	p.channel = channel
+	channel.setUnsafe(NewUnsafe(channel, 128))
 }

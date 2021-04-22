@@ -2,6 +2,7 @@ package channel
 
 import (
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,9 +27,9 @@ type DefaultUnsafe struct {
 	bindS,
 	closeS,
 	connectS,
-	disconnectS,
-	deregisterS int32
-	wChan chan *unsafeExecuteElem
+	disconnectS int32
+	wChan       chan *unsafeExecuteElem
+	destroyOnce sync.Once
 }
 
 func NewUnsafe(channel Channel, buffer int) Unsafe {
@@ -47,7 +48,7 @@ func (u *DefaultUnsafe) Read() {
 }
 
 func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
-	if obj != nil {
+	if obj != nil && u.channel.IsActive() {
 		u.wChan <- &unsafeExecuteElem{obj: obj, future: future}
 	} else {
 		if future != nil {
@@ -60,6 +61,11 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 			for u.channel.IsActive() {
 				select {
 				case elem := <-u.wChan:
+					if elem == nil {
+						// pending close
+						break
+					}
+
 					if err := channel.UnsafeWrite(elem.obj); err != nil {
 						u.channel.inactiveChannel()
 						u.futureCancel(elem.future)
@@ -69,6 +75,8 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 				case <-time.After(time.Millisecond * 100):
 					break
 				}
+
+				break
 			}
 
 			u.resetState(&u.writeS)
@@ -86,7 +94,6 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 	}
 
 	if channel, ok := u.channel.(UnsafeBind); ok && u.markState(&u.bindS) && !u.channel.CloseFuture().IsDone() {
-		u.markState(&u.bindS)
 		go func(u *DefaultUnsafe, elem *unsafeExecuteElem) {
 			defer u.resetState(&u.bindS)
 			if err := channel.UnsafeBind(elem.localAddr); err != nil {
@@ -119,48 +126,60 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 }
 
 func (u *DefaultUnsafe) Close(future Future) {
-	if channel, ok := u.channel.(UnsafeClose); ok && !u.channel.CloseFuture().IsDone() {
-		u.channel.inactiveChannel()
-		err := channel.UnsafeClose()
-		if err != nil {
-			kklogger.ErrorJ("DefaultUnsafe.Close", err.Error())
-		}
+	if channel, ok := u.channel.(UnsafeClose); ok && u.markState(&u.closeS) && !u.channel.CloseFuture().IsDone() {
+		go func(u *DefaultUnsafe, elem *unsafeExecuteElem) {
+			defer u.resetState(&u.closeS)
+			u.channel.inactiveChannel()
+			err := channel.UnsafeClose()
+			if err != nil {
+				kklogger.ErrorJ("DefaultUnsafe.Close", err.Error())
+			}
 
-		if err != nil {
-			u.futureCancel(future)
-		} else {
-			u.futureSuccess(future)
-		}
+			u.futureSuccess(elem.future)
+		}(u, &unsafeExecuteElem{future: future})
 	}
 }
 
 func (u *DefaultUnsafe) Connect(localAddr net.Addr, remoteAddr net.Addr, future Future) {
-	if channel, ok := u.channel.(UnsafeConnect); ok && !u.channel.CloseFuture().IsDone() {
-		if err := channel.UnsafeConnect(localAddr, remoteAddr); err != nil {
-			kklogger.ErrorJ("DefaultUnsafe.Connect", err.Error())
-			u.channel.inactiveChannel()
-			u.futureCancel(future)
-		} else {
-			u.channel.activeChannel()
-			u.futureSuccess(future)
-		}
+	if remoteAddr == nil {
+		u.futureCancel(future)
+		return
+	}
+
+	if channel, ok := u.channel.(UnsafeConnect); ok && u.markState(&u.connectS) && !u.channel.CloseFuture().IsDone() {
+		go func(u *DefaultUnsafe, elem *unsafeExecuteElem) {
+			defer u.resetState(&u.connectS)
+			if err := channel.UnsafeConnect(elem.localAddr, elem.remoteAddr); err != nil {
+				kklogger.ErrorJ("DefaultUnsafe.Connect", err.Error())
+				u.channel.inactiveChannel()
+				u.futureCancel(elem.future)
+			} else {
+				u.channel.activeChannel()
+				u.futureSuccess(elem.future)
+			}
+		}(u, &unsafeExecuteElem{localAddr: localAddr, remoteAddr: remoteAddr, future: future})
 	}
 }
 
 func (u *DefaultUnsafe) Disconnect(future Future) {
-	if channel, ok := u.channel.(UnsafeDisconnect); ok && !u.channel.CloseFuture().IsDone() {
-		u.channel.inactiveChannel()
-		err := channel.UnsafeDisconnect()
-		if err != nil {
-			u.futureCancel(future)
-		} else {
-			u.futureSuccess(future)
-		}
+	if channel, ok := u.channel.(UnsafeDisconnect); ok && u.markState(&u.disconnectS) && !u.channel.CloseFuture().IsDone() {
+		go func(u *DefaultUnsafe, elem *unsafeExecuteElem) {
+			defer u.resetState(&u.disconnectS)
+			u.channel.inactiveChannel()
+			err := channel.UnsafeDisconnect()
+			if err != nil {
+				kklogger.ErrorJ("DefaultUnsafe.Disconnect", err.Error())
+			}
+
+			u.futureSuccess(elem.future)
+		}(u, &unsafeExecuteElem{future: future})
 	}
 }
 
 func (u *DefaultUnsafe) Destroy() {
-	close(u.wChan)
+	u.destroyOnce.Do(func() {
+		close(u.wChan)
+	})
 }
 
 func (u *DefaultUnsafe) markState(state *int32) bool {

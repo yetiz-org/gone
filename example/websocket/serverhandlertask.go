@@ -16,7 +16,7 @@ type ServerHandlerTask struct {
 func (h *ServerHandlerTask) WSPing(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {
 	println("server WSPing")
 	h.DefaultServerHandlerTask.WSPing(ctx, message, params)
-	ctx.Channel().Write(h.Builder.Ping(nil, nil))
+	ctx.Channel().Write(h.Builder.Ping(nil, nil)).Sync()
 }
 
 func (h *ServerHandlerTask) WSPong(ctx channel.HandlerContext, message *websocket.PongMessage, params map[string]interface{}) {
@@ -34,7 +34,7 @@ func (h *ServerHandlerTask) WSText(ctx channel.HandlerContext, message *websocke
 		Message: message.StringMessage(),
 	}))
 
-	ctx.Write(obj, nil)
+	ctx.Write(obj, nil).Sync()
 }
 
 func (h *ServerHandlerTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {

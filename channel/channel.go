@@ -225,8 +225,8 @@ func (c *DefaultChannel) inactiveChannel() {
 	c.ctxCancelFunc()
 	go func(c *DefaultChannel) {
 		c.closeWG.Wait()
-		c.unsafe().Destroy()
 		if c.IsActive() {
+			c.unsafe().Destroy()
 			c.active = false
 			c.Pipeline().fireInactive()
 			c.Pipeline().fireUnregistered()

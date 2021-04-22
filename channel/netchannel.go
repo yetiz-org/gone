@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"reflect"
-	"sync/atomic"
 	"time"
 
 	"github.com/kklab-com/goth-kklogger"
@@ -31,7 +30,6 @@ type DefaultNetChannel struct {
 	BufferSize   int
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
-	rState       int32
 }
 
 func (c *DefaultNetChannel) Init() Channel {
@@ -76,14 +74,6 @@ func (c *DefaultNetChannel) SetConn(conn net.Conn) {
 	c.setConn(conn)
 }
 
-func (c *DefaultNetChannel) DoRead() bool {
-	return atomic.CompareAndSwapInt32(&c.rState, 0, 1)
-}
-
-func (c *DefaultNetChannel) ReleaseRead() {
-	atomic.StoreInt32(&c.rState, 0)
-}
-
 func (c *DefaultNetChannel) UnsafeWrite(obj interface{}) error {
 	if c.Conn() == nil {
 		return ErrNilObject
@@ -125,56 +115,50 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 		return net.ErrClosed
 	}
 
-	if !c.DoRead() {
-		return nil
-	}
-
-	kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 1")
-	go func() {
-		for c.IsActive() {
-			bs := make([]byte, c.BufferSize)
-			if c.ReadTimeout > 0 {
-				c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout))
-			}
-
-			rc, err := c.Conn().Read(bs)
-			if err != nil {
-				if errors.Is(err, os.ErrDeadlineExceeded) && c.Conn().IsActive() {
-					continue
-				}
-
-				if c.IsActive() {
-					if err != io.EOF {
-						kklogger.TraceJ("DefaultNetChannel.UnsafeRead", err.Error())
-					}
-
-					if !c.Conn().IsActive() {
-						c.Deregister()
-						break
-					}
-				} else if err == io.EOF {
-					break
-				}
-			} else {
-				if rc == 0 {
-					continue
-				}
-
-				c.FireRead(buf.NewByteBuf(bs[:rc]))
-				c.FireReadCompleted()
-			}
+	for c.IsActive() {
+		bs := make([]byte, c.BufferSize)
+		if c.ReadTimeout > 0 {
+			c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout))
 		}
 
-		c.ReleaseRead()
-		kklogger.TraceJ("DefaultNetChannel.UnsafeRead", "change read state to 0")
-	}()
+		rc, err := c.Conn().Read(bs)
+		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) && c.Conn().IsActive() {
+				continue
+			}
+
+			if c.IsActive() {
+				if err != io.EOF {
+					kklogger.TraceJ("DefaultNetChannel.UnsafeRead", err.Error())
+				}
+
+				if !c.Conn().IsActive() {
+					c.Deregister()
+					break
+				}
+			} else if err == io.EOF {
+				break
+			}
+		} else {
+			if rc == 0 {
+				continue
+			}
+
+			c.FireRead(buf.NewByteBuf(bs[:rc]))
+			c.FireReadCompleted()
+		}
+	}
 
 	return nil
 }
 
 func (c *DefaultNetChannel) UnsafeDisconnect() error {
 	if c.Conn() != nil {
-		return c.Conn().Close()
+		if c.Conn().IsActive(){
+			return c.Conn().Close()
+		}
+
+		return nil
 	}
 
 	return ErrNilObject

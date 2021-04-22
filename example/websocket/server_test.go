@@ -44,7 +44,7 @@ func TestServer_Start(t *testing.T) {
 	})
 
 	bwg := sync.BurstWaitGroup{}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		bwg.Add(1)
 		go func(i int) {
 			chs := bootstrap.Connect(nil, &websocket.WSCustomConnectConfig{Url: "ws://localhost:18081/echo", Header: nil}).Sync().Channel()
@@ -58,6 +58,7 @@ func TestServer_Start(t *testing.T) {
 	}
 
 	bwg.Wait()
+	time.Sleep(time.Millisecond * 10)
 	ch.Write(&websocket.CloseMessage{
 		DefaultMessage: websocket.DefaultMessage{
 			MessageType: websocket.CloseMessageType,
