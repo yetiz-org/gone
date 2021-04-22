@@ -11,7 +11,7 @@ require (
 	github.com/kklab-com/goth-erresponse v0.0.0-20210329103642-901ec32d20a1
 	github.com/kklab-com/goth-kkdatastore v0.0.0-20210407061003-88f2914e2020
 	github.com/kklab-com/goth-kklogger v0.0.0-20210329135227-9693bea481eb
-	github.com/kklab-com/goth-kkutil v0.0.0-20210422081622-b06ae3649763
+	github.com/kklab-com/goth-kkutil v0.0.0-20210422085734-f0e50b45c741
 	github.com/kklab-com/goth-panic v0.0.0-20210415075005-d0c9fd7f436f
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/pkg/errors v0.8.0
