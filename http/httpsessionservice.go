@@ -21,7 +21,7 @@ var defaultSessionProvider httpsession.SessionProvider = nil
 var once = sync.Once{}
 
 var DefaultSessionType = SessionTypeMemory
-var SessionKey = "KKBOX"
+var SessionKey = "KKLAB"
 var SessionDomain = ""
 var SessionExpireTime = 86400
 var SessionHttpOnly = false

@@ -34,12 +34,14 @@ type Channel interface {
 	Parent() ServerChannel
 	LocalAddr() net.Addr
 	context() context.Context
+	unsafe() Unsafe
 	op() *sync.Mutex
 	setLocalAddr(addr net.Addr)
 	activeChannel()
 	inactiveChannel()
 	closeWaitGroup() *sync2.BurstWaitGroup
 	setPipeline(pipeline Pipeline)
+	setUnsafe(unsafe Unsafe)
 	setParent(channel ServerChannel)
 	setContext(ctx context.Context)
 	setContextCancelFunc(cancel context.CancelFunc)
@@ -91,6 +93,7 @@ type DefaultChannel struct {
 	localAddr     net.Addr
 	active        bool
 	pipeline      Pipeline
+	_unsafe       Unsafe
 	parent        ServerChannel
 	closeFuture   Future
 	closeWG       sync2.BurstWaitGroup
@@ -192,6 +195,10 @@ func (c *DefaultChannel) context() context.Context {
 	return c.ctx
 }
 
+func (c *DefaultChannel) unsafe() Unsafe {
+	return c._unsafe
+}
+
 func (c *DefaultChannel) op() *sync.Mutex {
 	return &c.opLock
 }
@@ -218,6 +225,7 @@ func (c *DefaultChannel) inactiveChannel() {
 	c.ctxCancelFunc()
 	go func(c *DefaultChannel) {
 		c.closeWG.Wait()
+		c.unsafe().Destroy()
 		if c.IsActive() {
 			c.active = false
 			c.Pipeline().fireInactive()
@@ -236,6 +244,10 @@ func (c *DefaultChannel) closeWaitGroup() *sync2.BurstWaitGroup {
 
 func (c *DefaultChannel) setPipeline(pipeline Pipeline) {
 	c.pipeline = pipeline
+}
+
+func (c *DefaultChannel) setUnsafe(unsafe Unsafe) {
+	c._unsafe = unsafe
 }
 
 func (c *DefaultChannel) setParent(channel ServerChannel) {
