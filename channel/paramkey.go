@@ -6,6 +6,10 @@ import (
 
 type ParamKey string
 
+const ParamReadBufferSize = ParamKey("read_buffer_size")
+const ParamReadTimeout = ParamKey("read_timeout")
+const ParamWriteTimeout = ParamKey("write_timeout")
+
 func GetParamIntDefault(ch Channel, key ParamKey, defaultValue int) int {
 	switch v := ch.Param(key).(type) {
 	case int8:

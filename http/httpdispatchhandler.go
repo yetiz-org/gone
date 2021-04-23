@@ -1,7 +1,6 @@
 package http
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -10,24 +9,29 @@ import (
 	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone-httpstatus"
 	"github.com/kklab-com/gone/channel"
+	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/gone/http/httpmethod"
 	"github.com/kklab-com/goth-erresponse"
 	"github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/buf"
 	"github.com/kklab-com/goth-kkutil/hash"
 	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type DispatchHandler struct {
 	channel.DefaultHandler
-	route             Route
-	DefaultStatusCode int
-	NotFound404       *bytes.Buffer
+	route                 Route
+	DefaultStatusCode     int
+	DefaultStatusResponse map[int]func(req *Request, resp *Response, params map[string]interface{})
 }
 
 func NewDispatchHandler(route Route) *DispatchHandler {
-	return &DispatchHandler{route: route,
-		DefaultStatusCode: 200,
-		NotFound404:       bytes.NewBufferString("<html><img src='https://http.cat/404' /></html>")}
+	return &DispatchHandler{route: route, DefaultStatusCode: 200, DefaultStatusResponse: map[int]func(req *Request, resp *Response, params map[string]interface{}){}}
+}
+
+func (h *DispatchHandler) defaultNotFound404(req *Request, resp *Response, params map[string]interface{}) {
+	resp.SetStatusCode(httpstatus.NotFound)
+	resp.SetBody(buf.NewByteBuf([]byte("<html><img src='https://http.cat/404' /></html>")))
 }
 
 func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
@@ -37,53 +41,47 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 		return
 	}
 
-	request, response, params := pack.Req, pack.Resp, pack.Params
+	request, response, params := pack.Request, pack.Response, pack.Params
 	response.SetStatusCode(h.DefaultStatusCode)
 	timeMark := time.Now()
 	if node, nodeParams, isLast := h.route.RouteEndPoint(request); node != nil {
-		params["[gone]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
-		params["[gone]node"] = node
-		params["[gone]node_name"] = node.Name()
-		params["[gone]is_index"] = isLast
+		pack.RouteNode = node
+		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]node"] = node
+		params["[gone-http]node_name"] = node.Name()
+		params["[gone-http]is_index"] = isLast
 		if nodeParams != nil {
 			for k, v := range nodeParams {
 				params[k] = v
 			}
 		}
 
-		task, ok := node.HandlerTask().(HandlerTask)
+		task, ok := node.HandlerTask().(HttpHandlerTask)
 		if !ok {
 			ctx.FireRead(obj)
 			return
 		}
 
 		var rtnCatch ReturnCatch
-		defer ctx.FireWrite(obj)
+		defer h.callWrite(ctx, obj)
 		defer h._UpdateSessionCookie(response)
 		defer h._PanicCatch(ctx, request, response, task, params, &rtnCatch)
 		timeMark = time.Now()
-		var acceptances []Acceptance
-		for n := node; n != nil; n = n.Parent() {
-			if n.Acceptances() != nil && len(n.Acceptances()) > 0 {
-				acceptances = append(n.Acceptances(), acceptances...)
-			}
-		}
-
-		for _, acceptance := range acceptances {
+		for _, acceptance := range node.AggregatedAcceptances() {
 			if err := acceptance.Do(request, response, params); err != nil {
 				if err == AcceptanceInterrupt {
 					return
 				}
 
-				params["[gone]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
+				params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
 				kklogger.WarnJ("Acceptance", ObjectLogStruct{
 					ChannelID:  ctx.Channel().ID(),
 					TrackID:    request.TrackID(),
 					State:      "Fail",
-					URI:        request.RequestURI,
+					URI:        request.RequestURI(),
 					Handler:    reflect.TypeOf(acceptance).String(),
 					Message:    err.Error(),
-					RemoteAddr: request.Request.RemoteAddr,
+					RemoteAddr: request.Request().RemoteAddr,
 				})
 
 				return
@@ -96,41 +94,51 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 					ChannelID:  ctx.Channel().ID(),
 					TrackID:    request.TrackID(),
 					State:      "Pass",
-					URI:        request.RequestURI,
+					URI:        request.RequestURI(),
 					Handler:    reflect.TypeOf(acceptance).String(),
-					RemoteAddr: request.Request.RemoteAddr,
+					RemoteAddr: request.Request().RemoteAddr,
 				})
 			}
 		}
 
-		params["[gone]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		timeMark = time.Now()
-		rtnCatch.err = h.invokeMethod(task, request, response, params, isLast)
-		params["[gone]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		rtnCatch.err = h.invokeMethod(ctx, task, request, response, params, isLast)
+		params["[gone-http]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
 	} else {
-		defer ctx.FireWrite(obj)
+		defer h.callWrite(ctx, obj)
 		defer h._UpdateSessionCookie(response)
-		params["[gone]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
-		if upgrade := request.Header.Get(httpheadername.Upgrade); upgrade != "" {
+		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		if upgrade := request.Header().Get(httpheadername.Upgrade); upgrade != "" {
 			response.Header().Set(httpheadername.Upgrade, upgrade)
 		}
 
-		if connection := request.Header.Get(httpheadername.Connection); connection != "" {
+		if connection := request.Header().Get(httpheadername.Connection); connection != "" {
 			response.Header().Set(httpheadername.Connection, connection)
 		}
 
-		response.statusCode = httpstatus.NotFound
-		response.body = h.NotFound404
+		response.SetStatusCode(404)
 		kklogger.WarnJ("DispatchHandler.Read#EndpointNotExist", ObjectLogStruct{
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    request.TrackID(),
-			URI:        request.RequestURI,
-			RemoteAddr: request.Request.RemoteAddr,
+			URI:        request.RequestURI(),
+			RemoteAddr: request.Request().RemoteAddr,
 		})
 	}
 }
 
-func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Request, response *Response, task HandlerTask, params map[string]interface{}, rtnCatch *ReturnCatch) {
+func (h *DispatchHandler) callWrite(ctx channel.HandlerContext, obj interface{}) {
+	pack := _UnPack(obj)
+	if ff, f := h.DefaultStatusResponse[pack.Response.StatusCode()]; f {
+		ff(pack.Request, pack.Response, pack.Params)
+	} else if pack.Response.StatusCode() == 404 {
+		h.defaultNotFound404(pack.Request, pack.Response, pack.Params)
+	}
+
+	ctx.Write(obj, &channel.DefaultFuture{Future: concurrent.NewFuture(nil)}).Sync()
+}
+
+func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Request, response *Response, task HttpHandlerTask, params map[string]interface{}, rtnCatch *ReturnCatch) {
 	erErr := rtnCatch.err
 	timeMark := time.Now()
 	var err error
@@ -150,9 +158,9 @@ func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Reque
 		kklogger.ErrorJ("DispatchHandler.Read#ErrorCaught", ObjectLogStruct{
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    request.TrackID(),
-			URI:        request.RequestURI,
+			URI:        request.RequestURI(),
 			Handler:    reflect.TypeOf(task).String(),
-			RemoteAddr: request.Request.RemoteAddr,
+			RemoteAddr: request.Request().RemoteAddr,
 			Message:    err,
 		})
 	}
@@ -174,7 +182,7 @@ func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Reque
 		erErr.ErrorData()["tid"] = request.TrackID()
 		timeMark = time.Now()
 		err := task.ErrorCaught(request, response, params, erErr)
-		params["[gone]h_error_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]h_error_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		if err != nil {
 			h.ErrorCaught(ctx, err)
 		}
@@ -185,7 +193,7 @@ type ReturnCatch struct {
 	err ErrorResponse
 }
 
-func (h *DispatchHandler) invokeMethod(task HandlerTask, request *Request, response *Response, params map[string]interface{}, isLast bool) ErrorResponse {
+func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHandlerTask, request *Request, response *Response, params map[string]interface{}, isLast bool) ErrorResponse {
 	if err := task.PreCheck(request, response, params); err != nil {
 		return err
 	}
@@ -196,11 +204,11 @@ func (h *DispatchHandler) invokeMethod(task HandlerTask, request *Request, respo
 
 	if invokeErr := func() ErrorResponse {
 		switch {
-		case request.Method == httpmethod.GET:
+		case request.Method() == httpmethod.GET:
 			if isLast {
-				if err := task.Index(request, response, params); err != nil {
+				if err := task.Index(ctx, request, response, params); err != nil {
 					if err == NotImplemented {
-						return task.Get(request, response, params)
+						return task.Get(ctx, request, response, params)
 					}
 
 					return err
@@ -208,25 +216,25 @@ func (h *DispatchHandler) invokeMethod(task HandlerTask, request *Request, respo
 
 				return nil
 			} else {
-				return task.Get(request, response, params)
+				return task.Get(ctx, request, response, params)
 			}
-		case request.Method == httpmethod.POST:
-			return task.Post(request, response, params)
-		case request.Method == httpmethod.PUT:
-			return task.Put(request, response, params)
-		case request.Method == httpmethod.DELETE:
-			return task.Delete(request, response, params)
-		case request.Method == httpmethod.OPTIONS:
-			return task.Options(request, response, params)
-		case request.Method == httpmethod.PATCH:
-			return task.Patch(request, response, params)
-		case request.Method == httpmethod.TRACE:
-			return task.Trace(request, response, params)
-		case request.Method == httpmethod.CONNECT:
-			return task.Connect(request, response, params)
+		case request.Method() == httpmethod.POST:
+			return task.Post(ctx, request, response, params)
+		case request.Method() == httpmethod.PUT:
+			return task.Put(ctx, request, response, params)
+		case request.Method() == httpmethod.DELETE:
+			return task.Delete(ctx, request, response, params)
+		case request.Method() == httpmethod.OPTIONS:
+			return task.Options(ctx, request, response, params)
+		case request.Method() == httpmethod.PATCH:
+			return task.Patch(ctx, request, response, params)
+		case request.Method() == httpmethod.TRACE:
+			return task.Trace(ctx, request, response, params)
+		case request.Method() == httpmethod.CONNECT:
+			return task.Connect(ctx, request, response, params)
 		}
 
-		kklogger.WarnJ("DispatchHandler", fmt.Sprintf("no match method %s", request.Method))
+		kklogger.WarnJ("DispatchHandler", fmt.Sprintf("no match method %s", request.Method()))
 		return nil
 	}(); invokeErr != nil {
 		return invokeErr

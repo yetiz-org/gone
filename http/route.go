@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kklogger"
 )
 
@@ -25,7 +24,7 @@ func NewRoute() *DefaultRoute {
 }
 
 func (r *DefaultRoute) RouteEndPoint(req *Request) (node RouteNode, nodeParams map[string]interface{}, isLast bool) {
-	path := strings.TrimLeft(strings.TrimRight(req.URL.Path, "/"), "/")
+	path := strings.TrimLeft(strings.TrimRight(req.Url().Path, "/"), "/")
 	params := map[string]interface{}{}
 	if path == "" {
 		return r.root, nil, true
@@ -44,7 +43,7 @@ func (r *DefaultRoute) RouteEndPoint(req *Request) (node RouteNode, nodeParams m
 					if current == r.root && resourceID != "" {
 						return nil, nil, false
 					} else {
-						params[fmt.Sprintf("[gone]%s_id", current.Name())] = resourceID
+						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
 						return current, params, false
 					}
 				} else {
@@ -53,7 +52,7 @@ func (r *DefaultRoute) RouteEndPoint(req *Request) (node RouteNode, nodeParams m
 			} else {
 				if next == nil {
 					if _, f := current.Resources()[resources[idx+1]]; f {
-						params[fmt.Sprintf("[gone]%s_id", current.Name())] = resourceID
+						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
 						continue
 					} else {
 						return nil, nil, false
@@ -64,7 +63,7 @@ func (r *DefaultRoute) RouteEndPoint(req *Request) (node RouteNode, nodeParams m
 			}
 		case RouteTypeRecursiveEndPoint:
 			if next == nil {
-				params[fmt.Sprintf("[gone]%s_id", current.Name())] = resourceID
+				params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
 			}
 
 			return current, params, false
@@ -88,12 +87,12 @@ func (r *DefaultRoute) SetRoot(point *_EndPoint) *DefaultRoute {
 
 func (r *DefaultRoute) AddRecursivePoint(point *_EndPoint) *DefaultRoute {
 	if point == nil {
-		kklogger.ErrorJ("Route.Fail", "add nil point")
+		kklogger.ErrorJ("http:DefaultRoute.AddRecursivePoint", "add nil point")
 		return nil
 	}
 
 	if r.root.Resources()[point.Name()] != nil {
-		kklogger.ErrorJ("Route.Fail", "add same name endpoint")
+		kklogger.ErrorJ("http:DefaultRoute.AddRecursivePoint", "add same name endpoint")
 		return nil
 	}
 
@@ -105,12 +104,12 @@ func (r *DefaultRoute) AddRecursivePoint(point *_EndPoint) *DefaultRoute {
 
 func (r *DefaultRoute) AddGroup(group *_RouteGroup) *DefaultRoute {
 	if group == nil {
-		kklogger.ErrorJ("Route.Fail", "add nil group")
+		kklogger.ErrorJ("http:DefaultRoute.AddGroup", "add nil group")
 		return nil
 	}
 
 	if r.root.Resources()[group.Name()] != nil {
-		kklogger.ErrorJ("Route.Fail", "add same name group")
+		kklogger.ErrorJ("http:DefaultRoute.AddGroup", "add same name group")
 		return nil
 	}
 
@@ -121,12 +120,12 @@ func (r *DefaultRoute) AddGroup(group *_RouteGroup) *DefaultRoute {
 
 func (r *DefaultRoute) AddEndPoint(point *_EndPoint) *DefaultRoute {
 	if point == nil {
-		kklogger.ErrorJ("Route.Fail", "add nil point")
+		kklogger.ErrorJ("http:DefaultRoute.AddEndPoint", "add nil point")
 		return nil
 	}
 
 	if r.root.Resources()[point.Name()] != nil {
-		kklogger.ErrorJ("Route.Fail", "add same name endpoint")
+		kklogger.ErrorJ("http:DefaultRoute.AddEndPoint", "add same name endpoint")
 		return nil
 	}
 
@@ -137,8 +136,9 @@ func (r *DefaultRoute) AddEndPoint(point *_EndPoint) *DefaultRoute {
 
 type RouteNode interface {
 	Parent() RouteNode
-	HandlerTask() channel.HandlerTask
+	HandlerTask() HandlerTask
 	Name() string
+	AggregatedAcceptances() []Acceptance
 	Acceptances() []Acceptance
 	Resources() map[string]RouteNode
 	RouteType() RouteType
@@ -146,7 +146,7 @@ type RouteNode interface {
 
 type _Node struct {
 	parent      RouteNode
-	handler     channel.HandlerTask
+	handler     HandlerTask
 	name        string
 	acceptances []Acceptance
 	resources   map[string]RouteNode
@@ -157,12 +157,24 @@ func (n *_Node) Parent() RouteNode {
 	return n.parent
 }
 
-func (n *_Node) HandlerTask() channel.HandlerTask {
+func (n *_Node) HandlerTask() HandlerTask {
 	return n.handler
 }
 
 func (n *_Node) Name() string {
 	return n.name
+}
+
+func (n *_Node) AggregatedAcceptances() []Acceptance {
+	var acceptances []Acceptance
+	var node RouteNode = n
+	for ; node != nil; node = node.Parent() {
+		if node.Acceptances() != nil && len(node.Acceptances()) > 0 {
+			acceptances = append(node.Acceptances(), acceptances...)
+		}
+	}
+
+	return acceptances
 }
 
 func (n *_Node) Acceptances() []Acceptance {
@@ -190,7 +202,7 @@ type _EndPoint struct {
 	_Node
 }
 
-func NewEndPoint(name string, task channel.HandlerTask, acceptances []Acceptance) *_EndPoint {
+func NewEndPoint(name string, task HandlerTask, acceptances []Acceptance) *_EndPoint {
 	if task == nil {
 		return nil
 	}
@@ -214,12 +226,12 @@ func NewEndPoint(name string, task channel.HandlerTask, acceptances []Acceptance
 
 func (ep *_EndPoint) AddEndPoint(point *_EndPoint) *_EndPoint {
 	if point == nil {
-		kklogger.ErrorJ("RouteEndPoint.Fail", "add nil task")
+		kklogger.ErrorJ("http:_EndPoint.AddEndPoint", "add nil task")
 		return nil
 	}
 
 	if ep.resources[point.Name()] != nil {
-		kklogger.ErrorJ("RouteEndPoint.Fail", "add same name endpoint")
+		kklogger.ErrorJ("http:_EndPoint.AddEndPoint", "add same name endpoint")
 		return nil
 	}
 
@@ -230,12 +242,12 @@ func (ep *_EndPoint) AddEndPoint(point *_EndPoint) *_EndPoint {
 
 func (ep *_EndPoint) AddGroup(group *_RouteGroup) *_EndPoint {
 	if group == nil {
-		kklogger.ErrorJ("RouteEndPoint.Fail", "add nil group")
+		kklogger.ErrorJ("http:_EndPoint.AddGroup", "add nil group")
 		return nil
 	}
 
 	if ep.resources[group.Name()] != nil {
-		kklogger.ErrorJ("RouteEndPoint.Fail", "add same name group")
+		kklogger.ErrorJ("http:_EndPoint.AddGroup", "add same name group")
 		return nil
 	}
 
@@ -246,12 +258,12 @@ func (ep *_EndPoint) AddGroup(group *_RouteGroup) *_EndPoint {
 
 func (ep *_EndPoint) AddRecursiveEndPoint(point *_EndPoint) *_EndPoint {
 	if point == nil {
-		kklogger.ErrorJ("RouteEndPoint.Fail", "add nil task")
+		kklogger.ErrorJ("http:_EndPoint.AddRecursiveEndPoint", "add nil task")
 		return nil
 	}
 
 	if ep.resources[point.Name()] != nil {
-		kklogger.ErrorJ("RouteEndPoint.Fail", "add same name endpoint")
+		kklogger.ErrorJ("http:_EndPoint.AddRecursiveEndPoint", "add same name endpoint")
 		return nil
 	}
 
@@ -284,12 +296,12 @@ func NewGroup(name string, acceptances []Acceptance) *_RouteGroup {
 
 func (rg *_RouteGroup) AddGroup(group *_RouteGroup) *_RouteGroup {
 	if group == nil {
-		kklogger.ErrorJ("RouteGroup.Fail", "add nil group")
+		kklogger.ErrorJ("http:_RouteGroup.AddGroup", "add nil group")
 		return nil
 	}
 
 	if rg.resources[group.Name()] != nil {
-		kklogger.ErrorJ("RouteGroup.Fail", "add same name group")
+		kklogger.ErrorJ("http:_RouteGroup.AddGroup", "add same name group")
 		return nil
 	}
 
@@ -300,12 +312,12 @@ func (rg *_RouteGroup) AddGroup(group *_RouteGroup) *_RouteGroup {
 
 func (rg *_RouteGroup) AddEndPoint(point *_EndPoint) *_RouteGroup {
 	if point == nil {
-		kklogger.ErrorJ("RouteGroup.Fail", "add nil task")
+		kklogger.ErrorJ("http:_RouteGroup.AddEndPoint", "add nil task")
 		return nil
 	}
 
 	if rg.resources[point.Name()] != nil {
-		kklogger.ErrorJ("RouteGroup.Fail", "add same name endpoint")
+		kklogger.ErrorJ("http:_RouteGroup.AddEndPoint", "add same name endpoint")
 		return nil
 	}
 
@@ -316,12 +328,12 @@ func (rg *_RouteGroup) AddEndPoint(point *_EndPoint) *_RouteGroup {
 
 func (rg *_RouteGroup) AddRecursiveEndPoint(point *_EndPoint) *_RouteGroup {
 	if point == nil {
-		kklogger.ErrorJ("RouteGroup.Fail", "add nil task")
+		kklogger.ErrorJ("http:_RouteGroup.AddRecursiveEndPoint", "add nil task")
 		return nil
 	}
 
 	if rg.resources[point.Name()] != nil {
-		kklogger.ErrorJ("RouteGroup.Fail", "add same name endpoint")
+		kklogger.ErrorJ("http:_RouteGroup.AddRecursiveEndPoint", "add same name endpoint")
 		return nil
 	}
 

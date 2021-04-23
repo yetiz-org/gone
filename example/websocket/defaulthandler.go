@@ -1,41 +1,50 @@
 package websocket
 
 import (
+	"time"
+
+	"github.com/kklab-com/gone-httpstatus"
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/gone/http"
-	"github.com/kklab-com/gone/websocket"
-	"github.com/kklab-com/goth-kkutil/value"
+	"github.com/kklab-com/goth-kkutil/buf"
 )
 
 type DefaultTask struct {
-	websocket.WSHandlerTask
+	http.DefaultHTTPTask
 }
 
-func (t *DefaultTask) WSPing(ctx channel.HandlerContext, message *websocket.PingMessage, params map[string]interface{}) {
+func (l *DefaultTask) Get(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
+	resp.SetStatusCode(httpstatus.OK)
+	resp.TextResponse(buf.NewByteBuf([]byte("feeling good")))
+	return nil
 }
 
-func (t *DefaultTask) WSText(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]interface{}) {
-	println(message.StringMessage())
-	var obj interface{} = t.Builder.Text(value.JsonMarshal(struct {
-		Params  map[string]interface{} `json:"params"`
-		Message string                 `json:"message"`
-	}{
-		Params:  params,
-		Message: message.StringMessage(),
-	}))
-
-	ctx.FireWrite(obj)
+type DefaultHomeTask struct {
+	http.DefaultHTTPTask
 }
 
-func (t *DefaultTask) WSClose(ctx channel.HandlerContext, message *websocket.CloseMessage, params map[string]interface{}) {
-	println("server ws close")
+func (l *DefaultHomeTask) Get(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
+	resp.SetStatusCode(httpstatus.OK)
+	resp.TextResponse(buf.NewByteBuf([]byte(req.RequestURI())))
+	go func() {
+		<-time.After(time.Millisecond * 100)
+		ctx.Channel().Disconnect()
+	}()
+
+	return nil
 }
 
-func (*DefaultTask) WSConnected(req *http.Request, params map[string]interface{}) {
-	println("server ws connected")
+type CloseTask struct {
+	http.DefaultHTTPTask
 }
 
-func (*DefaultTask) WSDisconnect(req *http.Request, params map[string]interface{}) {
-	println("server ws disconnect")
-	req.Channel().Parent().Close()
+func (l *CloseTask) Get(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
+	resp.SetStatusCode(httpstatus.OK)
+	resp.TextResponse(buf.NewByteBuf([]byte(req.RequestURI())))
+	go func() {
+		<-time.After(time.Second)
+		ctx.Channel().Parent().Close()
+	}()
+
+	return nil
 }

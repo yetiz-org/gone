@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/kklab-com/gone/http"
 )
 
 const (
@@ -105,21 +104,6 @@ func _ParseMessage(messageType int, bs []byte) *DefaultMessage {
 			MessageType: BinaryMessageType,
 			Message:     bs,
 		}
-	}
-
-	return nil
-}
-
-type WSPack struct {
-	Req     *http.Request          `json:"req"`
-	Task    HandlerTask            `json:"task"`
-	Message Message                `json:"message"`
-	Params  map[string]interface{} `json:"params"`
-}
-
-func _UnPack(obj interface{}) *WSPack {
-	if pkg, true := obj.(*WSPack); true {
-		return pkg
 	}
 
 	return nil

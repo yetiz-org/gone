@@ -21,7 +21,7 @@ var defaultSessionProvider httpsession.SessionProvider = nil
 var once = sync.Once{}
 
 var DefaultSessionType = SessionTypeMemory
-var SessionKey = "KKBOX"
+var SessionKey = "KKLAB"
 var SessionDomain = ""
 var SessionExpireTime = 86400
 var SessionHttpOnly = false
@@ -69,7 +69,7 @@ func _NewSession(req *Request) httpsession.Session {
 		return nil
 	}
 
-	if hc := req.Header.Get(httpheadername.Cookie); hc != "" {
+	if hc := req.Header().Get(httpheadername.Cookie); hc != "" {
 		var rehc string
 		for _, cookie := range strings.Split(hc, ";") {
 			if strings.Split(strings.TrimSpace(cookie), "=")[0] == SessionKey {
@@ -83,7 +83,7 @@ func _NewSession(req *Request) httpsession.Session {
 			}
 		}
 
-		req.Header.Set(httpheadername.Cookie, rehc)
+		req.Header().Set(httpheadername.Cookie, rehc)
 	}
 
 	return session

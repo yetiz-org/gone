@@ -1,7 +1,6 @@
 package http
 
 import (
-	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io/ioutil"
@@ -34,13 +33,13 @@ func (h *LogHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 
 func (h *LogHandler) constructReq(req *Request) RequestLogStruct {
 	logStruct := RequestLogStruct{
-		Method:  req.Method,
+		Method:  req.Method(),
 		Headers: map[string]interface{}{},
-		HOST:    req.Host,
-		URI:     req.RequestURI,
+		HOST:    req.Host(),
+		URI:     req.RequestURI(),
 	}
 
-	for name, value := range req.Header {
+	for name, value := range req.Header() {
 		valStr := ""
 		if len(value) > 1 {
 			for i := 0; i < len(value); i++ {
@@ -59,8 +58,8 @@ func (h *LogHandler) constructReq(req *Request) RequestLogStruct {
 
 	bodyLength := 0
 	if h.printBody {
-		logStruct.Body = string(req.Body)
-		bodyLength = len(req.Body)
+		logStruct.Body = string(req.Body().Bytes())
+		bodyLength = req.Body().ReadableBytes()
 	}
 
 	logStruct.BodyLength = bodyLength
@@ -71,7 +70,7 @@ func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
 	logStruct := ResponseLogStruct{
 		StatusCode: resp.StatusCode(),
 		Headers:    map[string]interface{}{},
-		URI:        resp.request.RequestURI,
+		URI:        resp.request.RequestURI(),
 	}
 
 	for name, value := range resp.Header() {
@@ -93,29 +92,28 @@ func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
 
 	if h.printBody {
 		if resp.GetHeader(httpheadername.ContentEncoding) == "gzip" {
-			gzBuffer := bytes.NewBuffer(resp.body.Bytes())
-			if reader, err := gzip.NewReader(gzBuffer); err == nil {
+			if reader, err := gzip.NewReader(resp.body); err == nil {
 				defer reader.Close()
 				bs, _ := ioutil.ReadAll(reader)
 				logStruct.Body = string(bs)
 			}
 		} else {
-			logStruct.Body = resp.body.String()
+			logStruct.Body = string(resp.body.Bytes())
 		}
 	}
 
-	logStruct.BodyLength = resp.body.Len()
+	logStruct.BodyLength = resp.body.ReadableBytes()
 	return logStruct
 }
 
-func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}) {
+func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
 	pack := _UnPack(obj)
 	if pack == nil {
-		ctx.FireWrite(obj)
+		ctx.Write(obj, future)
 		return
 	}
 
-	req, resp, params := pack.Req, pack.Resp, pack.Params
+	req, resp, params := pack.Request, pack.Response, pack.Params
 	go func(cid string, req *Request, resp *Response, params map[string]interface{}) {
 		if !h.FilterFunc(req, resp, params) {
 			return
@@ -125,10 +123,10 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}) {
 		logStruct := LogStruct{
 			ChannelID:  cid,
 			TrackID:    req.TrackID(),
-			Method:     req.Method,
-			URI:        req.RequestURI,
+			Method:     req.Method(),
+			URI:        req.RequestURI(),
 			StatusCode: resp.StatusCode(),
-			RemoteAddr: req.Request.RemoteAddr,
+			RemoteAddr: req.Request().RemoteAddr,
 			RemoteAddrs: func(addrs []string) string {
 				sb := strings.Builder{}
 				for _, addr := range addrs {
@@ -137,46 +135,46 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}) {
 
 				r := sb.String()
 				return r[:len(r)-2]
-			}(req.RemoteAddrs),
+			}(req.RemoteAddrs()),
 			Request:     h.constructReq(req),
 			Response:    h.constructResp(resp),
-			AcceptTime:  req.CreatedAt.UnixNano(),
-			ProcessTime: time.Now().UnixNano() - req.CreatedAt.UnixNano(),
+			AcceptTime:  req.CreatedAt().UnixNano(),
+			ProcessTime: time.Now().UnixNano() - req.CreatedAt().UnixNano(),
 		}
 
-		if v := params["[gone]h_locate_time"]; v != nil {
+		if v := params["[gone-http]h_locate_time"]; v != nil {
 			logStruct.HLocateTime = v.(int64)
 		}
 
-		if v := params["[gone]h_acceptance_time"]; v != nil {
+		if v := params["[gone-http]h_acceptance_time"]; v != nil {
 			logStruct.HAcceptanceTime = v.(int64)
 		}
 
-		if v := params["[gone]handler_time"]; v != nil {
+		if v := params["[gone-http]handler_time"]; v != nil {
 			logStruct.HandlerTime = v.(int64)
 		}
 
-		if v := params["[gone]h_error_time"]; v != nil {
+		if v := params["[gone-http]h_error_time"]; v != nil {
 			logStruct.HErrorTime = v.(int64)
 		}
 
-		if v := params["[gone]compress_time"]; v != nil {
+		if v := params["[gone-http]compress_time"]; v != nil {
 			logStruct.CompressTime = v.(int64)
 		}
 
-		if v := params["[gone]extend"]; v != nil {
+		if v := params["[gone-http]extend"]; v != nil {
 			logStruct.Extend = v
 		}
 
-		kklogger.InfoJ("HTTPLog", logStruct)
+		kklogger.InfoJ("http:LogHandler.Write", logStruct)
 	}(ctx.Channel().ID(), req, resp, params)
 
-	ctx.FireWrite(obj)
+	ctx.Write(obj, future)
 }
 
 func deferError() {
 	if err := recover(); err != nil {
-		kklogger.ErrorJ("HTTPLog", err)
+		kklogger.ErrorJ("http:LogHandler.deferError", err)
 	}
 }
 

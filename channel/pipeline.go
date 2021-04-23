@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-kklogger"
 	kkpanic "github.com/kklab-com/goth-panic"
 )
 
 type Pipeline interface {
 	AddLast(name string, elem Handler) Pipeline
+	AddBefore(target string, name string, elem Handler) Pipeline
 	RemoveFirst() Pipeline
 	Remove(elem Handler) Pipeline
 	RemoveByName(name string) Pipeline
@@ -18,16 +20,25 @@ type Pipeline interface {
 	Param(key ParamKey) interface{}
 	SetParam(key ParamKey, value interface{}) Pipeline
 	Params() *Params
+	fireRegistered() Pipeline
+	fireUnregistered() Pipeline
 	fireActive() Pipeline
 	fireInactive() Pipeline
 	fireRead(obj interface{}) Pipeline
 	fireReadCompleted() Pipeline
 	fireErrorCaught(err error) Pipeline
-	Write(obj interface{}) Pipeline
-	Bind(localAddr net.Addr) Pipeline
-	Close() Pipeline
-	Connect(remoteAddr net.Addr) Pipeline
-	Disconnect() Pipeline
+	Read() Pipeline
+	Write(obj interface{}) Future
+	Bind(localAddr net.Addr) Future
+	Close() Future
+	Connect(localAddr net.Addr, remoteAddr net.Addr) Future
+	Disconnect() Future
+	Deregister() Future
+	newFuture() Future
+}
+
+type PipelineSetChannel interface {
+	SetChannel(channel Channel)
 }
 
 const PipelineHeadHandlerContextName = "DEFAULT_HEAD_HANDLER_CONTEXT"
@@ -40,50 +51,30 @@ type DefaultPipeline struct {
 	channel Channel
 }
 
-func (p *DefaultPipeline) Channel() Channel {
-	return p.channel
-}
-
-func (p *DefaultPipeline) RemoveFirst() Pipeline {
-	final := p.head
-	if final.next() == nil {
-		return p
-	}
-
-	next := final.next()
-	if next.next() != nil {
-		next.next().setPrev(final)
-		final.setNext(next.next())
-	}
-
-	next.setNext(nil)
-	next.setPrev(nil)
-	return p
-}
-
-func NewDefaultPipeline(channel Channel) Pipeline {
+func _NewDefaultPipeline(channel Channel) Pipeline {
 	pipeline := new(DefaultPipeline)
-	pipeline.head = pipeline._NewHeadHandlerContext(channel)
-	pipeline.tail = pipeline._NewTailHandlerContext(channel)
+	pipeline.head = pipeline._NewHeadHandlerContext()
+	pipeline.tail = pipeline._NewTailHandlerContext()
 	pipeline.head.setNext(pipeline.tail)
 	pipeline.tail.setPrev(pipeline.head)
+	channel.setUnsafe(NewUnsafe(channel))
 	pipeline.channel = channel
 	return pipeline
 }
 
-func (p *DefaultPipeline) _NewHeadHandlerContext(channel Channel) HandlerContext {
+func (p *DefaultPipeline) _NewHeadHandlerContext() HandlerContext {
 	context := new(DefaultHandlerContext)
 	context.name = PipelineHeadHandlerContextName
 	context._handler = &headHandler{}
-	context.channel = channel
+	context.pipeline = p
 	return context
 }
 
-func (p *DefaultPipeline) _NewTailHandlerContext(channel Channel) HandlerContext {
+func (p *DefaultPipeline) _NewTailHandlerContext() HandlerContext {
 	context := new(DefaultHandlerContext)
 	context.name = PipelineTailHandlerContextName
 	context._handler = &tailHandler{}
-	context.channel = channel
+	context.pipeline = p
 	return context
 }
 
@@ -91,44 +82,36 @@ type headHandler struct {
 	DefaultHandler
 }
 
-func (h *headHandler) Write(ctx HandlerContext, obj interface{}) {
-	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().WriteFunc(obj); err != nil {
-			kklogger.ErrorJ("HeadHandler.Write", err.Error())
-		}
-	}
+func (h *headHandler) read(ctx HandlerContext) {
+	ctx.Channel().unsafe().Read()
 }
 
-func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr) {
-	if channel, ok := ctx.Channel().(ServerChannel); ok {
-		if err := channel.unsafe().BindFunc(localAddr); err != nil {
-			kklogger.ErrorJ("HeadHandler.Bind", err.Error())
-		}
-	}
+func (h *headHandler) Write(ctx HandlerContext, obj interface{}, future Future) {
+	ctx.Channel().unsafe().Write(obj, future)
 }
 
-func (h *headHandler) Close(ctx HandlerContext) {
-	if channel, ok := ctx.Channel().(ServerChannel); ok {
-		if err := channel.unsafe().CloseFunc(); err != nil {
-			kklogger.ErrorJ("HeadHandler.Close", err.Error())
-		}
-	}
+func (h *headHandler) Bind(ctx HandlerContext, localAddr net.Addr, future Future) {
+	ctx.Channel().unsafe().Bind(localAddr, future)
 }
 
-func (h *headHandler) Connect(ctx HandlerContext, remoteAddr net.Addr) {
-	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().ConnectFunc(remoteAddr); err != nil {
-			kklogger.ErrorJ("HeadHandler.Connect", err.Error())
-		}
-	}
+func (h *headHandler) Close(ctx HandlerContext, future Future) {
+	ctx.Channel().unsafe().Close(future)
 }
 
-func (h *headHandler) Disconnect(ctx HandlerContext) {
-	if channel, ok := ctx.Channel().(ClientChannel); ok {
-		if err := channel.unsafe().DisconnectFunc(); err != nil {
-			kklogger.ErrorJ("HeadHandler.Disconnect", err.Error())
-		}
-	}
+func (h *headHandler) Connect(ctx HandlerContext, localAddr net.Addr, remoteAddr net.Addr, future Future) {
+	ctx.Channel().unsafe().Connect(localAddr, remoteAddr, future)
+}
+
+func (h *headHandler) Disconnect(ctx HandlerContext, future Future) {
+	ctx.Channel().unsafe().Disconnect(future)
+}
+
+func (h *headHandler) futureCancel(future Future) {
+	future.(concurrent.ManualFuture).Cancel()
+}
+
+func (h *headHandler) futureSuccess(future Future) {
+	future.(concurrent.ManualFuture).Success()
 }
 
 func (h *headHandler) ErrorCaught(ctx HandlerContext, err error) {
@@ -150,10 +133,15 @@ func (h *tailHandler) Read(ctx HandlerContext, obj interface{}) {
 	ctx.FireErrorCaught(fmt.Errorf("message doesn't be catched"))
 }
 
+func (h *tailHandler) Deregister(ctx HandlerContext, future Future) {
+	ctx.Channel().inactiveChannel()
+	future.(concurrent.ManualFuture).Success()
+}
+
 func (p *DefaultPipeline) AddLast(name string, elem Handler) Pipeline {
 	final := p.tail
 	ctx := NewHandlerContext()
-	ctx.setChannel(p.channel)
+	ctx.pipeline = p
 	ctx.name = name
 	ctx.setNext(final)
 	ctx.setPrev(final.prev())
@@ -162,6 +150,49 @@ func (p *DefaultPipeline) AddLast(name string, elem Handler) Pipeline {
 	ctx._handler = elem
 	ctx._handler.Added(p.head)
 
+	return p
+}
+
+func (p *DefaultPipeline) AddBefore(target string, name string, elem Handler) Pipeline {
+	targetCtx := p.head
+	for targetCtx != nil {
+		if targetCtx.Name() == target {
+			break
+		}
+
+		targetCtx = targetCtx.next()
+	}
+
+	if targetCtx == nil {
+		return p
+	}
+
+	ctx := NewHandlerContext()
+	ctx.pipeline = p
+	ctx.name = name
+	ctx.setNext(targetCtx)
+	ctx.setPrev(targetCtx.prev())
+	ctx.next().setPrev(ctx)
+	ctx.prev().setNext(ctx)
+	ctx._handler = elem
+	ctx._handler.Added(p.head)
+	return p
+}
+
+func (p *DefaultPipeline) RemoveFirst() Pipeline {
+	final := p.head
+	if final.next() == nil {
+		return p
+	}
+
+	next := final.next()
+	if next.next() != nil {
+		next.next().setPrev(final)
+		final.setNext(next.next())
+	}
+
+	next.setNext(nil)
+	next.setPrev(nil)
 	return p
 }
 
@@ -199,9 +230,21 @@ func (p *DefaultPipeline) RemoveByName(name string) Pipeline {
 	return p
 }
 
+func (p *DefaultPipeline) Channel() Channel {
+	return p.channel
+}
+
 func (p *DefaultPipeline) Clear() Pipeline {
-	p.head.setNext(nil)
-	p.tail.setPrev(nil)
+	if next := p.head.next(); next != nil {
+		next.setPrev(nil)
+	}
+
+	if prev := p.tail.prev(); prev != nil {
+		prev.setNext(nil)
+	}
+
+	p.head.setNext(p.tail)
+	p.tail.setPrev(p.head)
 	return p
 }
 
@@ -220,6 +263,16 @@ func (p *DefaultPipeline) SetParam(key ParamKey, value interface{}) Pipeline {
 
 func (p *DefaultPipeline) Params() *Params {
 	return &p.carrier
+}
+
+func (p *DefaultPipeline) fireRegistered() Pipeline {
+	p.head.FireRegistered()
+	return p
+}
+
+func (p *DefaultPipeline) fireUnregistered() Pipeline {
+	p.head.FireUnregistered()
+	return p
 }
 
 func (p *DefaultPipeline) fireActive() Pipeline {
@@ -247,27 +300,40 @@ func (p *DefaultPipeline) fireErrorCaught(err error) Pipeline {
 	return p
 }
 
-func (p *DefaultPipeline) Write(obj interface{}) Pipeline {
-	p.tail.FireWrite(obj)
+func (p *DefaultPipeline) Read() Pipeline {
+	p.tail.read()
 	return p
 }
 
-func (p *DefaultPipeline) Bind(localAddr net.Addr) Pipeline {
-	p.tail.Bind(localAddr)
-	return p
+func (p *DefaultPipeline) Write(obj interface{}) Future {
+	return p.tail.Write(obj, p.newFuture())
 }
 
-func (p *DefaultPipeline) Close() Pipeline {
-	p.tail.Close()
-	return p
+func (p *DefaultPipeline) Bind(localAddr net.Addr) Future {
+	return p.tail.Bind(localAddr, p.newFuture())
 }
 
-func (p *DefaultPipeline) Connect(remoteAddr net.Addr) Pipeline {
-	p.tail.Connect(remoteAddr)
-	return p
+func (p *DefaultPipeline) Close() Future {
+	return p.tail.Close(p.newFuture())
 }
 
-func (p *DefaultPipeline) Disconnect() Pipeline {
-	p.tail.Disconnect()
-	return p
+func (p *DefaultPipeline) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
+	return p.tail.Connect(localAddr, remoteAddr, p.newFuture())
+}
+
+func (p *DefaultPipeline) Disconnect() Future {
+	return p.tail.Disconnect(p.newFuture())
+}
+
+func (p *DefaultPipeline) Deregister() Future {
+	return p.head.Deregister(p.newFuture())
+}
+
+func (p *DefaultPipeline) newFuture() Future {
+	return NewFuture(p.Channel())
+}
+
+func (p *DefaultPipeline) SetChannel(channel Channel) {
+	p.channel = channel
+	channel.setUnsafe(NewUnsafe(channel))
 }

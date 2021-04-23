@@ -2,16 +2,18 @@ package http
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"testing"
 )
 
 func TestRestRoute_RouteEndPoint(t *testing.T) {
 	req := Request{
+		request: &http.Request{},
 	}
 
-	req.Request.URL = &url.URL{}
-	req.Request.URL.Path = "/auth/group/user/123/book/newbook/name"
+	req.Request().URL = &url.URL{}
+	req.Request().URL.Path = "/auth/group/user/123/book/newbook/name"
 	route := NewRoute()
 	route.AddGroup(
 		NewGroup("auth", nil).
@@ -36,7 +38,7 @@ func TestRestRoute_RouteEndPoint(t *testing.T) {
 	}
 
 	println("----")
-	req.Request.URL.Path = "/auth/group/user/123"
+	req.Request().URL.Path = "/auth/group/user/123"
 	point, m, isLast = route.RouteEndPoint(&req)
 	println(point.Name())
 	for k, v := range m {
@@ -48,7 +50,7 @@ func TestRestRoute_RouteEndPoint(t *testing.T) {
 	}
 
 	println("----")
-	req.Request.URL.Path = "/auth/group/user/123/book"
+	req.Request().URL.Path = "/auth/group/user/123/book"
 	point, m, isLast = route.RouteEndPoint(&req)
 	println(point.Name())
 	for k, v := range m {
@@ -60,7 +62,7 @@ func TestRestRoute_RouteEndPoint(t *testing.T) {
 	}
 
 	println("----")
-	req.Request.URL.Path = "/auth/group/user/123/book/newbook"
+	req.Request().URL.Path = "/auth/group/user/123/book/newbook"
 	point, m, isLast = route.RouteEndPoint(&req)
 	println(point.Name())
 	for k, v := range m {
@@ -72,7 +74,7 @@ func TestRestRoute_RouteEndPoint(t *testing.T) {
 	}
 
 	println("----")
-	req.Request.URL.Path = "/auth/group/user"
+	req.Request().URL.Path = "/auth/group/user"
 	point, m, isLast = route.RouteEndPoint(&req)
 	println(point.Name())
 	for k, v := range m {
@@ -84,7 +86,7 @@ func TestRestRoute_RouteEndPoint(t *testing.T) {
 	}
 
 	println("----")
-	req.Request.URL.Path = "/auth/group/user/123/profile/info/myname"
+	req.Request().URL.Path = "/auth/group/user/123/profile/info/myname"
 	point, m, isLast = route.RouteEndPoint(&req)
 	println(point.Name())
 	for k, v := range m {
@@ -96,6 +98,6 @@ func TestRestRoute_RouteEndPoint(t *testing.T) {
 	}
 
 	println("----")
-	req.Request.URL.Path = "/auth/group/user/123/book/newbook/dasdqwe"
+	req.Request().URL.Path = "/auth/group/user/123/book/newbook/dasdqwe"
 	point, m, isLast = route.RouteEndPoint(&req)
 }

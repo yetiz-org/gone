@@ -2,8 +2,6 @@ package channel
 
 import (
 	"net"
-	"reflect"
-	"sync"
 )
 
 type NetServerChannel interface {
@@ -12,53 +10,39 @@ type NetServerChannel interface {
 
 type DefaultNetServerChannel struct {
 	DefaultServerChannel
-	child sync.Map
 }
 
-func (c *DefaultNetServerChannel) DeriveClientChannel(typ reflect.Type, conn net.Conn) NetClientChannel {
+func (c *DefaultNetServerChannel) Conn() Conn {
+	return nil
+}
+
+func (c *DefaultNetServerChannel) RemoteAddr() net.Addr {
+	return nil
+}
+
+func (c *DefaultNetServerChannel) LocalAddr() net.Addr {
+	return nil
+}
+
+func (c *DefaultServerChannel) DeriveNetChildChannel(child NetChannel, parent NetServerChannel, conn net.Conn) Channel {
 	if conn == nil {
 		return nil
 	}
 
-	ncc := serverNewDefaultNetClientChannel(conn)
-	ncc.parent = c
-	ncc.Name = ncc.Conn().RemoteAddr().String()
-	vcc := reflect.New(typ)
-	cc := vcc.Interface().(NetClientChannel)
-	c.child.Store(ncc.Conn().Conn(), cc)
-	if icc := vcc.Elem().FieldByName("DefaultNetClientChannel"); icc.IsValid() && icc.CanSet() {
-		icc.Set(reflect.ValueOf(ncc))
-	} else {
-		return nil
-	}
-
-	c.Params().Range(func(k ParamKey, v interface{}) bool {
-		cc.SetParam(k, v)
-		return true
-	})
-
-	cc.Init()
-	cc.Pipeline().AddLast("", c.ChildHandler())
-	cc.Pipeline().fireActive()
-	return cc
+	child.setConn(conn)
+	c.DeriveChildChannel(child, parent)
+	return child
 }
 
-func (c *DefaultNetServerChannel) Abandon(conn net.Conn) NetClientChannel {
-	if load, ok := c.child.Load(conn); ok {
-		ncc := load.(NetClientChannel)
-		ncc.Pipeline().fireInactive()
-		c.child.Delete(conn)
-		return ncc
-	}
-
+func (c *DefaultNetServerChannel) UnsafeBind(localAddr net.Addr) error {
 	return nil
 }
 
-func (c *DefaultNetServerChannel) Child(conn net.Conn) NetClientChannel {
-	if load, ok := c.child.Load(conn); ok {
-		ncc := load.(NetClientChannel)
-		return ncc
-	}
+func (c *DefaultNetServerChannel) UnsafeAccept() Channel {
+	return nil
+}
 
+func (c *DefaultNetServerChannel) UnsafeClose() error {
+	c.DefaultServerChannel.UnsafeClose()
 	return nil
 }

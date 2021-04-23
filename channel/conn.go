@@ -1,11 +1,10 @@
 package channel
 
 import (
-	"io"
+	"errors"
 	"net"
+	"os"
 	"time"
-
-	kklogger "github.com/kklab-com/goth-kklogger"
 )
 
 type Conn interface {
@@ -20,34 +19,34 @@ type DefaultConn struct {
 }
 
 func (c *DefaultConn) Read(b []byte) (n int, err error) {
-	if read, err := c.conn.Read(b); err != nil {
+	if rl, err := c.conn.Read(b); err != nil {
 		if c.IsActive() {
-			if err != io.EOF && !err.(net.Error).Timeout() {
-				kklogger.WarnJ("DefaultConn.Read", err.Error())
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				return rl, err
 			}
 
 			c.active = false
 		}
 
-		return read, err
+		return rl, err
 	} else {
-		return read, nil
+		return rl, nil
 	}
 }
 
 func (c *DefaultConn) Write(b []byte) (n int, err error) {
-	if write, err := c.conn.Write(b); err != nil {
+	if wl, err := c.conn.Write(b); err != nil {
 		if c.IsActive() {
-			if err != io.EOF && !err.(net.Error).Timeout() {
-				kklogger.WarnJ("DefaultConn.Write", err.Error())
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				return wl, err
 			}
 
 			c.active = false
 		}
 
-		return write, err
+		return wl, err
 	} else {
-		return write, nil
+		return wl, nil
 	}
 }
 

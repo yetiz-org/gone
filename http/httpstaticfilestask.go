@@ -1,7 +1,6 @@
 package http
 
 import (
-	"bytes"
 	"fmt"
 	"io/ioutil"
 	"mime"
@@ -13,6 +12,7 @@ import (
 	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone-httpstatus"
 	"github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/buf"
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"
 	"github.com/tdewolff/minify/v2/html"
@@ -22,7 +22,7 @@ import (
 	"github.com/tdewolff/minify/v2/xml"
 )
 
-type StaticFiles struct {
+type StaticFilesHandlerTask struct {
 	DefaultHandlerTask
 	FolderPath string
 	DoMinify   bool
@@ -31,12 +31,12 @@ type StaticFiles struct {
 	m          *minify.M
 }
 
-func NewStaticFilesHandlerTask(folderPath string) *StaticFiles {
+func NewStaticFilesHandlerTask(folderPath string) *StaticFilesHandlerTask {
 	if folderPath == "" {
 		folderPath = "./resources/static"
 	}
 
-	s := &StaticFiles{
+	s := &StaticFilesHandlerTask{
 		FolderPath: folderPath,
 		DoMinify:   true,
 		DoCache:    true,
@@ -55,12 +55,12 @@ func NewStaticFilesHandlerTask(folderPath string) *StaticFiles {
 	return s
 }
 
-func (h *StaticFiles) Get(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
-	path := fmt.Sprintf("%s/%s", h.FolderPath, strings.ReplaceAll(req.URL.Path, "../", "/"))
+func (h *StaticFilesHandlerTask) Get(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+	path := fmt.Sprintf("%s/%s", h.FolderPath, strings.ReplaceAll(req.Url().Path, "../", "/"))
 	if entity, err := h._Load(path); entity != nil {
 		resp.SetStatusCode(httpstatus.OK)
 		resp.SetHeader(httpheadername.ContentType, entity.contentType)
-		resp.SetBody(bytes.NewBuffer(entity.data))
+		resp.SetBody(buf.NewByteBuf(entity.data))
 	} else if err == nil {
 		resp.SetStatusCode(httpstatus.NotFound)
 	} else {
@@ -70,7 +70,7 @@ func (h *StaticFiles) Get(req *Request, resp *Response, params map[string]interf
 	return nil
 }
 
-func (h *StaticFiles) _Load(path string) (*staticFileCacheEntity, error) {
+func (h *StaticFilesHandlerTask) _Load(path string) (*staticFileCacheEntity, error) {
 	if h.DoCache {
 		if entity, f := h.cacheMap[path]; f {
 			return entity, nil
@@ -99,13 +99,13 @@ func (h *StaticFiles) _Load(path string) (*staticFileCacheEntity, error) {
 
 			return &entity, nil
 		} else {
-			kklogger.ErrorJ("StaticFiles", e.Error())
+			kklogger.ErrorJ("http:StaticFilesHandlerTask", e.Error())
 			return nil, e
 		}
 	} else if os.IsNotExist(e) {
 		return nil, nil
 	} else {
-		kklogger.WarnJ("StaticFiles", e.Error())
+		kklogger.WarnJ("http:StaticFilesHandlerTask", e.Error())
 		return nil, e
 	}
 }

@@ -1,11 +1,15 @@
 package channel
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-base62"
+	sync2 "github.com/kklab-com/goth-kkutil/sync"
 	"github.com/pkg/errors"
 )
 
@@ -14,44 +18,154 @@ type Channel interface {
 	Init() Channel
 	Pipeline() Pipeline
 	CloseFuture() Future
-	Bind(localAddr net.Addr) Channel
-	Close() Channel
-	Connect(remoteAddr net.Addr) Channel
-	Disconnect() Channel
+	Bind(localAddr net.Addr) Future
+	Close() Future
+	Connect(localAddr net.Addr, remoteAddr net.Addr) Future
+	Disconnect() Future
+	Deregister() Future
+	Read() Channel
 	FireRead(obj interface{}) Channel
 	FireReadCompleted() Channel
+	Write(obj interface{}) Future
 	IsActive() bool
 	SetParam(key ParamKey, value interface{})
 	Param(key ParamKey) interface{}
 	Params() *Params
-	unsafe() *Unsafe
+	Parent() ServerChannel
+	LocalAddr() net.Addr
+	context() context.Context
+	unsafe() Unsafe
+	op() *sync.Mutex
+	setLocalAddr(addr net.Addr)
+	activeChannel()
+	inactiveChannel()
+	closeWaitGroup() *sync2.BurstWaitGroup
+	setPipeline(pipeline Pipeline)
+	setUnsafe(unsafe Unsafe)
+	setParent(channel ServerChannel)
+	setContext(ctx context.Context)
+	setContextCancelFunc(cancel context.CancelFunc)
+	setCloseFuture(future Future)
+}
+
+type UnsafeRead interface {
+	UnsafeRead() error
+}
+
+type UnsafeBind interface {
+	UnsafeBind(localAddr net.Addr) error
+}
+
+type UnsafeAccept interface {
+	UnsafeAccept() Channel
+}
+
+type UnsafeClose interface {
+	UnsafeClose() error
+}
+
+type UnsafeWrite interface {
+	UnsafeWrite(obj interface{}) error
+}
+
+type UnsafeConnect interface {
+	UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error
+}
+
+type UnsafeDisconnect interface {
+	UnsafeDisconnect() error
 }
 
 var ErrNotActive = errors.Errorf("channel not active")
+var ErrNilObject = fmt.Errorf("nil object")
+var ErrUnknownObjectType = fmt.Errorf("unknown object type")
+var ErrReadError = fmt.Errorf("read error")
+
 var IDEncoder = base62.ShiftEncoding
 
 type DefaultChannel struct {
-	id              string
-	Name            string
-	ChannelPipeline Pipeline
-	atomicLock      sync.Mutex
-	params          Params
-	Unsafe          Unsafe
+	id            string
+	Name          string
+	opLock        sync.Mutex
+	ctx           context.Context
+	ctxCancelFunc context.CancelFunc
+	params        Params
+	localAddr     net.Addr
+	active        bool
+	pipeline      Pipeline
+	_unsafe       Unsafe
+	parent        ServerChannel
+	closeFuture   Future
+	closeWG       sync2.BurstWaitGroup
 }
 
-type Unsafe struct {
-	WriteFunc      func(obj interface{}) error
-	BindFunc       func(localAddr net.Addr) error
-	CloseFunc      func() error
-	ConnectFunc    func(remoteAddr net.Addr) error
-	DisconnectFunc func() error
-	CloseLock      sync.Mutex
-	DisconnectLock sync.Mutex
+func (c *DefaultChannel) ID() string {
+	if c.id == "" {
+		c.opLock.Lock()
+		defer c.opLock.Unlock()
+		if c.id == "" {
+			u := uuid.New()
+			c.id = IDEncoder.EncodeToString(u[:])
+		}
+	}
+
+	return c.id
 }
 
-var UnsafeDefaultWriteFunc = func(obj interface{}) error { return nil }
-var UnsafeDefaultBindFunc = func(localAddr net.Addr) error { return nil }
-var UnsafeDefaultConnectFunc = func(remoteAddr net.Addr) error { return nil }
+func (c *DefaultChannel) Init() Channel {
+	return c
+}
+
+func (c *DefaultChannel) Pipeline() Pipeline {
+	return c.pipeline
+}
+
+func (c *DefaultChannel) CloseFuture() Future {
+	return c.closeFuture
+}
+
+func (c *DefaultChannel) Bind(localAddr net.Addr) Future {
+	return c.Pipeline().Bind(localAddr)
+}
+
+func (c *DefaultChannel) Close() Future {
+	return c.Pipeline().Close()
+}
+
+func (c *DefaultChannel) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
+	return c.Pipeline().Connect(localAddr, remoteAddr)
+}
+
+func (c *DefaultChannel) Disconnect() Future {
+	return c.Pipeline().Disconnect()
+}
+
+func (c *DefaultChannel) Deregister() Future {
+	return c.Pipeline().Deregister()
+}
+
+func (c *DefaultChannel) Read() Channel {
+	c.Pipeline().Read()
+	return c
+}
+
+func (c *DefaultChannel) FireRead(obj interface{}) Channel {
+	c.Pipeline().fireRead(obj)
+	return c
+}
+
+func (c *DefaultChannel) FireReadCompleted() Channel {
+	c.Pipeline().fireReadCompleted()
+	return c
+}
+
+func (c *DefaultChannel) Write(obj interface{}) Future {
+	return c.Pipeline().Write(obj)
+}
+
+func (c *DefaultChannel) IsActive() bool {
+	return c.active
+}
 
 func (c *DefaultChannel) SetParam(key ParamKey, value interface{}) {
 	c.params.Store(key, value)
@@ -69,106 +183,100 @@ func (c *DefaultChannel) Params() *Params {
 	return &c.params
 }
 
-func (c *DefaultChannel) ID() string {
-	if c.id == "" {
-		c.atomicLock.Lock()
-		defer c.atomicLock.Unlock()
-		if c.id == "" {
-			u := uuid.New()
-			c.id = IDEncoder.EncodeToString(u[:])
+func (c *DefaultChannel) Parent() ServerChannel {
+	return c.parent
+}
+
+func (c *DefaultChannel) LocalAddr() net.Addr {
+	return c.localAddr
+}
+
+func (c *DefaultChannel) context() context.Context {
+	return c.ctx
+}
+
+func (c *DefaultChannel) unsafe() Unsafe {
+	return c._unsafe
+}
+
+func (c *DefaultChannel) op() *sync.Mutex {
+	return &c.opLock
+}
+
+func (c *DefaultChannel) setLocalAddr(addr net.Addr) {
+	c.localAddr = addr
+}
+
+func (c *DefaultChannel) activeChannel() {
+	c.active = true
+	c.Pipeline().fireActive()
+	c.Read()
+	go func(c Channel) {
+		<-c.context().Done()
+		if c.IsActive() {
+			if _, ok := c.Pipeline().Channel().(ServerChannel); !ok {
+				c.Disconnect()
+			}
 		}
-	}
-
-	return c.id
+	}(c)
 }
 
-func EmptyDefaultChannel() *DefaultChannel {
-	u := uuid.New()
-	var channel = DefaultChannel{
-		id: IDEncoder.EncodeToString(u[:]),
-		Unsafe: Unsafe{
-			WriteFunc:   UnsafeDefaultWriteFunc,
-			BindFunc:    UnsafeDefaultBindFunc,
-			ConnectFunc: UnsafeDefaultConnectFunc,
-		},
-	}
-
-	return &channel
+func (c *DefaultChannel) inactiveChannel() {
+	c.ctxCancelFunc()
+	go func(c *DefaultChannel) {
+		c.closeWG.Wait()
+		if c.IsActive() {
+			c.active = false
+			c.Pipeline().fireInactive()
+			c.Pipeline().fireUnregistered()
+			c.CloseFuture().(concurrent.ManualFuture).Success()
+			if c.Parent() != nil {
+				c.Parent().closeWaitGroup().Done()
+			}
+		}
+	}(c)
 }
 
-func NewDefaultChannel() *DefaultChannel {
-	channel := EmptyDefaultChannel()
-	channel.Init()
-	return channel
+func (c *DefaultChannel) closeWaitGroup() *sync2.BurstWaitGroup {
+	return &c.closeWG
 }
 
-func (c *DefaultChannel) Init() Channel {
-	c.ChannelPipeline = NewDefaultPipeline(c)
-	return c
+func (c *DefaultChannel) setPipeline(pipeline Pipeline) {
+	c.pipeline = pipeline
 }
 
-func (c *DefaultChannel) Pipeline() Pipeline {
-	if c.ChannelPipeline == nil {
-		c.ChannelPipeline = NewDefaultPipeline(c)
-	}
-
-	return c.ChannelPipeline
+func (c *DefaultChannel) setUnsafe(unsafe Unsafe) {
+	c._unsafe = unsafe
 }
 
-func (c *DefaultChannel) CloseFuture() Future {
-	return NewChannelFuture(c, func() interface{} {
-		c.Unsafe.CloseLock.Lock()
-		c.Unsafe.CloseLock.Unlock()
-		return nil
-	})
+func (c *DefaultChannel) setParent(channel ServerChannel) {
+	c.parent = channel
 }
 
-func (c *DefaultChannel) DisconnectFuture() Future {
-	return NewChannelFuture(c, func() interface{} {
-		c.Unsafe.DisconnectLock.Lock()
-		c.Unsafe.DisconnectLock.Unlock()
-		return nil
-	})
+func (c *DefaultChannel) setContext(ctx context.Context) {
+	c.ctx = ctx
 }
 
-func (c *DefaultChannel) Bind(localAddr net.Addr) Channel {
-	c.Pipeline().Bind(localAddr)
-	return c
+func (c *DefaultChannel) setContextCancelFunc(cancel context.CancelFunc) {
+	c.ctxCancelFunc = cancel
 }
 
-func (c *DefaultChannel) Close() Channel {
-	c.Pipeline().Close()
-	return c
+func (c *DefaultChannel) setCloseFuture(future Future) {
+	c.closeFuture = future
 }
 
-func (c *DefaultChannel) Connect(remoteAddr net.Addr) Channel {
-	c.Pipeline().Connect(remoteAddr)
-	return c
+func (c *DefaultChannel) UnsafeWrite(obj interface{}) error {
+	return nil
 }
 
-func (c *DefaultChannel) Disconnect() Channel {
-	c.Pipeline().Disconnect()
-	return c
+func (c *DefaultChannel) UnsafeRead() error {
+	return nil
 }
 
-func (c *DefaultChannel) PreStart() Channel {
-	panic("implement me")
+func (c *DefaultChannel) UnsafeDisconnect() error {
+	return nil
 }
 
-func (c *DefaultChannel) FireRead(obj interface{}) Channel {
-	c.Pipeline().fireRead(obj)
-	return c
-}
-
-func (c *DefaultChannel) FireReadCompleted() Channel {
-	c.Pipeline().fireReadCompleted()
-	return c
-}
-
-func (c *DefaultChannel) IsActive() bool {
-	panic("implement me")
-}
-
-func (c *DefaultChannel) unsafe() *Unsafe {
-	return &c.Unsafe
+func (c *DefaultChannel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error {
+	return nil
 }

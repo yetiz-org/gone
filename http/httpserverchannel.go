@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"reflect"
+	"sync"
 	"time"
 
 	"github.com/kklab-com/gone/channel"
@@ -14,68 +14,63 @@ import (
 	kkpanic "github.com/kklab-com/goth-panic"
 )
 
-type DefaultServerChannel struct {
+type ServerChannel struct {
 	channel.DefaultNetServerChannel
-	server *http.Server
-	active bool
+	server    *http.Server
+	active    bool
+	newChChan chan channel.Channel
+	chMap     sync.Map
 }
 
 const ConnCtx = "conn"
+const ConnChCtx = "conn_ch"
 
-var ClientChannelType = reflect.TypeOf(DefaultClientChannel{})
-
-func (c *DefaultServerChannel) Init() channel.Channel {
-	c.ChannelPipeline = channel.NewDefaultPipeline(c)
-	c.Unsafe.BindFunc = c.bind
-	c.Unsafe.CloseFunc = c.close
-	c.Unsafe.CloseLock.Lock()
-	return c
-}
-
-func (c *DefaultServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer c.panicCatch()
 	conn := r.Context().Value(ConnCtx)
 	if conn == nil {
-		kklogger.ErrorJ("DefaultServerChannel.ServeHTTP", "can't get conn")
+		kklogger.ErrorJ("http:ServerChannel.ServeHTTP", "can't get conn")
 		return
 	}
 
-	cch := c.Child(conn.(net.Conn)).(*DefaultClientChannel)
+	cch := r.Context().Value(ConnChCtx).(*Channel)
 	if cch == nil {
-		kklogger.ErrorJ("DefaultServerChannel.ServeHTTP", "can't get DefaultClientChannel")
+		kklogger.ErrorJ("http:ServerChannel.ServeHTTP", "can't get Channel")
 		return
 	}
 
 	cch.writer = w
-	request := NewRequest(cch, *r)
+	request := WrapRequest(cch, r)
 	var pkg = &Pack{
-		Req:    request,
-		Resp:   NewResponse(request),
-		Params: map[string]interface{}{},
-		Writer: w,
+		Request:  request,
+		Response: NewResponse(request),
+		Params:   map[string]interface{}{},
+		Writer:   w,
 	}
 
 	var obj interface{} = pkg
 	cch.FireRead(obj)
+	cch.FireReadCompleted()
 }
 
-func (c *DefaultServerChannel) panicCatch() {
+func (c *ServerChannel) panicCatch() {
 	kkpanic.Call(func(r kkpanic.Caught) {
-		kklogger.ErrorJ("ServerChannelPanicCatch", r.String())
+		kklogger.ErrorJ("http:ServerChannelPanicCatch", r.String())
 	})
 }
 
-func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
+func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 	var handler http.Handler = c
 	if c.Name == "" {
 		c.Name = fmt.Sprintf("SERVER_%s", localAddr.String())
 	}
 
 	if c.active {
-		kklogger.Error("DefaultServerChannel.bind", fmt.Sprintf("%s bind twice", c.Name))
+		kklogger.Error("http:ServerChannel.bind", fmt.Sprintf("%s bind twice", c.Name))
 		os.Exit(1)
 	}
 
+	c.newChChan = make(chan channel.Channel, 32)
 	c.server = &http.Server{
 		Addr:              localAddr.String(),
 		Handler:           handler,
@@ -87,18 +82,28 @@ func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			switch state {
 			case http.StateNew:
-				cch := c.DeriveClientChannel(ClientChannelType, conn)
-				cch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
 			case http.StateActive:
 			case http.StateIdle:
 			case http.StateHijacked:
+				c.chMap.Delete(conn)
 			case http.StateClosed:
-				c.Abandon(c.Child(conn).Conn().Conn())
+				if v, f := c.chMap.LoadAndDelete(conn); f {
+					ch := v.(channel.Channel)
+					if ch.IsActive() {
+						ch.Deregister()
+					}
+				}
 			default:
 			}
 		},
 		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
+			ch := &Channel{}
+			ch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
+			c.DeriveNetChildChannel(ch, c, conn)
 			ctx = context.WithValue(ctx, ConnCtx, conn)
+			ctx = context.WithValue(ctx, ConnChCtx, ch)
+			c.newChChan <- ch
+			c.chMap.Store(conn, ch)
 			return ctx
 		},
 	}
@@ -108,22 +113,26 @@ func (c *DefaultServerChannel) bind(localAddr net.Addr) error {
 	return nil
 }
 
-func (c *DefaultServerChannel) close() error {
+func (c *ServerChannel) UnsafeAccept() channel.Channel {
+	return <-c.newChChan
+}
+
+func (c *ServerChannel) UnsafeClose() error {
 	if !c.active {
 		return nil
 	}
 
+	c.DefaultNetServerChannel.UnsafeClose()
 	shutdownTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	if err := c.server.Shutdown(shutdownTimeout); err != nil {
-		kklogger.ErrorJ("HttpServerChannel", err.Error())
+		kklogger.ErrorJ("http:ServerChannel#UnsafeClose", err.Error())
 	}
 
-	c.Unsafe.CloseLock.Unlock()
 	c.active = false
 	return nil
 }
 
-func (c *DefaultServerChannel) IsActive() bool {
+func (c *ServerChannel) IsActive() bool {
 	return c.active
 }
