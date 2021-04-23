@@ -11,6 +11,7 @@ import (
 
 	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone-httpstatus"
+	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/buf"
 	"github.com/tdewolff/minify/v2"
@@ -55,7 +56,7 @@ func NewStaticFilesHandlerTask(folderPath string) *StaticFilesHandlerTask {
 	return s
 }
 
-func (h *StaticFilesHandlerTask) Get(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *StaticFilesHandlerTask) Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	path := fmt.Sprintf("%s/%s", h.FolderPath, strings.ReplaceAll(req.Url().Path, "../", "/"))
 	if entity, err := h._Load(path); entity != nil {
 		resp.SetStatusCode(httpstatus.OK)
