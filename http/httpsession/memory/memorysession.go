@@ -1,12 +1,12 @@
 package memory
 
 import (
-	"bytes"
 	"encoding/json"
 	"strconv"
 	"time"
 
 	"github.com/kklab-com/gone/http/httpsession"
+	"github.com/kklab-com/goth-kkutil/buf"
 )
 
 type Session struct {
@@ -35,7 +35,7 @@ func (s *Session) GetStruct(key string, obj interface{}) {
 		return
 	}
 
-	_ = json.Unmarshal(bytes.NewBufferString(data).Bytes(), obj)
+	_ = json.Unmarshal(buf.NewByteBufString(data).Bytes(), obj)
 }
 
 func (s *Session) GetString(key string) string {

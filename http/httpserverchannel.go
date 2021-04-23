@@ -40,7 +40,7 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cch.writer = w
-	request := NewRequest(cch, *r)
+	request := WrapRequest(cch, r)
 	var pkg = &Pack{
 		Request:  request,
 		Response: NewResponse(request),

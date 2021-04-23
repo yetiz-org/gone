@@ -1,13 +1,13 @@
 package http
 
 import (
-	"bytes"
 	"compress/gzip"
 	"strings"
 	"time"
 
 	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone/channel"
+	"github.com/kklab-com/goth-kkutil/buf"
 )
 
 type GZipHandler struct {
@@ -28,7 +28,7 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}, future 
 		return
 	}
 
-	if response.body.Len() > 0 && strings.Contains(response.request.Header.Get(httpheadername.AcceptEncoding), "gzip") {
+	if response.body.ReadableBytes() > 0 && strings.Contains(response.request.Header().Get(httpheadername.AcceptEncoding), "gzip") {
 		st := time.Now()
 		response.SetHeader(httpheadername.ContentEncoding, "gzip")
 		response.SetBody(h.gzipWrite(response.body))
@@ -38,8 +38,8 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}, future 
 	ctx.Write(obj, future)
 }
 
-func (h *GZipHandler) gzipWrite(buffer *bytes.Buffer) *bytes.Buffer {
-	gzBuffer := bytes.NewBuffer([]byte{})
+func (h *GZipHandler) gzipWrite(buffer buf.ByteBuf) buf.ByteBuf {
+	gzBuffer := buf.EmptyByteBuf()
 	writer, _ := gzip.NewWriterLevel(gzBuffer, gzip.BestSpeed)
 	defer writer.Close()
 	writer.Write(buffer.Bytes())

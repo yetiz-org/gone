@@ -49,10 +49,10 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    pack.Request.TrackID(),
 						State:      "Fail",
-						URI:        pack.Request.RequestURI,
+						URI:        pack.Request.RequestURI(),
 						Handler:    reflect.TypeOf(acceptance).String(),
 						Message:    err.Error(),
-						RemoteAddr: pack.Request.Request.RemoteAddr,
+						RemoteAddr: pack.Request.Request().RemoteAddr,
 					})
 
 					ctx.Write(obj, nil)
@@ -66,9 +66,9 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    pack.Request.TrackID(),
 						State:      "Pass",
-						URI:        pack.Request.RequestURI,
+						URI:        pack.Request.RequestURI(),
 						Handler:    reflect.TypeOf(acceptance).String(),
-						RemoteAddr: pack.Request.Request.RemoteAddr,
+						RemoteAddr: pack.Request.Request().RemoteAddr,
 					})
 				}
 			}
@@ -81,9 +81,9 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 
 			timeMark := time.Now()
 			wsConn := func() *websocket.Conn {
-				wsConn, err := h.upgrade.Upgrade(pack.Writer, &pack.Request.Request, pack.Response.Header())
+				wsConn, err := h.upgrade.Upgrade(pack.Writer, pack.Request.Request(), pack.Response.Header())
 				if err != nil {
-					kklogger.WarnJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI, nil, err))
+					kklogger.WarnJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
 					ctx.Channel().Disconnect()
 					return nil
 				}
@@ -95,7 +95,7 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj interface{}) {
 				return
 			}
 
-			kklogger.DebugJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI, wsConn, nil))
+			kklogger.DebugJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
 			pack.Params["[gone-http]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
 
 			// create ws channel and replace it

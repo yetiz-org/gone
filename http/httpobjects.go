@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/ioutil"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,7 +20,7 @@ import (
 	"github.com/kklab-com/gone/http/httpsession"
 	"github.com/kklab-com/goth-base62"
 	"github.com/kklab-com/goth-kklogger"
-	"github.com/kklab-com/goth-kkutil"
+	"github.com/kklab-com/goth-kkutil/buf"
 	"github.com/kklab-com/goth-kkutil/validate"
 	"golang.org/x/text/language"
 )
@@ -26,38 +28,38 @@ import (
 const MaxMultiPartMemory = 1024 * 1024 * 256
 
 type Request struct {
-	http.Request
+	request     *http.Request
+	channel     channel.Channel
 	trackID     string
-	CreatedAt   time.Time
-	RemoteAddrs []string
-	Body        []byte
+	createdAt   time.Time
+	remoteAddrs []string
+	body        buf.ByteBuf
 	session     httpsession.Session
-	lock        sync.Mutex
-	channel     channel.NetChannel
+	op          sync.Mutex
 }
 
-func NewRequest(ch channel.NetChannel, req http.Request) *Request {
+func WrapRequest(ch channel.Channel, req *http.Request) *Request {
+	u := uuid.New()
 	request := Request{
-		Request:   req,
-		CreatedAt: time.Now(),
+		request:   req,
 		channel:   ch,
+		trackID:   base62.ShiftEncoding.EncodeToString(u[:]),
+		createdAt: time.Now(),
 	}
 
-	if bodyBytes, e := ioutil.ReadAll(request.Request.Body); e == nil {
-		request.Request.Body.Close()
-		request.Request.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
-		request.Request.ParseMultipartForm(channel.GetParamInt64Default(ch, ParamMaxMultiPartMemory, MaxMultiPartMemory))
-		request.Request.Body.Close()
-		request.Body = bodyBytes
+	if bs, e := ioutil.ReadAll(request.request.Body); e == nil {
+		request.request.Body.Close()
+		request.body = buf.NewByteBuf(bs)
+		request.request.Body = ioutil.NopCloser(buf.NewByteBuf(bs))
 	}
 
-	if xForwardFor := request.Header.Get(httpheadername.XForwardedFor); xForwardFor != "" {
+	if xForwardFor := request.Header().Get(httpheadername.XForwardedFor); xForwardFor != "" {
 		xffu := strings.Split(xForwardFor, ", ")
-		rAddr := request.Request.RemoteAddr
+		rAddr := request.request.RemoteAddr
 		for i := len(xffu) - 1; i >= 0; i-- {
 			current := xffu[i]
 			if validate.IsPublicIP(net.ParseIP(current)) {
-				request.Request.RemoteAddr = current
+				request.request.RemoteAddr = current
 				break
 			}
 		}
@@ -66,37 +68,60 @@ func NewRequest(ch channel.NetChannel, req http.Request) *Request {
 			xffu = []string{}
 		}
 
-		request.RemoteAddrs = append(xffu, rAddr)
+		request.remoteAddrs = append(xffu, rAddr)
 	} else {
-		request.RemoteAddrs = []string{request.Request.RemoteAddr}
+		request.remoteAddrs = []string{request.request.RemoteAddr}
 	}
 
 	return &request
 }
 
-func (r *Request) Channel() (ch channel.NetChannel) {
+func (r *Request) Request() *http.Request {
+	return r.request
+}
+
+func (r *Request) Channel() channel.Channel {
 	return r.channel
 }
 
-func (r *Request) TrackID() string {
-	if r.trackID == "" {
-		r.lock.Lock()
-		defer r.lock.Unlock()
-		if r.trackID == "" {
-			r.trackID = base62.ShiftEncoding.EncodeToString(kkutil.BytesFromUUID(uuid.New()))
-		}
-	}
+func (r *Request) CreatedAt() *time.Time {
+	return &r.createdAt
+}
 
+func (r *Request) TrackID() string {
 	return r.trackID
 }
 
-func (r *Request) RemoteIP() (ip net.IP) {
-	rip, _ := r.RemoteAddr()
-	return rip
+func (r *Request) Host() string {
+	return r.request.Host
+}
+
+func (r *Request) Method() string {
+	return r.request.Method
+}
+
+func (r *Request) Url() *url.URL {
+	return r.request.URL
+}
+
+func (r *Request) ContentLength() int64 {
+	return r.request.ContentLength
+}
+
+func (r *Request) Proto() string {
+	return r.request.Proto
+}
+
+func (r *Request) UserAgent() string {
+	return r.request.UserAgent()
+}
+
+func (r *Request) RequestURI() string {
+	return r.request.RequestURI
 }
 
 func (r *Request) RemoteAddr() (ip net.IP, port string) {
-	addr := r.Request.RemoteAddr
+	addr := r.request.RemoteAddr
 	if strings.Count(addr, ":") > 1 {
 		if strings.LastIndex(addr, "]") == -1 {
 			return net.ParseIP(addr), ""
@@ -116,10 +141,47 @@ func (r *Request) RemoteAddr() (ip net.IP, port string) {
 	}
 }
 
+func (r *Request) RemoteAddrs() []string {
+	return r.remoteAddrs
+}
+
+func (r *Request) Cookies() []*http.Cookie {
+	return r.request.Cookies()
+}
+
+func (r *Request) Cookie(name string) (*http.Cookie, error) {
+	return r.request.Cookie(name)
+}
+
+func (r *Request) AddCookie(c *http.Cookie) {
+	r.request.AddCookie(c)
+}
+
+func (r *Request) Header() http.Header {
+	return r.request.Header
+}
+
+func (r *Request) Body() buf.ByteBuf {
+	return r.body
+}
+
+func (r *Request) FormFile(key string) (multipart.File, *multipart.FileHeader, error) {
+	return r.request.FormFile(key)
+}
+
+func (r *Request) FormValue(key string) string {
+	return r.request.FormValue(key)
+}
+
+func (r *Request) RemoteIP() (ip net.IP) {
+	rip, _ := r.RemoteAddr()
+	return rip
+}
+
 func (r *Request) Session() httpsession.Session {
 	if r.session == nil {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.op.Lock()
+		defer r.op.Unlock()
 		if r.session == nil {
 			r.session = GetSession(r)
 		}
@@ -134,7 +196,7 @@ func (r *Request) RenewSession() {
 
 func (r *Request) AcceptLanguage() []LanguageValue {
 	var languageValues []LanguageValue
-	if tags, q, err := language.ParseAcceptLanguage(r.Header.Get(httpheadername.AcceptLanguage)); err == nil {
+	if tags, q, err := language.ParseAcceptLanguage(r.Header().Get(httpheadername.AcceptLanguage)); err == nil {
 		for i, tag := range tags {
 			languageValues = append(languageValues, LanguageValue{
 				Value:  tag,
@@ -149,19 +211,19 @@ func (r *Request) AcceptLanguage() []LanguageValue {
 }
 
 func (r *Request) Accept() []QualityValue {
-	return _DecodeQualityValueField(r.Header.Get(httpheadername.Accept))
+	return _DecodeQualityValueField(r.Header().Get(httpheadername.Accept))
 }
 
 func (r *Request) AcceptEncoding() []QualityValue {
-	return _DecodeQualityValueField(r.Header.Get(httpheadername.AcceptEncoding))
+	return _DecodeQualityValueField(r.Header().Get(httpheadername.AcceptEncoding))
 }
 
 func (r *Request) TE() []QualityValue {
-	return _DecodeQualityValueField(r.Header.Get(httpheadername.TE))
+	return _DecodeQualityValueField(r.Header().Get(httpheadername.TE))
 }
 
 func (r *Request) AcceptCharset() []QualityValue {
-	return _DecodeQualityValueField(r.Header.Get(httpheadername.AcceptCharset))
+	return _DecodeQualityValueField(r.Header().Get(httpheadername.AcceptCharset))
 }
 
 type QualityValue struct {
@@ -209,27 +271,27 @@ func (r *Request) PreferLang() *language.Tag {
 }
 
 func (r *Request) Referer() string {
-	return r.Header.Get(httpheadername.Referer)
+	return r.Header().Get(httpheadername.Referer)
 }
 
 func (r *Request) Origin() string {
-	return r.Header.Get(httpheadername.Origin)
+	return r.Header().Get(httpheadername.Origin)
 }
 
 type Response struct {
+	response   *http.Response
 	request    *Request
 	statusCode int
 	header     http.Header
 	cookies    map[string][]http.Cookie
-	body       *bytes.Buffer
+	body       buf.ByteBuf
 }
 
 func WrapResponse(ch channel.NetChannel, response *http.Response) *Response {
 	resp := &Response{
 		request: &Request{
-			Request:   *response.Request,
-			CreatedAt: time.Now(),
-			channel:   ch,
+			request: response.Request,
+			channel: ch,
 		},
 		statusCode: response.StatusCode,
 		header:     response.Header,
@@ -248,7 +310,15 @@ func NewResponse(request *Request) *Response {
 	response.statusCode = httpstatus.OK
 	response.header = map[string][]string{}
 	response.cookies = map[string][]http.Cookie{}
-	response.body = bytes.NewBuffer([]byte{})
+	response.body = buf.EmptyByteBuf()
+	return response
+}
+
+func EmptyResponse() *Response {
+	response := &Response{}
+	response.header = map[string][]string{}
+	response.cookies = map[string][]http.Cookie{}
+	response.body = buf.EmptyByteBuf()
 	return response
 }
 
@@ -257,7 +327,7 @@ func (r *Response) ResponseError(er ErrorResponse) {
 	er.ErrorData()["cid"] = r.request.Channel().ID()
 	er.ErrorData()["tid"] = r.request.TrackID()
 	r.SetStatusCode(er.ErrorStatusCode()).
-		JsonResponse(bytes.NewBufferString(er.Error()))
+		JsonResponse(buf.NewByteBufString(er.Error()))
 }
 
 func (r *Response) Redirect(redirectUrl string) {
@@ -318,13 +388,18 @@ func (r *Response) Body() []byte {
 	return r.body.Bytes()
 }
 
-func (r *Response) SetBody(buffer *bytes.Buffer) {
-	r.body = buffer
+func (r *Response) SetBody(buf buf.ByteBuf) {
+	r.body = buf
 }
 
-func (r *Response) TextResponse(buffer *bytes.Buffer) {
-	r.SetHeader(httpheadername.ContentType, "text/plain")
-	r.SetBody(buffer)
+func (r *Response) SetContentType(ct string) {
+	r.SetHeader(httpheadername.ContentType, ct)
+}
+
+func (r *Response) TextResponse(buf buf.ByteBuf) {
+	r.
+		SetHeader(httpheadername.ContentType, "text/plain").
+		SetBody(buf)
 }
 
 func (r *Response) JsonResponse(obj interface{}) {
@@ -332,14 +407,16 @@ func (r *Response) JsonResponse(obj interface{}) {
 
 	switch body := obj.(type) {
 	case *bytes.Buffer:
+		r.SetBody(buf.NewByteBuf(body.Bytes()))
+	case buf.ByteBuf:
 		r.SetBody(body)
 	case []byte:
-		r.SetBody(bytes.NewBuffer(body))
+		r.SetBody(buf.NewByteBuf(body))
 	case string:
 		obj = struct{ Data string }{Data: body}
 	default:
 		if body, e := json.Marshal(obj); e == nil {
-			r.SetBody(bytes.NewBuffer(body))
+			r.SetBody(buf.NewByteBuf(body))
 			return
 		} else {
 			kklogger.ErrorJ("gone:Response.JsonResponse#JsonMarshal", e.Error())

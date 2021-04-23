@@ -163,7 +163,7 @@ func (c *Channel) _NewWSLog(message Message, err error) *WSLogStruct {
 	log := &WSLogStruct{
 		LogType:    WSLogType,
 		ChannelID:  c.ID(),
-		RequestURI: c.Response.Request().RequestURI,
+		RequestURI: c.Response.Request().RequestURI(),
 		Message:    message,
 		Error:      err,
 	}
