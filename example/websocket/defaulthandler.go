@@ -10,7 +10,7 @@ import (
 )
 
 type DefaultTask struct {
-	http.DefaultHTTPTask
+	http.DefaultHTTPHandlerTask
 }
 
 func (l *DefaultTask) Get(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
@@ -20,7 +20,7 @@ func (l *DefaultTask) Get(ctx channel.HandlerContext, req *http.Request, resp *h
 }
 
 type DefaultHomeTask struct {
-	http.DefaultHTTPTask
+	http.DefaultHTTPHandlerTask
 }
 
 func (l *DefaultHomeTask) Get(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
@@ -35,7 +35,7 @@ func (l *DefaultHomeTask) Get(ctx channel.HandlerContext, req *http.Request, res
 }
 
 type CloseTask struct {
-	http.DefaultHTTPTask
+	http.DefaultHTTPHandlerTask
 }
 
 func (l *CloseTask) Get(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {

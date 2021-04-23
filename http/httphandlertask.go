@@ -34,63 +34,63 @@ type HttpHandlerTask interface {
 
 var NotImplemented = erresponse.NotImplemented
 
-type DefaultHTTPTask struct {
+type DefaultHTTPHandlerTask struct {
 	DefaultHandlerTask
 }
 
-func (h *DefaultHTTPTask) Index(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Index(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return NotImplemented
 }
 
-func (h *DefaultHTTPTask) Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Post(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Post(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Put(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Put(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Delete(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Delete(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Options(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Options(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Patch(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Patch(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Trace(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Trace(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Connect(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Connect(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) ThrowErrorResponse(err ErrorResponse) {
+func (h *DefaultHTTPHandlerTask) ThrowErrorResponse(err ErrorResponse) {
 	panic(err)
 }
 
-func (h *DefaultHTTPTask) PreCheck(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) PreCheck(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) Before(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) Before(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) After(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
+func (h *DefaultHTTPHandlerTask) After(req *Request, resp *Response, params map[string]interface{}) ErrorResponse {
 	return nil
 }
 
-func (h *DefaultHTTPTask) ErrorCaught(req *Request, resp *Response, params map[string]interface{}, err ErrorResponse) error {
+func (h *DefaultHTTPHandlerTask) ErrorCaught(req *Request, resp *Response, params map[string]interface{}, err ErrorResponse) error {
 	resp.ResponseError(err)
 	return nil
 }
