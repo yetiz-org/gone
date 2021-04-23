@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"net"
+	http2 "net/http"
 	"testing"
 	"time"
 
@@ -9,7 +10,9 @@ import (
 	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/gone/websocket"
 	"github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/buf"
 	"github.com/kklab-com/goth-kkutil/sync"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestServer_Start(t *testing.T) {
@@ -30,6 +33,41 @@ func TestServer_Start(t *testing.T) {
 		time.Sleep(time.Minute * 1)
 		server.Close()
 	}()
+
+
+	if rtn, err := http2.DefaultClient.Get("http://localhost:18081"); err != nil {
+		assert.Fail(t, err.Error())
+	} else {
+		assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+	}
+
+	http2.DefaultClient.CloseIdleConnections()
+	if rtn, err := http2.DefaultClient.Get("http://localhost:18081/home"); err != nil {
+		assert.Fail(t, err.Error())
+	} else {
+		assert.EqualValues(t, "/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+	}
+
+	http2.DefaultClient.CloseIdleConnections()
+	if rtn, err := http2.DefaultClient.Get("http://localhost:18081/v1/home"); err != nil {
+		assert.Fail(t, err.Error())
+	} else {
+		assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+	}
+
+	http2.DefaultClient.CloseIdleConnections()
+	if rtn, err := http2.DefaultClient.Get("http://localhost:18081/static/home"); err != nil {
+		assert.Fail(t, err.Error())
+	} else {
+		assert.EqualValues(t, "/static/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+	}
+
+	http2.DefaultClient.CloseIdleConnections()
+	if rtn, err := http2.DefaultClient.Get("http://localhost:18081/homes"); err != nil {
+		assert.Fail(t, err.Error())
+	} else {
+		assert.EqualValues(t, 404, rtn.StatusCode)
+	}
 
 	bootstrap := channel.NewBootstrap()
 	bootstrap.ChannelType(&websocket.Channel{})

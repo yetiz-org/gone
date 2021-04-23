@@ -57,7 +57,7 @@ func _NewDefaultPipeline(channel Channel) Pipeline {
 	pipeline.tail = pipeline._NewTailHandlerContext(channel)
 	pipeline.head.setNext(pipeline.tail)
 	pipeline.tail.setPrev(pipeline.head)
-	channel.setUnsafe(NewUnsafe(channel, 128))
+	channel.setUnsafe(NewUnsafe(channel))
 	pipeline.channel = channel
 	return pipeline
 }
@@ -334,7 +334,6 @@ func (p *DefaultPipeline) newFuture() Future {
 }
 
 func (p *DefaultPipeline) SetChannel(channel Channel) {
-	p.channel.unsafe().Destroy()
 	p.channel = channel
-	channel.setUnsafe(NewUnsafe(channel, 128))
+	channel.setUnsafe(NewUnsafe(channel))
 }

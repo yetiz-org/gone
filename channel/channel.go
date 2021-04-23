@@ -226,7 +226,6 @@ func (c *DefaultChannel) inactiveChannel() {
 	go func(c *DefaultChannel) {
 		c.closeWG.Wait()
 		if c.IsActive() {
-			c.unsafe().Destroy()
 			c.active = false
 			c.Pipeline().fireInactive()
 			c.Pipeline().fireUnregistered()

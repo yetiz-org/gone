@@ -51,7 +51,14 @@ func TestServer_Start(t *testing.T) {
 	} else {
 		assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 	}
-	
+
+	http2.DefaultClient.CloseIdleConnections()
+	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/homes"); err != nil {
+		assert.Fail(t, err.Error())
+	} else {
+		assert.EqualValues(t, 404, rtn.StatusCode)
+	}
+
 	http2.DefaultClient.CloseIdleConnections()
 	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/close"); err != nil {
 		assert.Fail(t, err.Error())
@@ -60,7 +67,7 @@ func TestServer_Start(t *testing.T) {
 	}
 
 	go func() {
-		time.Sleep(time.Minute * 1)
+		time.Sleep(time.Minute * 5)
 		ch.Close()
 	}()
 

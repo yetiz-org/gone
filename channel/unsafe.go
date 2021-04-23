@@ -2,12 +2,11 @@ package channel
 
 import (
 	"net"
-	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/kklab-com/gone/concurrent"
 	kklogger "github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/sync"
 )
 
 type Unsafe interface {
@@ -17,7 +16,6 @@ type Unsafe interface {
 	Close(future Future)
 	Connect(localAddr net.Addr, remoteAddr net.Addr, future Future)
 	Disconnect(future Future)
-	Destroy()
 }
 
 type DefaultUnsafe struct {
@@ -28,12 +26,11 @@ type DefaultUnsafe struct {
 	closeS,
 	connectS,
 	disconnectS int32
-	wChan       chan *unsafeExecuteElem
-	destroyOnce sync.Once
+	writeBuffer sync.Queue
 }
 
-func NewUnsafe(channel Channel, buffer int) Unsafe {
-	return &DefaultUnsafe{channel: channel, wChan: make(chan *unsafeExecuteElem, buffer)}
+func NewUnsafe(channel Channel) Unsafe {
+	return &DefaultUnsafe{channel: channel}
 }
 
 func (u *DefaultUnsafe) Read() {
@@ -49,7 +46,7 @@ func (u *DefaultUnsafe) Read() {
 
 func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 	if obj != nil && u.channel.IsActive() {
-		u.wChan <- &unsafeExecuteElem{obj: obj, future: future}
+		u.writeBuffer.Push(&unsafeExecuteElem{obj: obj, future: future})
 	} else {
 		if future != nil {
 			u.futureSuccess(future)
@@ -59,28 +56,31 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 	if channel, ok := u.channel.(UnsafeWrite); ok && u.markState(&u.writeS) && u.channel.IsActive() {
 		go func(u *DefaultUnsafe) {
 			for u.channel.IsActive() {
-				select {
-				case elem := <-u.wChan:
-					if elem == nil {
-						// pending close
-						break
+				elem := func() *unsafeExecuteElem {
+					if v := u.writeBuffer.Pop(); v != nil {
+						return v.(*unsafeExecuteElem)
 					}
 
-					if err := channel.UnsafeWrite(elem.obj); err != nil {
-						u.channel.inactiveChannel()
-						u.futureCancel(elem.future)
-					} else {
-						u.futureSuccess(elem.future)
-					}
-				case <-time.After(time.Millisecond * 100):
+					return nil
+				}()
+
+				if elem == nil {
+					// pending close
 					break
+				}
+
+				if err := channel.UnsafeWrite(elem.obj); err != nil {
+					u.channel.inactiveChannel()
+					u.futureCancel(elem.future)
+				} else {
+					u.futureSuccess(elem.future)
 				}
 
 				break
 			}
 
 			u.resetState(&u.writeS)
-			if len(u.wChan) > 0 {
+			if u.writeBuffer.Len() > 0 {
 				u.Write(nil, u.channel.Pipeline().newFuture())
 			}
 		}(u)
@@ -174,12 +174,6 @@ func (u *DefaultUnsafe) Disconnect(future Future) {
 			u.futureSuccess(elem.future)
 		}(u, &unsafeExecuteElem{future: future})
 	}
-}
-
-func (u *DefaultUnsafe) Destroy() {
-	u.destroyOnce.Do(func() {
-		close(u.wChan)
-	})
 }
 
 func (u *DefaultUnsafe) markState(state *int32) bool {
