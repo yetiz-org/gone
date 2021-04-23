@@ -95,19 +95,19 @@ func (h *DefaultHTTPTask) ErrorCaught(req *Request, resp *Response, params map[s
 	return nil
 }
 
+type DefaultHandlerTask struct {
+}
+
+func NewDefaultHandlerTask() *DefaultHandlerTask {
+	return new(DefaultHandlerTask)
+}
+
 func (h *DefaultHandlerTask) IsIndex(params map[string]interface{}) string {
 	if rtn := params["[gone-http]is_index"]; rtn != nil {
 		return rtn.(string)
 	}
 
 	return ""
-}
-
-type DefaultHandlerTask struct {
-}
-
-func NewDefaultHandlerTask() *DefaultHandlerTask {
-	return new(DefaultHandlerTask)
 }
 
 func (h *DefaultHandlerTask) GetNodeName(params map[string]interface{}) string {
