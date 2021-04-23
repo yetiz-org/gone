@@ -23,7 +23,7 @@ import (
 )
 
 type StaticFilesHandlerTask struct {
-	DefaultHandlerTask
+	DefaultHTTPHandlerTask
 	FolderPath string
 	DoMinify   bool
 	DoCache    bool
