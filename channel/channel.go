@@ -38,7 +38,7 @@ type Channel interface {
 	op() *sync.Mutex
 	setLocalAddr(addr net.Addr)
 	activeChannel()
-	inactiveChannel()
+	inactiveChannel() Future
 	closeWaitGroup() *sync2.BurstWaitGroup
 	setPipeline(pipeline Pipeline)
 	setUnsafe(unsafe Unsafe)
@@ -221,20 +221,24 @@ func (c *DefaultChannel) activeChannel() {
 	}(c)
 }
 
-func (c *DefaultChannel) inactiveChannel() {
+func (c *DefaultChannel) inactiveChannel() Future {
 	c.ctxCancelFunc()
+	future := c.Pipeline().newFuture()
 	go func(c *DefaultChannel) {
 		c.closeWG.Wait()
 		if c.IsActive() {
 			c.active = false
 			c.Pipeline().fireInactive()
 			c.Pipeline().fireUnregistered()
+			future.(concurrent.ManualFuture).Success()
 			c.CloseFuture().(concurrent.ManualFuture).Success()
 			if c.Parent() != nil {
 				c.Parent().closeWaitGroup().Done()
 			}
 		}
 	}(c)
+
+	return future
 }
 
 func (c *DefaultChannel) closeWaitGroup() *sync2.BurstWaitGroup {

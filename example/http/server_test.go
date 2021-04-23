@@ -10,6 +10,7 @@ import (
 	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/buf"
+	"github.com/kklab-com/goth-kkutil/sync"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -32,34 +33,61 @@ func TestServer_Start(t *testing.T) {
 
 	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel()
 
-	if rtn, err := http2.DefaultClient.Get("http://localhost:18080"); err != nil {
-		assert.Fail(t, err.Error())
-	} else {
-		assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-	}
+	wg := sync.BurstWaitGroup{}
+	go func() {
+		wg.Add(1)
+		for i := 0; i < 100; i++ {
+			if rtn, err := http2.DefaultClient.Get("http://localhost:18080"); err != nil {
+				assert.Fail(t, err.Error())
+			} else {
+				assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+			}
+		}
 
-	http2.DefaultClient.CloseIdleConnections()
-	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/home"); err != nil {
-		assert.Fail(t, err.Error())
-	} else {
-		assert.EqualValues(t, "/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-	}
+		wg.Done()
+	}()
 
-	http2.DefaultClient.CloseIdleConnections()
-	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/v1/home"); err != nil {
-		assert.Fail(t, err.Error())
-	} else {
-		assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-	}
+	go func() {
+		wg.Add(1)
+		for i := 0; i < 100; i++ {
+			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/home"); err != nil {
+				assert.Fail(t, err.Error())
+			} else {
+				assert.EqualValues(t, "/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+			}
+		}
 
-	http2.DefaultClient.CloseIdleConnections()
-	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/homes"); err != nil {
-		assert.Fail(t, err.Error())
-	} else {
-		assert.EqualValues(t, 404, rtn.StatusCode)
-	}
+		wg.Done()
+	}()
 
-	http2.DefaultClient.CloseIdleConnections()
+	go func() {
+		wg.Add(1)
+		for i := 0; i < 100; i++ {
+			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/v1/home"); err != nil {
+				assert.Fail(t, err.Error())
+			} else {
+				assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+			}
+		}
+
+		wg.Done()
+	}()
+
+	go func() {
+		wg.Add(1)
+		for i := 0; i < 100; i++ {
+			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/homes"); err != nil {
+				assert.Fail(t, err.Error())
+			} else {
+				assert.EqualValues(t, 404, rtn.StatusCode)
+			}
+		}
+
+		wg.Done()
+	}()
+
+	wg.Wait()
+	time.Sleep(time.Second / 2)
 	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/close"); err != nil {
 		assert.Fail(t, err.Error())
 	} else {
