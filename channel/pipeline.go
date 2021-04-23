@@ -53,8 +53,8 @@ type DefaultPipeline struct {
 
 func _NewDefaultPipeline(channel Channel) Pipeline {
 	pipeline := new(DefaultPipeline)
-	pipeline.head = pipeline._NewHeadHandlerContext(channel)
-	pipeline.tail = pipeline._NewTailHandlerContext(channel)
+	pipeline.head = pipeline._NewHeadHandlerContext()
+	pipeline.tail = pipeline._NewTailHandlerContext()
 	pipeline.head.setNext(pipeline.tail)
 	pipeline.tail.setPrev(pipeline.head)
 	channel.setUnsafe(NewUnsafe(channel))
@@ -62,7 +62,7 @@ func _NewDefaultPipeline(channel Channel) Pipeline {
 	return pipeline
 }
 
-func (p *DefaultPipeline) _NewHeadHandlerContext(channel Channel) HandlerContext {
+func (p *DefaultPipeline) _NewHeadHandlerContext() HandlerContext {
 	context := new(DefaultHandlerContext)
 	context.name = PipelineHeadHandlerContextName
 	context._handler = &headHandler{}
@@ -70,7 +70,7 @@ func (p *DefaultPipeline) _NewHeadHandlerContext(channel Channel) HandlerContext
 	return context
 }
 
-func (p *DefaultPipeline) _NewTailHandlerContext(channel Channel) HandlerContext {
+func (p *DefaultPipeline) _NewTailHandlerContext() HandlerContext {
 	context := new(DefaultHandlerContext)
 	context.name = PipelineTailHandlerContextName
 	context._handler = &tailHandler{}
