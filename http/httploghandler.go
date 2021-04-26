@@ -97,7 +97,7 @@ func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
 				defer reader.Close()
 				bs, _ := ioutil.ReadAll(reader)
 				logStruct.Body = string(bs)
-				logStruct.CompressLength = len(logStruct.Body)
+				logStruct.PreCompressLength = len(logStruct.Body)
 			}
 		} else {
 			logStruct.Body = string(resp.body.Bytes())
@@ -210,10 +210,10 @@ type RequestLogStruct struct {
 }
 
 type ResponseLogStruct struct {
-	URI             string                 `json:"uri,omitempty"`
-	StatusCode      int                    `json:"status_code,omitempty"`
-	Headers         map[string]interface{} `json:"headers,omitempty"`
-	Body            string                 `json:"body,omitempty"`
-	PlainBodyLength int                    `json:"plain_body_length,omitempty"`
-	CompressLength  int                    `json:"compress_length,omitempty"`
+	URI               string                 `json:"uri,omitempty"`
+	StatusCode        int                    `json:"status_code,omitempty"`
+	Headers           map[string]interface{} `json:"headers,omitempty"`
+	Body              string                 `json:"body,omitempty"`
+	OutBodyLength     int                    `json:"out_body_length,omitempty"`
+	PreCompressLength int                    `json:"pre_compress_length,omitempty"`
 }
