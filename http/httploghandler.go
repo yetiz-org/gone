@@ -104,7 +104,7 @@ func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
 		}
 	}
 
-	logStruct.PlainBodyLength = resp.body.ReadableBytes()
+	logStruct.OutBodyLength = resp.body.ReadableBytes()
 	return logStruct
 }
 
