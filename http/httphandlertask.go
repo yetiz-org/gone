@@ -102,12 +102,14 @@ func NewDefaultHandlerTask() *DefaultHandlerTask {
 	return new(DefaultHandlerTask)
 }
 
-func (h *DefaultHandlerTask) IsIndex(params map[string]interface{}) string {
+func (h *DefaultHandlerTask) IsIndex(params map[string]interface{}) bool {
 	if rtn := params["[gone-http]is_index"]; rtn != nil {
-		return rtn.(string)
+		if is, ok := rtn.(bool); ok && is {
+			return true
+		}
 	}
 
-	return ""
+	return false
 }
 
 func (h *DefaultHandlerTask) GetNodeName(params map[string]interface{}) string {
