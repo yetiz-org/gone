@@ -25,7 +25,7 @@ func (d *DefaultServerBootstrap) ChildHandler(handler Handler) ServerBootstrap {
 	return d
 }
 
-func (d *DefaultServerBootstrap) SetChildParams(key ParamKey, value interface{}) ServerBootstrap{
+func (d *DefaultServerBootstrap) SetChildParams(key ParamKey, value interface{}) ServerBootstrap {
 	d.childParams.Store(key, value)
 	return d
 }
@@ -47,6 +47,11 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	serverChannel.setContextCancelFunc(cancelFunc)
 	d.Params().Range(func(k ParamKey, v interface{}) bool {
 		serverChannel.SetParam(k, v)
+		return true
+	})
+
+	d.ChildParams().Range(func(k ParamKey, v interface{}) bool {
+		serverChannel.setChildParams(k, v)
 		return true
 	})
 
