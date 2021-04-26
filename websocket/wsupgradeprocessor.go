@@ -21,13 +21,13 @@ type WSUpgradeProcessor struct {
 func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
 	h.upgrade = &websocket.Upgrader{
 		CheckOrigin: func() func(r *http.Request) bool {
-			if channel.GetParamBoolDefault(ctx.Channel(), ParamCheckOrigin, true) {
-				return nil
+			if !channel.GetParamBoolDefault(ctx.Channel(), ParamCheckOrigin, true) {
+				return func(r *http.Request) bool {
+					return true
+				}
 			}
 
-			return func(r *http.Request) bool {
-				return true
-			}
+			return nil
 		}(),
 	}
 }
