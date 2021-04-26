@@ -10,6 +10,7 @@ import (
 	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/buf"
 )
 
 type LogHandler struct {
@@ -92,17 +93,18 @@ func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
 
 	if h.printBody {
 		if resp.GetHeader(httpheadername.ContentEncoding) == "gzip" {
-			if reader, err := gzip.NewReader(resp.body); err == nil {
+			if reader, err := gzip.NewReader(buf.NewByteBuf(resp.body.Bytes())); err == nil {
 				defer reader.Close()
 				bs, _ := ioutil.ReadAll(reader)
 				logStruct.Body = string(bs)
+				logStruct.CompressLength = len(logStruct.Body)
 			}
 		} else {
 			logStruct.Body = string(resp.body.Bytes())
 		}
 	}
 
-	logStruct.BodyLength = resp.body.ReadableBytes()
+	logStruct.PlainBodyLength = resp.body.ReadableBytes()
 	return logStruct
 }
 
@@ -208,9 +210,10 @@ type RequestLogStruct struct {
 }
 
 type ResponseLogStruct struct {
-	URI        string                 `json:"uri,omitempty"`
-	StatusCode int                    `json:"status_code,omitempty"`
-	Headers    map[string]interface{} `json:"headers,omitempty"`
-	Body       string                 `json:"body,omitempty"`
-	BodyLength int                    `json:"body_length,omitempty"`
+	URI             string                 `json:"uri,omitempty"`
+	StatusCode      int                    `json:"status_code,omitempty"`
+	Headers         map[string]interface{} `json:"headers,omitempty"`
+	Body            string                 `json:"body,omitempty"`
+	PlainBodyLength int                    `json:"plain_body_length,omitempty"`
+	CompressLength  int                    `json:"compress_length,omitempty"`
 }
