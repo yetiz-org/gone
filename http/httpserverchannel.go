@@ -70,7 +70,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		os.Exit(1)
 	}
 
-	c.newChChan = make(chan channel.Channel, 32)
+	c.newChChan = make(chan channel.Channel, channel.GetParamIntDefault(c, ParamAcceptWaitCount, 1024))
 	c.server = &http.Server{
 		Addr:              localAddr.String(),
 		Handler:           handler,

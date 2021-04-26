@@ -116,60 +116,60 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}, future c
 	}
 
 	req, resp, params := pack.Request, pack.Response, pack.Params
-	go func(cid string, req *Request, resp *Response, params map[string]interface{}) {
-		if !h.FilterFunc(req, resp, params) {
-			return
-		}
+	//go func(cid string, req *Request, resp *Response, params map[string]interface{}) {
+	if !h.FilterFunc(req, resp, params) {
+		return
+	}
 
-		defer deferError()
-		logStruct := LogStruct{
-			ChannelID:  cid,
-			TrackID:    req.TrackID(),
-			Method:     req.Method(),
-			URI:        req.RequestURI(),
-			StatusCode: resp.StatusCode(),
-			RemoteAddr: req.Request().RemoteAddr,
-			RemoteAddrs: func(addrs []string) string {
-				sb := strings.Builder{}
-				for _, addr := range addrs {
-					sb.WriteString(addr + ", ")
-				}
+	defer deferError()
+	logStruct := LogStruct{
+		ChannelID:  ctx.Channel().ID(),
+		TrackID:    req.TrackID(),
+		Method:     req.Method(),
+		URI:        req.RequestURI(),
+		StatusCode: resp.StatusCode(),
+		RemoteAddr: req.Request().RemoteAddr,
+		RemoteAddrs: func(addrs []string) string {
+			sb := strings.Builder{}
+			for _, addr := range addrs {
+				sb.WriteString(addr + ", ")
+			}
 
-				r := sb.String()
-				return r[:len(r)-2]
-			}(req.RemoteAddrs()),
-			Request:     h.constructReq(req),
-			Response:    h.constructResp(resp),
-			AcceptTime:  req.CreatedAt().UnixNano(),
-			ProcessTime: time.Now().UnixNano() - req.CreatedAt().UnixNano(),
-		}
+			r := sb.String()
+			return r[:len(r)-2]
+		}(req.RemoteAddrs()),
+		Request:     h.constructReq(req),
+		Response:    h.constructResp(resp),
+		AcceptTime:  req.CreatedAt().UnixNano(),
+		ProcessTime: time.Now().UnixNano() - req.CreatedAt().UnixNano(),
+	}
 
-		if v := params["[gone-http]h_locate_time"]; v != nil {
-			logStruct.HLocateTime = v.(int64)
-		}
+	if v := params["[gone-http]h_locate_time"]; v != nil {
+		logStruct.HLocateTime = v.(int64)
+	}
 
-		if v := params["[gone-http]h_acceptance_time"]; v != nil {
-			logStruct.HAcceptanceTime = v.(int64)
-		}
+	if v := params["[gone-http]h_acceptance_time"]; v != nil {
+		logStruct.HAcceptanceTime = v.(int64)
+	}
 
-		if v := params["[gone-http]handler_time"]; v != nil {
-			logStruct.HandlerTime = v.(int64)
-		}
+	if v := params["[gone-http]handler_time"]; v != nil {
+		logStruct.HandlerTime = v.(int64)
+	}
 
-		if v := params["[gone-http]h_error_time"]; v != nil {
-			logStruct.HErrorTime = v.(int64)
-		}
+	if v := params["[gone-http]h_error_time"]; v != nil {
+		logStruct.HErrorTime = v.(int64)
+	}
 
-		if v := params["[gone-http]compress_time"]; v != nil {
-			logStruct.CompressTime = v.(int64)
-		}
+	if v := params["[gone-http]compress_time"]; v != nil {
+		logStruct.CompressTime = v.(int64)
+	}
 
-		if v := params["[gone-http]extend"]; v != nil {
-			logStruct.Extend = v
-		}
+	if v := params["[gone-http]extend"]; v != nil {
+		logStruct.Extend = v
+	}
 
-		kklogger.InfoJ("http:LogHandler.Write", logStruct)
-	}(ctx.Channel().ID(), req, resp, params)
+	kklogger.InfoJ("http:LogHandler.Write", logStruct)
+	//}(ctx.Channel().ID(), req, resp, params)
 
 	ctx.Write(obj, future)
 }

@@ -34,57 +34,57 @@ func TestServer_Start(t *testing.T) {
 	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel()
 
 	wg := sync.BurstWaitGroup{}
-	go func() {
-		wg.Add(1)
-		for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
+		go func() {
+			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 			}
-		}
 
-		wg.Done()
-	}()
+			wg.Done()
+		}()
+	}
 
-	go func() {
-		wg.Add(1)
-		for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
+		go func() {
+			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/home"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.EqualValues(t, "/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 			}
-		}
 
-		wg.Done()
-	}()
+			wg.Done()
+		}()
+	}
 
-	go func() {
-		wg.Add(1)
-		for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
+		go func() {
+			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/v1/home"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 			}
-		}
 
-		wg.Done()
-	}()
+			wg.Done()
+		}()
+	}
 
-	go func() {
-		wg.Add(1)
-		for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
+		go func() {
+			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/homes"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.EqualValues(t, 404, rtn.StatusCode)
 			}
-		}
 
-		wg.Done()
-	}()
+			wg.Done()
+		}()
+	}
 
 	wg.Wait()
 	time.Sleep(time.Second / 2)
