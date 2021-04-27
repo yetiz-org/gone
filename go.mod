@@ -12,7 +12,7 @@ require (
 	github.com/kklab-com/goth-kkdatastore v0.0.0-20210407061003-88f2914e2020
 	github.com/kklab-com/goth-kklogger v0.0.0-20210329135227-9693bea481eb
 	github.com/kklab-com/goth-kkutil v0.0.0-20210427032133-782b1936b915
-	github.com/kklab-com/goth-panic v0.0.0-20210425141103-59b9723aecd8
+	github.com/kklab-com/goth-panic v0.0.0-20210427145648-10f0f049f33c
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/pkg/errors v0.8.0
 	github.com/stretchr/testify v1.6.1
