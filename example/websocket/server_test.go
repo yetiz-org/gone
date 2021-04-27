@@ -34,7 +34,6 @@ func TestServer_Start(t *testing.T) {
 		server.Close()
 	}()
 
-
 	if rtn, err := http2.DefaultClient.Get("http://localhost:18081"); err != nil {
 		assert.Fail(t, err.Error())
 	} else {

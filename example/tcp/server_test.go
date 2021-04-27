@@ -62,6 +62,7 @@ func TestServer_Start(t *testing.T) {
 		}
 
 		bwg.Wait()
+		time.Sleep(time.Second * 111111)
 		nch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel()
 		nch.Write(buf.NewByteBuf([]byte("ccc")))
 	}()

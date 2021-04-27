@@ -106,50 +106,48 @@ func (c *DefaultNetChannel) UnsafeWrite(obj interface{}) error {
 	return nil
 }
 
-func (c *DefaultNetChannel) UnsafeRead() error {
+func (c *DefaultNetChannel) UnsafeRead() (interface{}, error) {
 	if c.Conn() == nil {
-		return ErrNilObject
+		return nil, ErrNilObject
 	}
 
 	if !c.IsActive() {
-		return net.ErrClosed
+		return nil, net.ErrClosed
 	}
 
-	for c.IsActive() {
-		bs := make([]byte, c.BufferSize)
-		if c.ReadTimeout > 0 {
-			c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout))
-		}
-
-		rc, err := c.Conn().Read(bs)
-		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) && c.Conn().IsActive() {
-				continue
-			}
-
-			if c.IsActive() {
-				if err != io.EOF {
-					kklogger.TraceJ("DefaultNetChannel.UnsafeRead", err.Error())
-				}
-
-				if !c.Conn().IsActive() {
-					c.Deregister()
-					break
-				}
-			} else if err == io.EOF {
-				break
-			}
-		} else {
-			if rc == 0 {
-				continue
-			}
-
-			c.FireRead(buf.NewByteBuf(bs[:rc]))
-			c.FireReadCompleted()
-		}
+	bs := make([]byte, c.BufferSize)
+	if c.ReadTimeout > 0 {
+		c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout))
 	}
 
-	return nil
+	rc, err := c.Conn().Read(bs)
+	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			if c.Conn().IsActive() {
+				return nil, ErrSkip
+			} else {
+				c.Deregister()
+				return nil, ErrNotActive
+			}
+		}
+
+		if c.IsActive() {
+			if err != io.EOF {
+				kklogger.TraceJ("DefaultNetChannel.UnsafeRead", err.Error())
+			}
+
+			if !c.Conn().IsActive() {
+				c.Deregister()
+				return nil, err
+			}
+		} else if err == io.EOF {
+			return nil, err
+		}
+	} else if rc == 0 {
+		return nil, ErrSkip
+	}
+
+	return buf.NewByteBuf(bs[:rc]), nil
 }
 
 func (c *DefaultNetChannel) UnsafeDisconnect() error {

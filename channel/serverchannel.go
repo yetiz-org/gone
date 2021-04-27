@@ -63,3 +63,7 @@ func (c *DefaultServerChannel) UnsafeAccept() (Channel, Future) {
 func (c *DefaultServerChannel) UnsafeClose() error {
 	return nil
 }
+
+func (c *DefaultServerChannel) UnsafeIsAutoRead() bool {
+	return false
+}

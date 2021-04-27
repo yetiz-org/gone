@@ -64,39 +64,34 @@ func (c *Channel) UnsafeWrite(obj interface{}) error {
 	return nil
 }
 
-func (c *Channel) UnsafeRead() error {
+func (c *Channel) UnsafeRead() (interface{}, error) {
 	if c.Conn() == nil {
-		return channel.ErrNilObject
+		return nil, channel.ErrNilObject
 	}
 
 	if !c.IsActive() {
-		return net.ErrClosed
+		return nil, net.ErrClosed
 	}
 
-	for c.IsActive() {
-		c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, 0))
-		typ, bs, err := c.wsConn.ReadMessage()
-		if err != nil {
-			if c.IsActive() {
-				if wsErr, ok := err.(*websocket.CloseError); !(ok && wsErr.Code == 1000) {
-					kklogger.WarnJ("websocket:Channel.read", err.Error())
-				}
-
-				if c.Conn().IsActive() {
-					c.Disconnect()
-				} else {
-					c.Deregister()
-				}
+	c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, 0))
+	typ, bs, err := c.wsConn.ReadMessage()
+	if err != nil {
+		if c.IsActive() {
+			if wsErr, ok := err.(*websocket.CloseError); !(ok && wsErr.Code == 1000) {
+				kklogger.WarnJ("websocket:Channel.read", err.Error())
 			}
 
-			return nil
-		} else {
-			c.FireRead(_ParseMessage(typ, bs))
-			c.FireReadCompleted()
+			if c.Conn().IsActive() {
+				c.Disconnect()
+			} else {
+				c.Deregister()
+			}
 		}
-	}
 
-	return nil
+		return nil, err
+	} else {
+		return _ParseMessage(typ, bs), nil
+	}
 }
 
 func (c *Channel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error {

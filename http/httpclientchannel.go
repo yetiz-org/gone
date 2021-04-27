@@ -11,8 +11,12 @@ type Channel struct {
 	writer ResponseWriter
 }
 
-func (c *Channel) UnsafeRead() error {
-	return nil
+func (c *Channel) UnsafeIsAutoRead() bool {
+	return false
+}
+
+func (c *Channel) UnsafeRead() (interface{}, error) {
+	return nil, nil
 }
 
 func (c *Channel) UnsafeWrite(obj interface{}) error {

@@ -50,7 +50,8 @@ type Channel interface {
 }
 
 type UnsafeRead interface {
-	UnsafeRead() error
+	UnsafeIsAutoRead() bool
+	UnsafeRead() (interface{}, error)
 }
 
 type UnsafeBind interface {
@@ -81,6 +82,7 @@ var ErrNotActive = errors.Errorf("channel not active")
 var ErrNilObject = fmt.Errorf("nil object")
 var ErrUnknownObjectType = fmt.Errorf("unknown object type")
 var ErrReadError = fmt.Errorf("read error")
+var ErrSkip = fmt.Errorf("skip")
 
 var IDEncoder = base62.ShiftEncoding
 
@@ -279,8 +281,12 @@ func (c *DefaultChannel) UnsafeWrite(obj interface{}) error {
 	return nil
 }
 
-func (c *DefaultChannel) UnsafeRead() error {
-	return nil
+func (c *DefaultChannel) UnsafeIsAutoRead() bool {
+	return true
+}
+
+func (c *DefaultChannel) UnsafeRead() (interface{}, error) {
+	return nil, nil
 }
 
 func (c *DefaultChannel) UnsafeDisconnect() error {

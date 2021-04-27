@@ -35,12 +35,32 @@ func NewUnsafe(channel Channel) Unsafe {
 
 func (u *DefaultUnsafe) Read() {
 	if channel, ok := u.channel.(UnsafeRead); ok && u.markState(&u.readS) && u.channel.IsActive() {
-		go func() {
+		go func(u *DefaultUnsafe) {
 			defer u.resetState(&u.readS)
-			if err := channel.UnsafeRead(); err != nil {
-				u.channel.inactiveChannel()
+			lastObjRead := false
+			for {
+				obj, err := channel.UnsafeRead()
+				if err != nil && err != ErrSkip {
+					break
+				}
+
+				if err == ErrSkip {
+					if u.channel.IsActive() && lastObjRead {
+						lastObjRead = false
+						u.channel.FireReadCompleted()
+					}
+				}
+
+				if obj != nil {
+					u.channel.FireRead(obj)
+					lastObjRead = true
+				}
+
+				if !channel.UnsafeIsAutoRead() {
+					break
+				}
 			}
-		}()
+		}(u)
 	}
 }
 
