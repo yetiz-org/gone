@@ -217,7 +217,7 @@ func (d *DefaultHandlerContext) deferErrorCaught() {
 
 func (d *DefaultHandlerContext) checkFuture(future Future) Future {
 	if future == nil {
-		future = d.Channel().Pipeline().newFuture()
+		future = d.Channel().Pipeline().NewFuture()
 	}
 
 	return future

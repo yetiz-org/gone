@@ -46,6 +46,7 @@ type Channel interface {
 	setContext(ctx context.Context)
 	setContextCancelFunc(cancel context.CancelFunc)
 	setCloseFuture(future Future)
+	release()
 }
 
 type UnsafeRead interface {
@@ -57,7 +58,7 @@ type UnsafeBind interface {
 }
 
 type UnsafeAccept interface {
-	UnsafeAccept() Channel
+	UnsafeAccept() (Channel, Future)
 }
 
 type UnsafeClose interface {
@@ -223,7 +224,7 @@ func (c *DefaultChannel) activeChannel() {
 
 func (c *DefaultChannel) inactiveChannel() Future {
 	c.ctxCancelFunc()
-	future := c.Pipeline().newFuture()
+	future := c.Pipeline().NewFuture()
 	go func(c *DefaultChannel) {
 		c.closeWG.Wait()
 		if c.IsActive() {
@@ -231,9 +232,8 @@ func (c *DefaultChannel) inactiveChannel() Future {
 			c.Pipeline().fireInactive()
 			c.Pipeline().fireUnregistered()
 			future.(concurrent.ManualFuture).Success()
-			c.CloseFuture().(concurrent.ManualFuture).Success()
-			if c.Parent() != nil {
-				c.Parent().closeWaitGroup().Done()
+			if _, ok := c.Pipeline().Channel().(ServerChannel); !ok {
+				c.CloseFuture().(concurrent.ManualFuture).Success()
 			}
 		}
 	}(c)
@@ -267,6 +267,12 @@ func (c *DefaultChannel) setContextCancelFunc(cancel context.CancelFunc) {
 
 func (c *DefaultChannel) setCloseFuture(future Future) {
 	c.closeFuture = future
+}
+
+func (c *DefaultChannel) release() {
+	if c.Parent() != nil {
+		c.Parent().closeWaitGroup().Done()
+	}
 }
 
 func (c *DefaultChannel) UnsafeWrite(obj interface{}) error {

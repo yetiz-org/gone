@@ -81,7 +81,7 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 
 			u.resetState(&u.writeS)
 			if u.writeBuffer.Len() > 0 {
-				u.Write(nil, u.channel.Pipeline().newFuture())
+				u.Write(nil, u.channel.Pipeline().NewFuture())
 			}
 		}(u)
 	}
@@ -105,15 +105,17 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 				if channel, ok := u.channel.(UnsafeAccept); ok {
 					go func() {
 						for u.channel.IsActive() {
-							if child := channel.UnsafeAccept(); child == nil {
+							if child, future := channel.UnsafeAccept(); child == nil {
 								if u.channel.IsActive() {
 									kklogger.WarnJ("DefaultUnsafe.UnsafeAccept", "nil child")
 								}
 
+								u.futureCancel(future)
 								return
 							} else {
 								child.Pipeline().fireRegistered()
 								child.activeChannel()
+								u.futureSuccess(future)
 							}
 						}
 					}()
@@ -135,6 +137,7 @@ func (u *DefaultUnsafe) Close(future Future) {
 				kklogger.WarnJ("DefaultUnsafe.Close", err.Error())
 			}
 
+			u.futureSuccess(u.channel.CloseFuture())
 			u.futureSuccess(elem.future)
 		}(u, &unsafeExecuteElem{future: future})
 	}
@@ -167,6 +170,7 @@ func (u *DefaultUnsafe) Disconnect(future Future) {
 			defer u.resetState(&u.disconnectS)
 			u.channel.inactiveChannel()
 			err := channel.UnsafeDisconnect()
+			u.channel.release()
 			if err != nil {
 				kklogger.WarnJ("DefaultUnsafe.Disconnect", err.Error())
 			}

@@ -47,7 +47,7 @@ func (c *DefaultServerChannel) DeriveChildChannel(child Channel, parent ServerCh
 		child.Pipeline().AddLast("ROOT", c.childHandler)
 	}
 
-	child.setCloseFuture(child.Pipeline().newFuture())
+	child.setCloseFuture(child.Pipeline().NewFuture())
 	c.closeWG.Add(1)
 	return child
 }
@@ -56,8 +56,8 @@ func (c *DefaultServerChannel) UnsafeBind(localAddr net.Addr) error {
 	return nil
 }
 
-func (c *DefaultServerChannel) UnsafeAccept() Channel {
-	return nil
+func (c *DefaultServerChannel) UnsafeAccept() (Channel, Future) {
+	return nil, c.pipeline.NewFuture()
 }
 
 func (c *DefaultServerChannel) UnsafeClose() error {

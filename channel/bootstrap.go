@@ -77,7 +77,7 @@ func (d *DefaultBootstrap) Connect(localAddr net.Addr, remoteAddr net.Addr) Futu
 		preInit.BootstrapPostInit()
 	}
 
-	channel.setCloseFuture(channel.Pipeline().newFuture())
+	channel.setCloseFuture(channel.Pipeline().NewFuture())
 	channel.Pipeline().fireRegistered()
 	return channel.Connect(localAddr, remoteAddr)
 }

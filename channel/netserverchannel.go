@@ -21,7 +21,7 @@ func (c *DefaultNetServerChannel) RemoteAddr() net.Addr {
 }
 
 func (c *DefaultNetServerChannel) LocalAddr() net.Addr {
-	return nil
+	return c.localAddr
 }
 
 func (c *DefaultServerChannel) DeriveNetChildChannel(child NetChannel, parent NetServerChannel, conn net.Conn) Channel {
@@ -38,8 +38,8 @@ func (c *DefaultNetServerChannel) UnsafeBind(localAddr net.Addr) error {
 	return nil
 }
 
-func (c *DefaultNetServerChannel) UnsafeAccept() Channel {
-	return nil
+func (c *DefaultNetServerChannel) UnsafeAccept() (Channel, Future) {
+	return nil, c.pipeline.NewFuture()
 }
 
 func (c *DefaultNetServerChannel) UnsafeClose() error {

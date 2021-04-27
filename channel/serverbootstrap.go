@@ -69,7 +69,7 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 		postInit.BootstrapPostInit()
 	}
 
-	serverChannel.setCloseFuture(serverChannel.Pipeline().newFuture())
+	serverChannel.setCloseFuture(serverChannel.Pipeline().NewFuture())
 	serverChannel.Pipeline().fireRegistered()
 	return serverChannel.Bind(localAddr)
 }

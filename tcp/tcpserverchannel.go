@@ -39,16 +39,17 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 	return nil
 }
 
-func (c *ServerChannel) UnsafeAccept() channel.Channel {
+func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 	if conn, err := c.listen.Accept(); err != nil {
 		if !c.IsActive() {
-			return nil
+			return nil, c.Pipeline().NewFuture()
 		}
 
 		kklogger.ErrorJ("tcp:ServerChannel.UnsafeAccept", err.Error())
-		return nil
+		return nil, c.Pipeline().NewFuture()
 	} else {
-		return c.DeriveNetChildChannel(&Channel{}, c, conn)
+		ch := c.DeriveNetChildChannel(&Channel{}, c, conn)
+		return ch, ch.Pipeline().NewFuture()
 	}
 }
 

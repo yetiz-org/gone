@@ -154,7 +154,7 @@ func (c *DefaultNetChannel) UnsafeRead() error {
 
 func (c *DefaultNetChannel) UnsafeDisconnect() error {
 	if c.Conn() != nil {
-		if c.Conn().IsActive(){
+		if c.Conn().IsActive() {
 			return c.Conn().Close()
 		}
 

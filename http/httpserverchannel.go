@@ -18,7 +18,7 @@ type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	server    *http.Server
 	active    bool
-	newChChan chan channel.Channel
+	newChChan chan *serverChannelAccept
 	chMap     sync.Map
 }
 
@@ -70,7 +70,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		os.Exit(1)
 	}
 
-	c.newChChan = make(chan channel.Channel, channel.GetParamIntDefault(c, ParamAcceptWaitCount, 1024))
+	c.newChChan = make(chan *serverChannelAccept, channel.GetParamIntDefault(c, ParamAcceptWaitCount, 1024))
 	c.server = &http.Server{
 		Addr:              localAddr.String(),
 		Handler:           handler,
@@ -88,8 +88,8 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 				c.chMap.Delete(conn)
 			case http.StateClosed:
 				if v, f := c.chMap.LoadAndDelete(conn); f {
-					ch := v.(channel.Channel)
-					if ch.IsActive() {
+					ch := v.(channel.NetChannel)
+					if ch.Conn().IsActive() {
 						ch.Deregister()
 					}
 				}
@@ -98,12 +98,17 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		},
 		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
 			ch := &Channel{}
-			ch.SetParam(ParamMaxMultiPartMemory, MaxMultiPartMemory)
 			c.DeriveNetChildChannel(ch, c, conn)
 			ctx = context.WithValue(ctx, ConnCtx, conn)
 			ctx = context.WithValue(ctx, ConnChCtx, ch)
-			c.newChChan <- ch
+			accept := &serverChannelAccept{
+				Channel: ch,
+				Future:  ch.Pipeline().NewFuture(),
+			}
+
+			c.newChChan <- accept
 			c.chMap.Store(conn, ch)
+			accept.Future.Sync()
 			return ctx
 		},
 	}
@@ -113,8 +118,14 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 	return nil
 }
 
-func (c *ServerChannel) UnsafeAccept() channel.Channel {
-	return <-c.newChChan
+func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
+	accept := <-c.newChChan
+	return accept.Channel, accept.Future
+}
+
+type serverChannelAccept struct {
+	channel.Channel
+	channel.Future
 }
 
 func (c *ServerChannel) UnsafeClose() error {
@@ -130,6 +141,7 @@ func (c *ServerChannel) UnsafeClose() error {
 	}
 
 	c.active = false
+	kklogger.InfoJ("htp:ServerChannel.UnsafeClose", fmt.Sprintf("server %s[%s] closed", c.Name, c.LocalAddr().String()))
 	return nil
 }
 

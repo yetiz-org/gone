@@ -34,7 +34,7 @@ type Pipeline interface {
 	Connect(localAddr net.Addr, remoteAddr net.Addr) Future
 	Disconnect() Future
 	Deregister() Future
-	newFuture() Future
+	NewFuture() Future
 }
 
 type PipelineSetChannel interface {
@@ -135,6 +135,7 @@ func (h *tailHandler) Read(ctx HandlerContext, obj interface{}) {
 
 func (h *tailHandler) Deregister(ctx HandlerContext, future Future) {
 	ctx.Channel().inactiveChannel()
+	ctx.Channel().release()
 	future.(concurrent.ManualFuture).Success()
 }
 
@@ -306,30 +307,30 @@ func (p *DefaultPipeline) Read() Pipeline {
 }
 
 func (p *DefaultPipeline) Write(obj interface{}) Future {
-	return p.tail.Write(obj, p.newFuture())
+	return p.tail.Write(obj, p.NewFuture())
 }
 
 func (p *DefaultPipeline) Bind(localAddr net.Addr) Future {
-	return p.tail.Bind(localAddr, p.newFuture())
+	return p.tail.Bind(localAddr, p.NewFuture())
 }
 
 func (p *DefaultPipeline) Close() Future {
-	return p.tail.Close(p.newFuture())
+	return p.tail.Close(p.NewFuture())
 }
 
 func (p *DefaultPipeline) Connect(localAddr net.Addr, remoteAddr net.Addr) Future {
-	return p.tail.Connect(localAddr, remoteAddr, p.newFuture())
+	return p.tail.Connect(localAddr, remoteAddr, p.NewFuture())
 }
 
 func (p *DefaultPipeline) Disconnect() Future {
-	return p.tail.Disconnect(p.newFuture())
+	return p.tail.Disconnect(p.NewFuture())
 }
 
 func (p *DefaultPipeline) Deregister() Future {
-	return p.head.Deregister(p.newFuture())
+	return p.head.Deregister(p.NewFuture())
 }
 
-func (p *DefaultPipeline) newFuture() Future {
+func (p *DefaultPipeline) NewFuture() Future {
 	return NewFuture(p.Channel())
 }
 
