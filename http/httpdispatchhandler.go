@@ -130,9 +130,13 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 func (h *DispatchHandler) callWrite(ctx channel.HandlerContext, obj interface{}) {
 	pack := _UnPack(obj)
 	if ff, f := h.DefaultStatusResponse[pack.Response.StatusCode()]; f {
-		ff(pack.Request, pack.Response, pack.Params)
+		if pack.Response.body.ReadableBytes() == 0 {
+			ff(pack.Request, pack.Response, pack.Params)
+		}
 	} else if pack.Response.StatusCode() == 404 {
-		h.defaultNotFound404(pack.Request, pack.Response, pack.Params)
+		if pack.Response.body.ReadableBytes() == 0 {
+			h.defaultNotFound404(pack.Request, pack.Response, pack.Params)
+		}
 	}
 
 	ctx.Write(obj, &channel.DefaultFuture{Future: concurrent.NewFuture(nil)}).Sync()
