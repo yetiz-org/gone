@@ -96,7 +96,7 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 					u.futureSuccess(elem.future)
 				}
 
-				break
+				continue
 			}
 
 			if !u.channel.IsActive() {
