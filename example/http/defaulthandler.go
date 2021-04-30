@@ -1,6 +1,7 @@
 package http
 
 import (
+	"runtime/pprof"
 	"time"
 
 	"github.com/kklab-com/gone-httpstatus"
@@ -42,7 +43,7 @@ type LongTask struct {
 
 func (l *LongTask) Get(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
 	resp.SetStatusCode(httpstatus.OK)
-	resp.TextResponse(buf.NewByteBufString(longMsg+req.FormValue("v")))
+	resp.TextResponse(buf.NewByteBufString(longMsg + req.FormValue("v")))
 	return nil
 }
 
@@ -58,5 +59,16 @@ func (l *CloseTask) Get(ctx channel.HandlerContext, req *http.Request, resp *htt
 		ctx.Channel().Parent().Close()
 	}()
 
+	return nil
+}
+
+type Routine struct {
+	http.DefaultHTTPHandlerTask
+}
+
+func (a *Routine) Index(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
+	buffer := buf.EmptyByteBuf()
+	pprof.Lookup("goroutine").WriteTo(buffer, 1)
+	resp.TextResponse(buffer)
 	return nil
 }
