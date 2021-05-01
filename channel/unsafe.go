@@ -64,11 +64,18 @@ func (u *DefaultUnsafe) Read() {
 	}
 }
 
+var wc = int32(0)
+
 func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
+	kklogger.DebugJ("DefaultUnsafe.Write", "new")
+	atomic.AddInt32(&wc, 1)
 	if obj != nil && u.channel.IsActive() {
+		kklogger.DebugJ("DefaultUnsafe.Write", "push")
 		u.writeBuffer.Push(&unsafeExecuteElem{obj: obj, future: future})
 	} else {
 		if future != nil {
+			kklogger.DebugJ("DefaultUnsafe.Write", "release")
+			atomic.AddInt32(&wc, -1)
 			u.futureSuccess(future)
 		}
 	}
@@ -91,8 +98,12 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 
 				if err := channel.UnsafeWrite(elem.obj); err != nil {
 					u.channel.inactiveChannel()
+					kklogger.DebugJ("DefaultUnsafe.Write", "in release cancel")
+					atomic.AddInt32(&wc, -1)
 					u.futureCancel(elem.future)
 				} else {
+					kklogger.DebugJ("DefaultUnsafe.Write", "in release success")
+					atomic.AddInt32(&wc, -1)
 					u.futureSuccess(elem.future)
 				}
 
@@ -102,6 +113,8 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 			if !u.channel.IsActive() {
 				for v := u.writeBuffer.Pop(); v != nil; v = u.writeBuffer.Pop() {
 					elem := v.(*unsafeExecuteElem)
+					kklogger.DebugJ("DefaultUnsafe.Write", "in release cancel")
+					atomic.AddInt32(&wc, -1)
 					u.futureCancel(elem.future)
 				}
 			}
