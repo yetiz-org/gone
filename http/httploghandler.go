@@ -118,6 +118,7 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}, future c
 	req, resp, params := pack.Request, pack.Response, pack.Params
 	//go func(cid string, req *Request, resp *Response, params map[string]interface{}) {
 	if !h.FilterFunc(req, resp, params) {
+		ctx.Write(obj, future)
 		return
 	}
 
