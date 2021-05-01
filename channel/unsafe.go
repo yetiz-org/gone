@@ -124,6 +124,8 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 			if u.writeBuffer.Len() > 0 {
 				u.Write(nil, u.channel.Pipeline().NewFuture())
 			}
+
+			kklogger.DebugJ("DefaultUnsafe.Write", fmt.Sprintf("routine done %d", wc))
 		}(u)
 	}
 }
