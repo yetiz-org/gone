@@ -9,7 +9,6 @@ import (
 	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone-httpstatus"
 	"github.com/kklab-com/gone/channel"
-	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/gone/http/httpmethod"
 	"github.com/kklab-com/goth-erresponse"
 	"github.com/kklab-com/goth-kklogger"
@@ -139,7 +138,7 @@ func (h *DispatchHandler) callWrite(ctx channel.HandlerContext, obj interface{})
 		}
 	}
 
-	ctx.Write(obj, &channel.DefaultFuture{Future: concurrent.NewFuture(nil)}).Sync()
+	ctx.Write(obj, ctx.Channel().Pipeline().NewFuture()).Sync()
 }
 
 func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Request, response *Response, task HttpHandlerTask, params map[string]interface{}, rtnCatch *ReturnCatch) {
