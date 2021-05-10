@@ -66,11 +66,17 @@ func (u *DefaultUnsafe) Read() {
 }
 
 func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
+	if future == nil {
+		future = u.channel.Pipeline().NewFuture()
+	}
+
 	if obj != nil && u.channel.IsActive() {
 		u.writeBuffer.Push(&unsafeExecuteElem{obj: obj, future: future})
 	} else {
-		if future != nil {
+		if obj == nil {
 			u.futureSuccess(future)
+		} else if !u.channel.IsActive() {
+			u.futureCancel(future)
 		}
 	}
 
