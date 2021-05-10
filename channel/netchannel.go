@@ -56,10 +56,12 @@ func (c *DefaultNetChannel) LocalAddr() net.Addr {
 		if c.conn != nil {
 			c.localAddr = c.conn.LocalAddr()
 			return c.localAddr
+		} else {
+			return nil
 		}
 	}
 
-	return nil
+	return c.localAddr
 }
 
 func (c *DefaultNetChannel) setConn(conn net.Conn) {

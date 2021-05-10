@@ -51,9 +51,11 @@ func TestServer_Start(t *testing.T) {
 
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("INDICATE_HANDLER_INBOUND", &channel.IndicateHandlerInbound{})
+		ch.Pipeline().AddLast("NET_STATUS_INBOUND", &channel.NetStatusInbound{})
 		ch.Pipeline().AddLast("GZIP_HANDLER", new(http.GZipHandler))
 		ch.Pipeline().AddLast("LOG_HANDLER", http.NewLogHandler(false))
 		ch.Pipeline().AddLast("DISPATCHER", http.NewDispatchHandler(NewRoute()))
+		ch.Pipeline().AddLast("NET_STATUS_OUTBOUND", &channel.NetStatusOutbound{})
 		ch.Pipeline().AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
 	}))
 
