@@ -8,7 +8,7 @@ require (
 	github.com/kklab-com/gone-httpheadername v0.0.0-20210329103811-5b020e1d815f
 	github.com/kklab-com/gone-httpstatus v0.0.0-20210329103101-07f17310ce7c
 	github.com/kklab-com/goth-base62 v0.0.0-20210329091412-ca32cedc0914
-	github.com/kklab-com/goth-erresponse v0.0.0-20210329103642-901ec32d20a1
+	github.com/kklab-com/goth-erresponse v0.0.0-20210520100247-3f5245440242
 	github.com/kklab-com/goth-kkdatastore v0.0.0-20210407061003-88f2914e2020
 	github.com/kklab-com/goth-kklogger v0.0.0-20210329135227-9693bea481eb
 	github.com/kklab-com/goth-kkutil v0.0.0-20210501051613-ff16cab3834f

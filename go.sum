@@ -70,8 +70,8 @@ github.com/kklab-com/gone-httpstatus v0.0.0-20210329103101-07f17310ce7c h1:1iwTL
 github.com/kklab-com/gone-httpstatus v0.0.0-20210329103101-07f17310ce7c/go.mod h1:/CQupWAKI9SZjdmc1dAEECtQZXnWn3+OukRtPdLe6eU=
 github.com/kklab-com/goth-base62 v0.0.0-20210329091412-ca32cedc0914 h1:QfkGxdCOoylbziGo4xMYR1/TB7uz89YS1cmkNVFd1hk=
 github.com/kklab-com/goth-base62 v0.0.0-20210329091412-ca32cedc0914/go.mod h1:zVOUVB/1H/vmOnZHOovnOXaJ9hpRTgSx0Sv63v0xaDI=
-github.com/kklab-com/goth-erresponse v0.0.0-20210329103642-901ec32d20a1 h1:B4XcbCm/lj+xZ6SZRbFxVrZCB4gswKWs/tjrA1YjKdo=
-github.com/kklab-com/goth-erresponse v0.0.0-20210329103642-901ec32d20a1/go.mod h1:vvWpyaUeAayKyBULWM8Ln5raIwd/hluxCeFXZVbFTrA=
+github.com/kklab-com/goth-erresponse v0.0.0-20210520100247-3f5245440242 h1:pnLuQlvMiMJeJm5johpolBeui6g6tw7CaGkySSLjVSM=
+github.com/kklab-com/goth-erresponse v0.0.0-20210520100247-3f5245440242/go.mod h1:vvWpyaUeAayKyBULWM8Ln5raIwd/hluxCeFXZVbFTrA=
 github.com/kklab-com/goth-kkdatastore v0.0.0-20210407061003-88f2914e2020 h1:sHjc94kNwK7FckAfXPZIN5/1Dwgt69xsYJa+zlsf0xQ=
 github.com/kklab-com/goth-kkdatastore v0.0.0-20210407061003-88f2914e2020/go.mod h1:7st1xbOj5AT84MbF6EjEHXXbyEVZ791QlKKfs+wgNJY=
 github.com/kklab-com/goth-kkerror v0.0.0-20210329094539-0929b4435347 h1:8vqoWpqoycjQCiWouFBV5x7JGWE41OVPiKW9b2QMxEs=
