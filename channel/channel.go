@@ -225,12 +225,13 @@ func (c *DefaultChannel) activeChannel() {
 }
 
 func (c *DefaultChannel) inactiveChannel() Future {
+	doInactive := c.IsActive()
+	c.active = false
 	c.ctxCancelFunc()
 	future := c.Pipeline().NewFuture()
 	go func(c *DefaultChannel) {
 		c.closeWG.Wait()
-		if c.IsActive() {
-			c.active = false
+		if doInactive {
 			c.Pipeline().fireInactive()
 			c.Pipeline().fireUnregistered()
 			future.(concurrent.ManualFuture).Success()

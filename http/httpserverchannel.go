@@ -85,10 +85,14 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 			case http.StateActive:
 			case http.StateIdle:
 			case http.StateHijacked:
-				c.chMap.Delete(conn)
+				if v, f := c.chMap.LoadAndDelete(conn); f {
+					ch := v.(channel.NetChannel)
+					kklogger.TraceJ("http:ServerChannel.StateHijacked", fmt.Sprintf("channel_id: %s", ch.ID()))
+				}
 			case http.StateClosed:
 				if v, f := c.chMap.LoadAndDelete(conn); f {
 					ch := v.(channel.NetChannel)
+					kklogger.TraceJ("http:ServerChannel.StateClosed", fmt.Sprintf("channel_id: %s", ch.ID()))
 					if ch.Conn().IsActive() {
 						ch.Deregister()
 					}

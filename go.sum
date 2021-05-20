@@ -77,8 +77,9 @@ github.com/kklab-com/goth-kkdatastore v0.0.0-20210407061003-88f2914e2020/go.mod 
 github.com/kklab-com/goth-kkerror v0.0.0-20210329094539-0929b4435347 h1:8vqoWpqoycjQCiWouFBV5x7JGWE41OVPiKW9b2QMxEs=
 github.com/kklab-com/goth-kkerror v0.0.0-20210329094539-0929b4435347/go.mod h1:KEgEJZV0UeXoKcEiqWjKovSYZU1D/94XXtsD7pZAr90=
 github.com/kklab-com/goth-kklogger v0.0.0-20210329100034-0d99b494f9a5/go.mod h1:nbgBjFc1QaE5eQi76hyGNGEhwr+HRjAzRB4zzg7NAmw=
-github.com/kklab-com/goth-kklogger v0.0.0-20210329135227-9693bea481eb h1:+0qJMplr/h9vuEkp4c1fr7mi8xWEDuKuFFzsqe7EEa0=
 github.com/kklab-com/goth-kklogger v0.0.0-20210329135227-9693bea481eb/go.mod h1:nbgBjFc1QaE5eQi76hyGNGEhwr+HRjAzRB4zzg7NAmw=
+github.com/kklab-com/goth-kklogger v0.0.0-20210510033105-1f4bb2108d4e h1:teMuKL0X1vRxFvmGNHzITV0MwwaC5O5Hvd+U1OuwpfM=
+github.com/kklab-com/goth-kklogger v0.0.0-20210510033105-1f4bb2108d4e/go.mod h1:nbgBjFc1QaE5eQi76hyGNGEhwr+HRjAzRB4zzg7NAmw=
 github.com/kklab-com/goth-kksecret v0.0.0-20210329095243-96b2cff3031d h1:4oVS5w0oC0OcDKNktnbBqkU6xdfv8td6grTKH8EQumk=
 github.com/kklab-com/goth-kksecret v0.0.0-20210329095243-96b2cff3031d/go.mod h1:3ufFXEr1PjOyEaEwuB82qyZNpYy0dRX362FuQKMvzQk=
 github.com/kklab-com/goth-kkutil v0.0.0-20210501051613-ff16cab3834f h1:v2BO2oQmH7R3rxvZRN6nSBa0eaCmEBl9A4VBhcK2D9E=

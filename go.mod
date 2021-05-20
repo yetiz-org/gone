@@ -10,7 +10,7 @@ require (
 	github.com/kklab-com/goth-base62 v0.0.0-20210329091412-ca32cedc0914
 	github.com/kklab-com/goth-erresponse v0.0.0-20210520100247-3f5245440242
 	github.com/kklab-com/goth-kkdatastore v0.0.0-20210407061003-88f2914e2020
-	github.com/kklab-com/goth-kklogger v0.0.0-20210329135227-9693bea481eb
+	github.com/kklab-com/goth-kklogger v0.0.0-20210510033105-1f4bb2108d4e
 	github.com/kklab-com/goth-kkutil v0.0.0-20210501051613-ff16cab3834f
 	github.com/kklab-com/goth-panic v0.0.0-20210427145648-10f0f049f33c
 	github.com/kr/pretty v0.2.1 // indirect

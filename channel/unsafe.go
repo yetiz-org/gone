@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"fmt"
 	"net"
 	"sync/atomic"
 
@@ -65,11 +66,17 @@ func (u *DefaultUnsafe) Read() {
 }
 
 func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
+	if future == nil {
+		future = u.channel.Pipeline().NewFuture()
+	}
+
 	if obj != nil && u.channel.IsActive() {
 		u.writeBuffer.Push(&unsafeExecuteElem{obj: obj, future: future})
 	} else {
-		if future != nil {
+		if obj == nil {
 			u.futureSuccess(future)
+		} else if !u.channel.IsActive() {
+			u.futureCancel(future)
 		}
 	}
 
@@ -124,7 +131,7 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 		go func(u *DefaultUnsafe, elem *unsafeExecuteElem) {
 			defer u.resetState(&u.bindS)
 			if err := channel.UnsafeBind(elem.localAddr); err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Bind", err.Error())
+				kklogger.WarnJ("DefaultUnsafe.Bind", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 				u.channel.inactiveChannel()
 				u.futureCancel(elem.future)
 			} else {
@@ -161,7 +168,7 @@ func (u *DefaultUnsafe) Close(future Future) {
 			u.channel.inactiveChannel().Sync()
 			err := channel.UnsafeClose()
 			if err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Close", err.Error())
+				kklogger.WarnJ("DefaultUnsafe.Close", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 			}
 
 			u.futureSuccess(u.channel.CloseFuture())
@@ -180,7 +187,7 @@ func (u *DefaultUnsafe) Connect(localAddr net.Addr, remoteAddr net.Addr, future 
 		go func(u *DefaultUnsafe, elem *unsafeExecuteElem) {
 			defer u.resetState(&u.connectS)
 			if err := channel.UnsafeConnect(elem.localAddr, elem.remoteAddr); err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Connect", err.Error())
+				kklogger.WarnJ("DefaultUnsafe.Connect", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 				u.channel.inactiveChannel()
 				u.futureCancel(elem.future)
 			} else {
@@ -199,7 +206,7 @@ func (u *DefaultUnsafe) Disconnect(future Future) {
 			err := channel.UnsafeDisconnect()
 			u.channel.release()
 			if err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Disconnect", err.Error())
+				kklogger.WarnJ("DefaultUnsafe.Disconnect", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 			}
 
 			u.futureSuccess(elem.future)

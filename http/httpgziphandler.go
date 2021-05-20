@@ -12,6 +12,13 @@ import (
 
 type GZipHandler struct {
 	channel.DefaultHandler
+	CompressThreshold int
+}
+
+func (h *GZipHandler) Added(ctx channel.HandlerContext) {
+	if h.CompressThreshold == 0 {
+		h.CompressThreshold = 128
+	}
 }
 
 func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
@@ -28,7 +35,12 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj interface{}, future 
 		return
 	}
 
-	if response.body.ReadableBytes() > 0 && strings.Contains(response.request.Header().Get(httpheadername.AcceptEncoding), "gzip") {
+	if response.body.ReadableBytes() < 128 {
+		ctx.Write(obj, future)
+		return
+	}
+
+	if strings.Contains(response.request.Header().Get(httpheadername.AcceptEncoding), "gzip") {
 		st := time.Now()
 		response.SetHeader(httpheadername.ContentEncoding, "gzip")
 		response.SetBody(h.gzipWrite(response.body))
