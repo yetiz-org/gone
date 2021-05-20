@@ -59,6 +59,18 @@ func NewFuture(ctx context.Context) Future {
 	return future
 }
 
+func NewCancelFuture() Future {
+	return &DefaultFuture{
+		state: FutureCancel,
+	}
+}
+
+func NewSuccessFuture() Future {
+	return &DefaultFuture{
+		state: FutureSuccess,
+	}
+}
+
 func (d *DefaultFuture) Get() interface{} {
 	if d.IsDone() {
 		return d.result
