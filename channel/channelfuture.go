@@ -60,7 +60,7 @@ func (d *DefaultFuture) Cancel() {
 }
 
 func (d *DefaultFuture) Sync() Future {
-	d.Future.Get()
+	d.Future.Await()
 	return d
 }
 

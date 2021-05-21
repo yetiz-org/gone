@@ -14,6 +14,7 @@ const FutureCancel = 2
 
 type Future interface {
 	Get() interface{}
+	Await() Future
 	IsDone() bool
 	IsSuccess() bool
 	IsCancelled() bool
@@ -84,6 +85,11 @@ func (d *DefaultFuture) Get() interface{} {
 	}
 
 	return d.result
+}
+
+func (d *DefaultFuture) Await() Future {
+	d.Get()
+	return d
 }
 
 func (d *DefaultFuture) IsDone() bool {
