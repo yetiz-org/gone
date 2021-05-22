@@ -50,6 +50,10 @@ func NewFuncFuture(f func(f Future) interface{}, ctx context.Context) Future {
 	return future
 }
 
+func NewSimpleFuture() Future {
+	return NewFuture(nil)
+}
+
 func NewFuture(ctx context.Context) Future {
 	future := &DefaultFuture{}
 	if ctx == nil {
