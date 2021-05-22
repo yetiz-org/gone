@@ -54,6 +54,12 @@ func NewSimpleFuture() Future {
 	return NewFuture(nil)
 }
 
+func NewSimpleCarrierFuture(obj interface{}) Future {
+	f := NewFuture(nil)
+	f.(*DefaultFuture).result = obj
+	return f
+}
+
 func NewFuture(ctx context.Context) Future {
 	future := &DefaultFuture{}
 	if ctx == nil {
