@@ -28,6 +28,10 @@ type ManualFuture interface {
 	Cancel()
 }
 
+type CarrierFuture interface {
+	Payload() interface{}
+}
+
 type DefaultFuture struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -54,9 +58,9 @@ func NewSimpleFuture() Future {
 	return NewFuture(nil)
 }
 
-func NewSimpleCarrierFuture(obj interface{}) Future {
+func NewSimpleCarrierFuture(payload interface{}) Future {
 	f := NewFuture(nil)
-	f.(*DefaultFuture).result = obj
+	f.(*DefaultFuture).result = payload
 	return f
 }
 
@@ -172,4 +176,8 @@ func (d *DefaultFuture) callListeners() {
 			listener.OperationCompleted(d)
 		}
 	})
+}
+
+func (d *DefaultFuture) Payload() interface{} {
+	return d.result
 }
