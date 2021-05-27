@@ -84,7 +84,7 @@ var ErrUnknownObjectType = fmt.Errorf("unknown object type")
 var ErrReadError = fmt.Errorf("read error")
 var ErrSkip = fmt.Errorf("skip")
 
-var IDEncoder = base62.ShiftEncoding
+var IDEncoder = base62.FlipEncoding
 
 type DefaultChannel struct {
 	id            string
