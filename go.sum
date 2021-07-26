@@ -82,8 +82,8 @@ github.com/kklab-com/goth-kklogger v0.0.0-20210510033105-1f4bb2108d4e h1:teMuKL0
 github.com/kklab-com/goth-kklogger v0.0.0-20210510033105-1f4bb2108d4e/go.mod h1:nbgBjFc1QaE5eQi76hyGNGEhwr+HRjAzRB4zzg7NAmw=
 github.com/kklab-com/goth-kksecret v0.0.0-20210329095243-96b2cff3031d h1:4oVS5w0oC0OcDKNktnbBqkU6xdfv8td6grTKH8EQumk=
 github.com/kklab-com/goth-kksecret v0.0.0-20210329095243-96b2cff3031d/go.mod h1:3ufFXEr1PjOyEaEwuB82qyZNpYy0dRX362FuQKMvzQk=
-github.com/kklab-com/goth-kkutil v0.0.0-20210726151846-35e334d7da72 h1:YKKKcS80agts/fmIWjmW5fDdpS5umx5rZatV30FHTVM=
-github.com/kklab-com/goth-kkutil v0.0.0-20210726151846-35e334d7da72/go.mod h1:OoZAKtG3nKDGJhOuqFRwn5g8v9+D/JuehBRQpT0Bt2M=
+github.com/kklab-com/goth-kkutil v0.0.0-20210726152152-b08157455f42 h1:p3GaE1JhMUVpPve34KHy00wBiD2BpYuqfCjyi22fPQQ=
+github.com/kklab-com/goth-kkutil v0.0.0-20210726152152-b08157455f42/go.mod h1:OoZAKtG3nKDGJhOuqFRwn5g8v9+D/JuehBRQpT0Bt2M=
 github.com/kklab-com/goth-panic v0.0.0-20210427145648-10f0f049f33c h1:yM2lSfLNnxqKdmc0mKDWdnlprStFPSfPm80PkRrOcRw=
 github.com/kklab-com/goth-panic v0.0.0-20210427145648-10f0f049f33c/go.mod h1:LAzKUp0CnY+66MG8lldBXKumPLAEu0tOVNPMCtumx7A=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
