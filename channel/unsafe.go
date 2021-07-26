@@ -5,7 +5,6 @@ import (
 	"net"
 	"sync/atomic"
 
-	"github.com/kklab-com/gone/concurrent"
 	kklogger "github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/sync"
 )
@@ -223,11 +222,11 @@ func (u *DefaultUnsafe) resetState(state *int32) {
 }
 
 func (u *DefaultUnsafe) futureCancel(future Future) {
-	future.(concurrent.ManualFuture).Cancel()
+	future.Completable().Cancel()
 }
 
 func (u *DefaultUnsafe) futureSuccess(future Future) {
-	future.(concurrent.ManualFuture).Success()
+	future.Completable().Complete(nil)
 }
 
 type unsafeExecuteElem struct {
