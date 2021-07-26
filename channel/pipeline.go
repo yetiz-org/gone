@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-kklogger"
 	kkpanic "github.com/kklab-com/goth-panic"
 )
@@ -107,11 +106,11 @@ func (h *headHandler) Disconnect(ctx HandlerContext, future Future) {
 }
 
 func (h *headHandler) futureCancel(future Future) {
-	future.(concurrent.ManualFuture).Cancel()
+	future.Completable().Cancel()
 }
 
 func (h *headHandler) futureSuccess(future Future) {
-	future.(concurrent.ManualFuture).Success()
+	future.Completable().Complete(nil)
 }
 
 func (h *headHandler) ErrorCaught(ctx HandlerContext, err error) {
@@ -136,7 +135,7 @@ func (h *tailHandler) Read(ctx HandlerContext, obj interface{}) {
 func (h *tailHandler) Deregister(ctx HandlerContext, future Future) {
 	ctx.Channel().inactiveChannel()
 	ctx.Channel().release()
-	future.(concurrent.ManualFuture).Success()
+	future.Completable().Complete(nil)
 }
 
 func (p *DefaultPipeline) AddLast(name string, elem Handler) Pipeline {

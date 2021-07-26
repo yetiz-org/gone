@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/kklab-com/gone/concurrent"
 	"github.com/kklab-com/goth-base62"
 	sync2 "github.com/kklab-com/goth-kkutil/sync"
 	"github.com/pkg/errors"
@@ -234,9 +233,9 @@ func (c *DefaultChannel) inactiveChannel() Future {
 		if doInactive {
 			c.Pipeline().fireInactive()
 			c.Pipeline().fireUnregistered()
-			future.(concurrent.ManualFuture).Success()
+			future.Completable().Complete(nil)
 			if _, ok := c.Pipeline().Channel().(ServerChannel); !ok {
-				c.CloseFuture().(concurrent.ManualFuture).Success()
+				c.CloseFuture().Completable().Complete(nil)
 			}
 		}
 	}(c)
