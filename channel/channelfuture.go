@@ -1,8 +1,6 @@
 package channel
 
 import (
-	"context"
-
 	"github.com/kklab-com/goth-kkutil/concurrent"
 )
 
@@ -21,7 +19,7 @@ type DefaultFuture struct {
 
 func NewFuture(channel Channel) Future {
 	future := &DefaultFuture{
-		Future:  concurrent.NewFuture(context.Background()),
+		Future:  concurrent.NewFuture(nil),
 		channel: channel,
 	}
 
