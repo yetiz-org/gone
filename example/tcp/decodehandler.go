@@ -1,9 +1,8 @@
 package tcp
 
 import (
-	"container/list"
-
 	"github.com/kklab-com/gone/channel"
+	"github.com/kklab-com/gone/utils"
 	"github.com/kklab-com/goth-kkutil/buf"
 )
 
@@ -21,7 +20,7 @@ func NewDecodeHandler() *DecodeHandler {
 	return handler
 }
 
-func (h *DecodeHandler) decode(ctx channel.HandlerContext, in buf.ByteBuf, out *list.List) {
+func (h *DecodeHandler) decode(ctx channel.HandlerContext, in buf.ByteBuf, out *utils.Queue) {
 	for true {
 		switch h.State() {
 		case HEAD:
@@ -30,7 +29,7 @@ func (h *DecodeHandler) decode(ctx channel.HandlerContext, in buf.ByteBuf, out *
 			h.Checkpoint(BODY)
 		case BODY:
 			bs := in.ReadBytes(2)
-			out.PushFront(h.obj + " b:" + string(bs))
+			out.Push(h.obj + " b:" + string(bs))
 			h.obj = ""
 			h.Checkpoint(HEAD)
 		}

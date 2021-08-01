@@ -1,9 +1,9 @@
 package channel
 
 import (
-	"container/list"
 	"sync"
 
+	"github.com/kklab-com/gone/utils"
 	kklogger "github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/buf"
 	kkpanic "github.com/kklab-com/goth-panic"
@@ -20,7 +20,7 @@ type ReplayDecoder struct {
 
 var replayDecoderTruncateLen = 1 << 20
 
-func NewReplayDecoder(state ReplayState, decode func(ctx HandlerContext, in buf.ByteBuf, out *list.List)) *ReplayDecoder {
+func NewReplayDecoder(state ReplayState, decode func(ctx HandlerContext, in buf.ByteBuf, out *utils.Queue)) *ReplayDecoder {
 	return &ReplayDecoder{
 		ByteToMessageDecoder: ByteToMessageDecoder{
 			Decode: decode,
@@ -55,18 +55,15 @@ func (h *ReplayDecoder) Added(ctx HandlerContext) {
 func (h *ReplayDecoder) Read(ctx HandlerContext, obj interface{}) {
 	if h.Decode != nil {
 		h.in.Write(obj.(buf.ByteBuf).Bytes())
-		out := &list.List{}
+		out := &utils.Queue{}
 		kkpanic.CatchExcept(func() {
 			h.Decode(ctx, h.in, out)
 		}, buf.ErrInsufficientSize, func(r kkpanic.Caught) {
 			kklogger.ErrorJ("ReplayDecoder.Read#Decode", r.String())
 		})
 
-		for elem := out.Back(); elem != nil; func() {
-			out.Remove(elem)
-			elem = out.Back()
-		}() {
-			ctx.FireRead(elem.Value)
+		for elem := out.Pop(); elem != nil; elem = out.Pop() {
+			ctx.FireRead(elem)
 		}
 	} else {
 		kklogger.WarnJ("ReplayDecoder.Read#Decode", "no decoder")
