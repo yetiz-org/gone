@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	httpheadername "github.com/kklab-com/gone-httpheadername"
+	"github.com/kklab-com/gone-httpheadername"
 	"github.com/kklab-com/gone/channel"
 	"github.com/kklab-com/gone/http"
 	"github.com/kklab-com/goth-kklogger"
 	"github.com/kklab-com/goth-kkutil/buf"
-	"github.com/kklab-com/goth-kkutil/sync"
+	"github.com/kklab-com/goth-kkutil/concurrent"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -60,7 +60,7 @@ func TestServer_Start(t *testing.T) {
 	}))
 
 	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel()
-	wg := sync.BurstWaitGroup{}
+	wg := concurrent.BurstWaitGroup{}
 	for i := 0; i < 10; i++ {
 		go func(i int) {
 			wg.Add(1)

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kklab-com/goth-base62"
-	sync2 "github.com/kklab-com/goth-kkutil/sync"
+	"github.com/kklab-com/goth-kkutil/concurrent"
 	"github.com/pkg/errors"
 )
 
@@ -38,7 +38,7 @@ type Channel interface {
 	setLocalAddr(addr net.Addr)
 	activeChannel()
 	inactiveChannel() Future
-	closeWaitGroup() *sync2.BurstWaitGroup
+	closeWaitGroup() *concurrent.BurstWaitGroup
 	setPipeline(pipeline Pipeline)
 	setUnsafe(unsafe Unsafe)
 	setParent(channel ServerChannel)
@@ -98,7 +98,7 @@ type DefaultChannel struct {
 	_unsafe       Unsafe
 	parent        ServerChannel
 	closeFuture   Future
-	closeWG       sync2.BurstWaitGroup
+	closeWG       concurrent.BurstWaitGroup
 }
 
 func (c *DefaultChannel) ID() string {
@@ -243,7 +243,7 @@ func (c *DefaultChannel) inactiveChannel() Future {
 	return future
 }
 
-func (c *DefaultChannel) closeWaitGroup() *sync2.BurstWaitGroup {
+func (c *DefaultChannel) closeWaitGroup() *concurrent.BurstWaitGroup {
 	return &c.closeWG
 }
 

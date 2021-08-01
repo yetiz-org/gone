@@ -5,8 +5,8 @@ import (
 	"net"
 	"sync/atomic"
 
-	kklogger "github.com/kklab-com/goth-kklogger"
-	"github.com/kklab-com/goth-kkutil/sync"
+	"github.com/kklab-com/goth-kklogger"
+	"github.com/kklab-com/goth-kkutil/concurrent"
 )
 
 type Unsafe interface {
@@ -26,7 +26,7 @@ type DefaultUnsafe struct {
 	closeS,
 	connectS,
 	disconnectS int32
-	writeBuffer sync.Queue
+	writeBuffer concurrent.Queue
 }
 
 func NewUnsafe(channel Channel) Unsafe {
