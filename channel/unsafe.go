@@ -81,7 +81,7 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 	}
 
 	if channel, ok := u.channel.(UnsafeWrite); ok && u.markState(&u.writeS) {
-		go func(u *DefaultUnsafe) {
+		go func(u *DefaultUnsafe, uw UnsafeWrite) {
 			for u.channel.IsActive() {
 				elem := func() *unsafeExecuteElem {
 					if v := u.writeBuffer.Pop(); v != nil {
@@ -96,7 +96,7 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 					break
 				}
 
-				if err := channel.UnsafeWrite(elem.obj); err != nil {
+				if err := uw.UnsafeWrite(elem.obj); err != nil {
 					u.channel.inactiveChannel()
 					u.futureCancel(elem.future)
 				} else {
@@ -117,7 +117,7 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 			if u.writeBuffer.Len() > 0 {
 				u.Write(nil, u.channel.Pipeline().NewFuture())
 			}
-		}(u)
+		}(u, channel)
 	}
 }
 
