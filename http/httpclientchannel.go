@@ -28,17 +28,17 @@ func (c *Channel) UnsafeWrite(obj interface{}) error {
 	response := pack.Response
 	for key, values := range response.header {
 		for _, value := range values {
-			c.writer.Header().Add(key, value)
+			pack.Writer.Header().Add(key, value)
 		}
 	}
 
 	for _, value := range response.cookies {
 		for _, cookie := range value {
-			http.SetCookie(c.writer, &cookie)
+			http.SetCookie(pack.Writer, &cookie)
 		}
 	}
 
-	c.writer.WriteHeader(response.statusCode)
-	_, err := c.writer.Write(response.Body())
+	pack.Writer.WriteHeader(response.statusCode)
+	_, err := pack.Writer.Write(response.Body())
 	return err
 }

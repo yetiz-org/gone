@@ -152,6 +152,24 @@ func TestServer_Start(t *testing.T) {
 	}
 
 	wg.Wait()
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			wg.Add(1)
+			request, _ := http2.NewRequest("POST", "http://localhost:18080", nil)
+			request.Header = http2.Header{}
+			request.Header.Set(httpheadername.Authorization, "!!!!")
+			if rtn, err := http2.DefaultClient.Do(request); err != nil {
+				assert.Fail(t, err.Error())
+			} else {
+				assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+			}
+
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
 	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/close"); err != nil {
 		assert.Fail(t, err.Error())
 	} else {

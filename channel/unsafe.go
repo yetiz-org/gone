@@ -76,6 +76,7 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 			u.futureSuccess(future)
 		} else if !u.channel.IsActive() {
 			u.futureCancel(future)
+			return
 		}
 	}
 
@@ -144,7 +145,6 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 								}
 
 								u.futureCancel(future)
-								return
 							} else {
 								child.Pipeline().fireRegistered()
 								child.activeChannel()

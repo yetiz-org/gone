@@ -101,7 +101,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 			}
 		},
 		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
-			ch := &Channel{}
+			var ch = &Channel{}
 			c.DeriveNetChildChannel(ch, c, conn)
 			ctx = context.WithValue(ctx, ConnCtx, conn)
 			ctx = context.WithValue(ctx, ConnChCtx, ch)
@@ -112,7 +112,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 
 			c.newChChan <- accept
 			c.chMap.Store(conn, ch)
-			accept.Future.Sync()
+			accept.Future.Await()
 			return ctx
 		},
 	}

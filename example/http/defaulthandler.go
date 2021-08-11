@@ -20,6 +20,10 @@ func (l *DefaultTask) Get(ctx channel.HandlerContext, req *http.Request, resp *h
 	return nil
 }
 
+func (l *DefaultTask) Post(ctx channel.HandlerContext, req *http.Request, resp *http.Response, params map[string]interface{}) http.ErrorResponse {
+	return l.Get(ctx, req, resp, params)
+}
+
 type DefaultHomeTask struct {
 	http.DefaultHTTPHandlerTask
 }
