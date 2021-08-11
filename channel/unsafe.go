@@ -115,7 +115,7 @@ func (u *DefaultUnsafe) Write(obj interface{}, future Future) {
 
 			u.resetState(&u.writeS)
 			if u.writeBuffer.Len() > 0 {
-				u.Write(nil, u.channel.Pipeline().NewFuture())
+				u.Write(nil, nil)
 			}
 		}(u, channel)
 	}
