@@ -39,13 +39,13 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cch.writer = w
 	request := WrapRequest(cch, r)
+	var writer = w
 	var pkg = &Pack{
 		Request:  request,
 		Response: NewResponse(request),
 		Params:   map[string]interface{}{},
-		Writer:   w,
+		Writer:   writer,
 	}
 
 	var obj interface{} = pkg

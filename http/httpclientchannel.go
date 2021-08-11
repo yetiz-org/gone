@@ -8,7 +8,6 @@ import (
 
 type Channel struct {
 	channel.DefaultNetChannel
-	writer ResponseWriter
 }
 
 func (c *Channel) UnsafeIsAutoRead() bool {
