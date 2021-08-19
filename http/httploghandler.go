@@ -29,10 +29,28 @@ func NewLogHandler(printBody bool) *LogHandler {
 }
 
 func (h *LogHandler) Read(ctx channel.HandlerContext, obj interface{}) {
+	pack := _UnPack(obj)
+	logStruct := ReadRequestLogStruct{
+		ChannelID:  pack.Request.Channel().ID(),
+		TrackID:    pack.Request.TrackID(),
+		RemoteAddr: pack.Request.Request().RemoteAddr,
+		RemoteAddrs: func(addrs []string) string {
+			sb := strings.Builder{}
+			for _, addr := range addrs {
+				sb.WriteString(addr + ", ")
+			}
+
+			r := sb.String()
+			return r[:len(r)-2]
+		}(pack.Request.RemoteAddrs()),
+		Request: h.constructReq(pack.Request),
+	}
+
+	kklogger.InfoJ("http:LogHandler.Read", logStruct)
 	ctx.FireRead(obj)
 }
 
-func (h *LogHandler) constructReq(req *Request) RequestLogStruct {
+func (h *LogHandler) constructReq(req *Request) *RequestLogStruct {
 	logStruct := RequestLogStruct{
 		Method:  req.Method(),
 		Headers: map[string]interface{}{},
@@ -64,10 +82,10 @@ func (h *LogHandler) constructReq(req *Request) RequestLogStruct {
 	}
 
 	logStruct.BodyLength = bodyLength
-	return logStruct
+	return &logStruct
 }
 
-func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
+func (h *LogHandler) constructResp(resp *Response) *ResponseLogStruct {
 	logStruct := ResponseLogStruct{
 		StatusCode: resp.StatusCode(),
 		Headers:    map[string]interface{}{},
@@ -105,7 +123,7 @@ func (h *LogHandler) constructResp(resp *Response) ResponseLogStruct {
 	}
 
 	logStruct.OutBodyLength = resp.body.ReadableBytes()
-	return logStruct
+	return &logStruct
 }
 
 func (h *LogHandler) Write(ctx channel.HandlerContext, obj interface{}, future channel.Future) {
@@ -181,24 +199,32 @@ func deferError() {
 	}
 }
 
+type ReadRequestLogStruct struct {
+	ChannelID   string            `json:"cid,omitempty"`
+	TrackID     string            `json:"tid,omitempty"`
+	RemoteAddr  string            `json:"remote_addr,omitempty"`
+	RemoteAddrs string            `json:"remote_addrs,omitempty"`
+	Request     *RequestLogStruct `json:"request"`
+}
+
 type LogStruct struct {
-	ChannelID       string            `json:"cid,omitempty"`
-	TrackID         string            `json:"tid,omitempty"`
-	Method          string            `json:"method,omitempty"`
-	URI             string            `json:"uri,omitempty"`
-	StatusCode      int               `json:"status_code,omitempty"`
-	RemoteAddr      string            `json:"remote_addr,omitempty"`
-	RemoteAddrs     string            `json:"remote_addrs,omitempty"`
-	Request         RequestLogStruct  `json:"request,omitempty"`
-	Response        ResponseLogStruct `json:"response,omitempty"`
-	AcceptTime      int64             `json:"accept_time,omitempty"`
-	HLocateTime     int64             `json:"h_locate_time,omitempty"`
-	HAcceptanceTime int64             `json:"h_acceptance_time,omitempty"`
-	HandlerTime     int64             `json:"handler_time,omitempty"`
-	HErrorTime      int64             `json:"h_error_time,omitempty"`
-	CompressTime    int64             `json:"compress_time,omitempty"`
-	ProcessTime     int64             `json:"process_time,omitempty"`
-	Extend          interface{}       `json:"extend,omitempty"`
+	ChannelID       string             `json:"cid,omitempty"`
+	TrackID         string             `json:"tid,omitempty"`
+	Method          string             `json:"method,omitempty"`
+	URI             string             `json:"uri,omitempty"`
+	StatusCode      int                `json:"status_code,omitempty"`
+	RemoteAddr      string             `json:"remote_addr,omitempty"`
+	RemoteAddrs     string             `json:"remote_addrs,omitempty"`
+	Request         *RequestLogStruct  `json:"request,omitempty"`
+	Response        *ResponseLogStruct `json:"response,omitempty"`
+	AcceptTime      int64              `json:"accept_time,omitempty"`
+	HLocateTime     int64              `json:"h_locate_time,omitempty"`
+	HAcceptanceTime int64              `json:"h_acceptance_time,omitempty"`
+	HandlerTime     int64              `json:"handler_time,omitempty"`
+	HErrorTime      int64              `json:"h_error_time,omitempty"`
+	CompressTime    int64              `json:"compress_time,omitempty"`
+	ProcessTime     int64              `json:"process_time,omitempty"`
+	Extend          interface{}        `json:"extend,omitempty"`
 }
 
 type RequestLogStruct struct {

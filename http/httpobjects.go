@@ -43,7 +43,7 @@ func WrapRequest(ch channel.Channel, req *http.Request) *Request {
 	request := Request{
 		request:   req,
 		channel:   ch,
-		trackID:   base62.ShiftEncoding.EncodeToString(u[:]),
+		trackID:   base62.FlipEncoding.EncodeToString(u[:]),
 		createdAt: time.Now(),
 	}
 
