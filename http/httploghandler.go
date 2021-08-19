@@ -31,6 +31,11 @@ func NewLogHandler(printBody bool) *LogHandler {
 func (h *LogHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	pack := _UnPack(obj)
 	if pack != nil {
+		if !h.FilterFunc(pack.Request, pack.Response, pack.Params) {
+			ctx.FireRead(obj)
+			return
+		}
+
 		logStruct := ReadRequestLogStruct{
 			ChannelID:  pack.Request.Channel().ID(),
 			TrackID:    pack.Request.TrackID(),
