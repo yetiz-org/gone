@@ -30,23 +30,26 @@ func NewLogHandler(printBody bool) *LogHandler {
 
 func (h *LogHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	pack := _UnPack(obj)
-	logStruct := ReadRequestLogStruct{
-		ChannelID:  pack.Request.Channel().ID(),
-		TrackID:    pack.Request.TrackID(),
-		RemoteAddr: pack.Request.Request().RemoteAddr,
-		RemoteAddrs: func(addrs []string) string {
-			sb := strings.Builder{}
-			for _, addr := range addrs {
-				sb.WriteString(addr + ", ")
-			}
+	if pack != nil {
+		logStruct := ReadRequestLogStruct{
+			ChannelID:  pack.Request.Channel().ID(),
+			TrackID:    pack.Request.TrackID(),
+			RemoteAddr: pack.Request.Request().RemoteAddr,
+			RemoteAddrs: func(addrs []string) string {
+				sb := strings.Builder{}
+				for _, addr := range addrs {
+					sb.WriteString(addr + ", ")
+				}
 
-			r := sb.String()
-			return r[:len(r)-2]
-		}(pack.Request.RemoteAddrs()),
-		Request: h.constructReq(pack.Request),
+				r := sb.String()
+				return r[:len(r)-2]
+			}(pack.Request.RemoteAddrs()),
+			Request: h.constructReq(pack.Request),
+		}
+
+		kklogger.InfoJ("http:LogHandler.Read", logStruct)
 	}
 
-	kklogger.InfoJ("http:LogHandler.Read", logStruct)
 	ctx.FireRead(obj)
 }
 
