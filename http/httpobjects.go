@@ -47,10 +47,18 @@ func WrapRequest(ch channel.Channel, req *http.Request) *Request {
 		createdAt: time.Now(),
 	}
 
-	if bs, e := ioutil.ReadAll(request.request.Body); e == nil {
-		request.request.Body.Close()
-		request.body = buf.NewByteBuf(bs)
-		request.request.Body = ioutil.NopCloser(buf.NewByteBuf(bs))
+	if request.request.Body == nil {
+		request.body = buf.EmptyByteBuf()
+	} else {
+		if bs, e := ioutil.ReadAll(request.request.Body); e == nil {
+			request.request.Body.Close()
+			request.body = buf.NewByteBuf(bs)
+			request.request.Body = ioutil.NopCloser(buf.NewByteBuf(bs))
+		} else {
+			request.request.Body.Close()
+			request.body = buf.EmptyByteBuf()
+			request.request.Body = ioutil.NopCloser(buf.EmptyByteBuf())
+		}
 	}
 
 	if xForwardFor := request.Header().Get(httpheadername.XForwardedFor); xForwardFor != "" {
