@@ -43,7 +43,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj interface{}) {
 	request, response, params := pack.Request, pack.Response, pack.Params
 	response.SetStatusCode(h.DefaultStatusCode)
 	timeMark := time.Now()
-	if node, nodeParams, isLast := h.route.RouteEndPoint(request); node != nil {
+	if node, nodeParams, isLast := h.route.RouteEndPoint(request); node != nil && node.RouteType() != RouteTypeGroup {
 		pack.RouteNode = node
 		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		params["[gone-http]node"] = node
