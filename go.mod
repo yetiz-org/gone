@@ -6,5 +6,5 @@ require (
 	github.com/kklab-com/gone-core v1.0.8 // indirect
 	github.com/kklab-com/gone-http v1.0.8 // indirect
 	github.com/kklab-com/gone-tcp v1.0.8 // indirect
-	github.com/kklab-com/gone-websocket v1.0.8 // indirect
+	github.com/kklab-com/gone-websocket v1.0.9 // indirect
 )

@@ -78,8 +78,8 @@ github.com/kklab-com/gone-httpstatus v0.0.0-20210329103101-07f17310ce7c h1:1iwTL
 github.com/kklab-com/gone-httpstatus v0.0.0-20210329103101-07f17310ce7c/go.mod h1:/CQupWAKI9SZjdmc1dAEECtQZXnWn3+OukRtPdLe6eU=
 github.com/kklab-com/gone-tcp v1.0.8 h1:8s7vpOQ1+FJIJgqITLCUpPiNx3zRQrDvX6sMTMmnQJ4=
 github.com/kklab-com/gone-tcp v1.0.8/go.mod h1:SeMkYbM0YWyiAvoS343NoOLaz/db3Fx7W9hXBgr5fCM=
-github.com/kklab-com/gone-websocket v1.0.8 h1:dUbLP8YGmpgiTv5eMuVH2Yz+8929bW0VSEY3ANslTYM=
-github.com/kklab-com/gone-websocket v1.0.8/go.mod h1:ipb06rfFckiOkVyBzckqgARO4XaUFXK2WAEvtFgkmtQ=
+github.com/kklab-com/gone-websocket v1.0.9 h1:ISITjiwq2ZW+o741AiY7eehYcgYxMS55+AZMgWHh2C8=
+github.com/kklab-com/gone-websocket v1.0.9/go.mod h1:ipb06rfFckiOkVyBzckqgARO4XaUFXK2WAEvtFgkmtQ=
 github.com/kklab-com/goth-base62 v1.0.0 h1:tFIhY1a34asPh41GWfWafUd1DBrzHViOOM6RWm7XfRk=
 github.com/kklab-com/goth-base62 v1.0.0/go.mod h1:zVOUVB/1H/vmOnZHOovnOXaJ9hpRTgSx0Sv63v0xaDI=
 github.com/kklab-com/goth-erresponse v0.0.0-20210520100247-3f5245440242 h1:pnLuQlvMiMJeJm5johpolBeui6g6tw7CaGkySSLjVSM=
