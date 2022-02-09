@@ -15,12 +15,12 @@ require (
 	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
 	github.com/jinzhu/gorm v1.9.11 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
-	github.com/kklab-com/gone-core v1.1.1 // indirect
-	github.com/kklab-com/gone-http v1.1.1 // indirect
+	github.com/kklab-com/gone-core v1.1.2 // indirect
+	github.com/kklab-com/gone-http v1.1.2 // indirect
 	github.com/kklab-com/gone-httpheadername v0.0.0-20210329135429-db3f484c9117 // indirect
 	github.com/kklab-com/gone-httpstatus v0.0.0-20210329135420-5f09bea125ca // indirect
-	github.com/kklab-com/gone-tcp v1.1.1 // indirect
-	github.com/kklab-com/gone-websocket v1.1.1 // indirect
+	github.com/kklab-com/gone-tcp v1.1.2 // indirect
+	github.com/kklab-com/gone-websocket v1.1.2 // indirect
 	github.com/kklab-com/goth-base62 v1.0.0 // indirect
 	github.com/kklab-com/goth-erresponse v1.0.0 // indirect
 	github.com/kklab-com/goth-kkdatastore v0.0.0-20220207053650-75eea60fcd9b // indirect
