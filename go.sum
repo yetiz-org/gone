@@ -75,8 +75,8 @@ github.com/kklab-com/gone-httpheadername v0.0.0-20210329135429-db3f484c9117 h1:k
 github.com/kklab-com/gone-httpheadername v0.0.0-20210329135429-db3f484c9117/go.mod h1:VKBiNBuaC3u6WWhpU0sndqfxZOOV3yZIxUeBlBxckNw=
 github.com/kklab-com/gone-httpstatus v0.0.0-20210329135420-5f09bea125ca h1:duB106r0CtJe83ivvhN7wsntedehHE3S6FmejYvhAH8=
 github.com/kklab-com/gone-httpstatus v0.0.0-20210329135420-5f09bea125ca/go.mod h1:/CQupWAKI9SZjdmc1dAEECtQZXnWn3+OukRtPdLe6eU=
-github.com/kklab-com/gone-tcp v1.1.5 h1:tvDM1kB9NMXmxm138JDhx2+BosbI6gA53+QPaFb0WdU=
-github.com/kklab-com/gone-tcp v1.1.5/go.mod h1:bU+kyGysgmDUYq9E4kriivyIve0QBwO5LoedHWW/JIg=
+github.com/kklab-com/gone-tcp v1.1.6 h1:xYuVuAlUqbl5B1+UnruZDkI5X7cLKyuZW/G9eXlcfOA=
+github.com/kklab-com/gone-tcp v1.1.6/go.mod h1:bU+kyGysgmDUYq9E4kriivyIve0QBwO5LoedHWW/JIg=
 github.com/kklab-com/gone-websocket v1.1.5 h1:wN/FoCucNVmWaJG+P3LPmEyhf0HyQhrjcYG47DWMTPI=
 github.com/kklab-com/gone-websocket v1.1.5/go.mod h1:X5rTB9qJA7Y3WcfdcaItenZGA+S//RuGXtynxR81W5E=
 github.com/kklab-com/goth-base62 v1.0.0 h1:tFIhY1a34asPh41GWfWafUd1DBrzHViOOM6RWm7XfRk=
