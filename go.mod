@@ -1,6 +1,6 @@
 module github.com/kklab-com/gone
 
-go 1.17
+go 1.18
 
 require (
 	cloud.google.com/go v0.38.0 // indirect
@@ -15,15 +15,15 @@ require (
 	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
 	github.com/jinzhu/gorm v1.9.11 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
-	github.com/kklab-com/gone-core v1.1.9 // indirect
-	github.com/kklab-com/gone-http v1.1.9 // indirect
+	github.com/kklab-com/gone-core v1.2.2 // indirect
+	github.com/kklab-com/gone-http v1.2.2 // indirect
 	github.com/kklab-com/gone-httpheadername v0.0.0-20210329135429-db3f484c9117 // indirect
 	github.com/kklab-com/gone-httpstatus v0.0.0-20210329135420-5f09bea125ca // indirect
-	github.com/kklab-com/gone-tcp v1.1.9 // indirect
-	github.com/kklab-com/gone-websocket v1.1.9 // indirect
+	github.com/kklab-com/gone-tcp v1.2.2 // indirect
+	github.com/kklab-com/gone-websocket v1.2.2 // indirect
 	github.com/kklab-com/goth-base62 v1.0.0 // indirect
 	github.com/kklab-com/goth-bytebuf v1.0.1 // indirect
-	github.com/kklab-com/goth-concurrent v1.1.0 // indirect
+	github.com/kklab-com/goth-concurrent v1.2.0 // indirect
 	github.com/kklab-com/goth-erresponse v1.0.0 // indirect
 	github.com/kklab-com/goth-kkdatastore v0.0.0-20220207053650-75eea60fcd9b // indirect
 	github.com/kklab-com/goth-kkerror v0.0.0-20210329135318-f6c51d7cfc8c // indirect
@@ -38,7 +38,7 @@ require (
 	github.com/tdewolff/minify/v2 v2.7.4 // indirect
 	github.com/tdewolff/parse/v2 v2.4.2 // indirect
 	golang.org/x/crypto v0.0.0-20190325154230-a5d413f7728c // indirect
-	golang.org/x/sys v0.0.0-20191228213918-04cbcbbfeed8 // indirect
+	golang.org/x/sys v0.0.0-20220915200043-7b5979e65e41 // indirect
 	golang.org/x/text v0.3.2 // indirect
 	google.golang.org/appengine v1.5.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
