@@ -4,11 +4,11 @@ import (
 	"net"
 	"testing"
 
-	buf "github.com/kklab-com/goth-bytebuf"
-	concurrent "github.com/kklab-com/goth-concurrent"
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/stretchr/testify/assert"
 	"github.com/yetiz-org/gone/channel"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	concurrent "github.com/yetiz-org/goth-concurrent"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 type testServerHandler struct {

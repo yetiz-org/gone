@@ -3,7 +3,7 @@ package simpletcp
 import (
 	"math"
 
-	buf "github.com/kklab-com/goth-bytebuf"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 func VarIntEncode(val uint64) buf.ByteBuf {

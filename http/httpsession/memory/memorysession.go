@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
 	"github.com/yetiz-org/gone/http/httpsession"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 type MemorySession struct {

@@ -3,9 +3,9 @@ package websocket
 import (
 	"time"
 
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 type HandlerTask interface {

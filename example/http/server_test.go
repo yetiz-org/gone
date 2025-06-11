@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
-	concurrent "github.com/kklab-com/goth-concurrent"
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/stretchr/testify/assert"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	concurrent "github.com/yetiz-org/goth-concurrent"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 func gUnzipData(data []byte) (resData []byte, err error) {

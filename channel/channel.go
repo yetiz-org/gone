@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
-	"github.com/kklab-com/goth-base62"
-	concurrent "github.com/kklab-com/goth-concurrent"
 	"github.com/pkg/errors"
+	"github.com/yetiz-org/goth-base62"
+	concurrent "github.com/yetiz-org/goth-concurrent"
 )
 
 type Channel interface {

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/yetiz-org/gone/channel"
 	gtp "github.com/yetiz-org/gone/http"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 type WSUpgradeProcessor struct {

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/pkg/errors"
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 type ServerChannel struct {

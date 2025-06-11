@@ -3,11 +3,11 @@ package channel
 import (
 	"sync"
 
-	buf "github.com/kklab-com/goth-bytebuf"
-	kklogger "github.com/kklab-com/goth-kklogger"
-	"github.com/kklab-com/goth-kkutil/structs"
-	kkpanic "github.com/kklab-com/goth-panic"
 	"github.com/yetiz-org/gone/utils"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	kklogger "github.com/yetiz-org/goth-kklogger"
+	"github.com/yetiz-org/goth-kkutil/structs"
+	kkpanic "github.com/yetiz-org/goth-panic"
 )
 
 type ReplayState int

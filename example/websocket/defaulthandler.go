@@ -3,9 +3,9 @@ package example
 import (
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 type DefaultTask struct {

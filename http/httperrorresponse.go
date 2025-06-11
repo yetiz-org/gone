@@ -1,8 +1,8 @@
 package http
 
 import (
-	"github.com/kklab-com/goth-erresponse"
-	kkpanic "github.com/kklab-com/goth-panic"
+	"github.com/yetiz-org/gone/erresponse"
+	kkpanic "github.com/yetiz-org/goth-panic"
 )
 
 type ErrorResponse interface {

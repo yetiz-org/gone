@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kklab-com/goth-base62"
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-kkutil"
 	"github.com/yetiz-org/gone/http/httpsession"
+	"github.com/yetiz-org/goth-base62"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	"github.com/yetiz-org/goth-kkutil"
 )
 
 type RedisSession struct {

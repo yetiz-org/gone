@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kklab-com/goth-kkdatastore"
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/yetiz-org/gone/http/httpsession"
+	"github.com/yetiz-org/goth-kkdatastore"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 var (

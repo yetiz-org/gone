@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kklab-com/goth-base62"
-	"github.com/kklab-com/goth-kkutil"
+	"github.com/yetiz-org/goth-base62"
+	"github.com/yetiz-org/goth-kkutil"
 )
 
 type Session interface {

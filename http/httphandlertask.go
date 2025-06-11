@@ -2,10 +2,10 @@ package http
 
 import (
 	"fmt"
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-erresponse"
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/http/httpheadername"
+	buf "github.com/yetiz-org/goth-bytebuf"
 	"net/http"
 )
 

@@ -1,9 +1,9 @@
 package tcp
 
 import (
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-kkutil/structs"
 	"github.com/yetiz-org/gone/channel"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	"github.com/yetiz-org/goth-kkutil/structs"
 )
 
 type DecodeHandler struct {

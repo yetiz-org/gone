@@ -16,12 +16,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kklab-com/goth-base62"
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-kklogger"
-	"github.com/kklab-com/goth-kkutil/validate"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http/httpsession"
+	"github.com/yetiz-org/goth-base62"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	"github.com/yetiz-org/goth-kklogger"
+	"github.com/yetiz-org/goth-kkutil/validate"
 	"golang.org/x/text/language"
 )
 

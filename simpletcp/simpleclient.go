@@ -4,9 +4,9 @@ import (
 	"net"
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/tcp"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 type Client struct {

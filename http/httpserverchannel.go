@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kklab-com/goth-kklogger"
-	kkpanic "github.com/kklab-com/goth-panic"
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/goth-kklogger"
+	kkpanic "github.com/yetiz-org/goth-panic"
 )
 
 type ServerChannel struct {

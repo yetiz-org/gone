@@ -3,10 +3,10 @@ package example
 import (
 	"fmt"
 
-	"github.com/kklab-com/goth-kkutil/value"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http"
 	websocket "github.com/yetiz-org/gone/websocket"
+	"github.com/yetiz-org/goth-kkutil/value"
 )
 
 type ServerHandlerTask struct {

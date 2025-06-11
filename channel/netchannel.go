@@ -8,10 +8,10 @@ import (
 	"reflect"
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
-	concurrent "github.com/kklab-com/goth-concurrent"
-	"github.com/kklab-com/goth-kklogger"
 	errors2 "github.com/pkg/errors"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	concurrent "github.com/yetiz-org/goth-concurrent"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 type NetChannel interface {

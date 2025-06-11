@@ -2,8 +2,8 @@ package http
 
 import (
 	"fmt"
-	erresponse "github.com/kklab-com/goth-erresponse"
 	"github.com/stretchr/testify/assert"
+	erresponse "github.com/yetiz-org/gone/erresponse"
 	"net/http"
 	"net/url"
 	"testing"

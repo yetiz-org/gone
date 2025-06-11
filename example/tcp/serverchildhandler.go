@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
 	"github.com/yetiz-org/gone/channel"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 type ServerChildHandler struct {

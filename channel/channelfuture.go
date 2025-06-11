@@ -1,7 +1,7 @@
 package channel
 
 import (
-	concurrent "github.com/kklab-com/goth-concurrent"
+	concurrent "github.com/yetiz-org/goth-concurrent"
 )
 
 type Future interface {

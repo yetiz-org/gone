@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kklab-com/goth-kkutil/hash"
 	"github.com/yetiz-org/gone/http/httpsession"
 	"github.com/yetiz-org/gone/http/httpsession/memory"
 	"github.com/yetiz-org/gone/http/httpsession/redis"
+	"github.com/yetiz-org/goth-kkutil/hash"
 )
 
 type SessionType string

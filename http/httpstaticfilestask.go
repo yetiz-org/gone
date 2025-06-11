@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strings"
 
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"
 	"github.com/tdewolff/minify/v2/html"
@@ -21,6 +19,8 @@ import (
 	"github.com/tdewolff/minify/v2/svg"
 	"github.com/tdewolff/minify/v2/xml"
 	"github.com/yetiz-org/gone/channel"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	"github.com/yetiz-org/goth-kklogger"
 )
 
 type StaticFilesHandlerTask struct {

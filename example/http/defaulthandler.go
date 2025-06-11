@@ -2,13 +2,13 @@ package example
 
 import (
 	"fmt"
-	erresponse "github.com/kklab-com/goth-erresponse"
+	erresponse "github.com/yetiz-org/gone/erresponse"
 	"runtime/pprof"
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 type DefaultTask struct {

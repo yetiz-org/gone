@@ -2,7 +2,7 @@ package websocket
 
 import (
 	"fmt"
-	kklogger "github.com/kklab-com/goth-kklogger"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 	"net"
 	"net/http"
 	"time"

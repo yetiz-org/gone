@@ -1,9 +1,9 @@
 package channel
 
 import (
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-kkutil/structs"
 	"github.com/yetiz-org/gone/utils"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	"github.com/yetiz-org/goth-kkutil/structs"
 )
 
 type MessageDecoder interface {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net"
 
-	kklogger "github.com/kklab-com/goth-kklogger"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
 type NetStatusInbound struct {

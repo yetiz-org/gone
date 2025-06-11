@@ -2,9 +2,9 @@ package http
 
 import (
 	"compress/gzip"
-	buf "github.com/kklab-com/goth-bytebuf"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http/httpheadername"
+	buf "github.com/yetiz-org/goth-bytebuf"
 	"strings"
 	"time"
 )

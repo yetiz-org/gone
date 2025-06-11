@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	kklogger "github.com/kklab-com/goth-kklogger"
-	"github.com/kklab-com/goth-kkutil/hex"
+	kklogger "github.com/yetiz-org/goth-kklogger"
+	"github.com/yetiz-org/goth-kkutil/hex"
 )
 
 const (

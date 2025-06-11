@@ -10,12 +10,12 @@ import (
 	"reflect"
 	"time"
 
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-erresponse"
-	"github.com/kklab-com/goth-kklogger"
-	"github.com/kklab-com/goth-kkutil/hash"
-	kkpanic "github.com/kklab-com/goth-panic"
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/erresponse"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	"github.com/yetiz-org/goth-kklogger"
+	"github.com/yetiz-org/goth-kkutil/hash"
+	kkpanic "github.com/yetiz-org/goth-panic"
 )
 
 type DispatchHandler struct {

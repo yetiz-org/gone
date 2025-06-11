@@ -3,10 +3,10 @@ package http
 import (
 	"compress/gzip"
 	"fmt"
-	buf "github.com/kklab-com/goth-bytebuf"
-	"github.com/kklab-com/goth-kklogger"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/http/httpheadername"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	"github.com/yetiz-org/goth-kklogger"
 	"strings"
 	"time"
 )

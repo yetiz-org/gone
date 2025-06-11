@@ -3,8 +3,8 @@ package channel
 import (
 	"net"
 
-	"github.com/kklab-com/goth-kklogger"
-	kkpanic "github.com/kklab-com/goth-panic"
+	"github.com/yetiz-org/goth-kklogger"
+	kkpanic "github.com/yetiz-org/goth-panic"
 )
 
 type HandlerContext interface {
