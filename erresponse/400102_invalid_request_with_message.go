@@ -2,10 +2,10 @@ package erresponse
 
 import (
 	"fmt"
+	"github.com/yetiz-org/gone/ghttp/httpstatus"
 	kkerror "github.com/yetiz-org/goth-kkerror"
 
 	"github.com/yetiz-org/gone/erresponse/constant"
-	"github.com/yetiz-org/gone/http/httpstatus"
 )
 
 var _InvalidRequestWithMessage = Collection.Register(&DefaultErrorResponse{
