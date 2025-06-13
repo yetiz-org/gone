@@ -4,7 +4,7 @@ import (
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	"github.com/yetiz-org/gone/ghttp/httpsession"
 	"github.com/yetiz-org/gone/ghttp/httpsession/memory"
-	"github.com/yetiz-org/gone/ghttp/httpsession/redis"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 	"strings"
 	"sync"
 	"time"
@@ -15,29 +15,34 @@ import (
 type SessionType string
 
 const SessionTypeMemory SessionType = "MEMORY"
-const SessionTypeRedis SessionType = "REDIS"
 
 var defaultSessionProvider httpsession.SessionProvider = nil
-var once = sync.Once{}
+var mutex = sync.Mutex{}
 
 var DefaultSessionType = SessionTypeMemory
-var SessionKey = "KKLAB"
+var SessionKey = "DEFAULT"
 var SessionDomain = ""
 var SessionExpireTime = 86400
 var SessionHttpOnly = false
 var SessionSecure = false
 
-func DefaultProvider() httpsession.SessionProvider {
-	once.Do(func() {
-		switch DefaultSessionType {
-		case SessionTypeMemory:
-			defaultSessionProvider = memory.SessionProvider()
-		case SessionTypeRedis:
-			defaultSessionProvider = redis.SessionProvider()
-		default:
+var sessionProviders = make(map[SessionType]httpsession.SessionProvider)
+
+func RegisterSessionProvider(name SessionType, provider httpsession.SessionProvider) {
+	sessionProviders[name] = provider
+}
+
+func DefaultSessionProvider() httpsession.SessionProvider {
+	if defaultSessionProvider == nil {
+		RegisterSessionProvider(SessionTypeMemory, memory.SessionProvider())
+		mutex.Lock()
+		defer mutex.Unlock()
+		defaultSessionProvider = sessionProviders[DefaultSessionType]
+		if defaultSessionProvider == nil {
+			kklogger.WarnJ("ghttp:DefaultSessionProvider", "default session provider not found, use memory session provider")
 			defaultSessionProvider = memory.SessionProvider()
 		}
-	})
+	}
 
 	return defaultSessionProvider
 }
@@ -50,7 +55,7 @@ func GetSession(req *Request) httpsession.Session {
 		if data == nil || timestamp == 0 || time.Now().Unix() >= timestamp {
 			session = _NewSession(req)
 		} else {
-			session = DefaultProvider().Session(string(data))
+			session = DefaultSessionProvider().Session(string(data))
 		}
 		if session == nil {
 			session = _NewSession(req)
@@ -64,7 +69,7 @@ func GetSession(req *Request) httpsession.Session {
 
 func _NewSession(req *Request) httpsession.Session {
 	expireTime := time.Now().Add(time.Second * time.Duration(SessionExpireTime))
-	session := DefaultProvider().NewSession(&expireTime)
+	session := DefaultSessionProvider().NewSession(&expireTime)
 	if session == nil {
 		return nil
 	}
