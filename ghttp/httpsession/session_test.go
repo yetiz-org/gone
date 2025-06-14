@@ -13,6 +13,10 @@ type MockSessionProvider struct {
 	saveErr  error
 }
 
+func (m *MockSessionProvider) Type() SessionType {
+	return SessionType("mock")
+}
+
 func NewMockSessionProvider() *MockSessionProvider {
 	return &MockSessionProvider{
 		sessions: make(map[string]Session),

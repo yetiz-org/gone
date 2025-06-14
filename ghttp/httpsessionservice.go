@@ -12,35 +12,31 @@ import (
 	"github.com/yetiz-org/goth-kkutil/hash"
 )
 
-type SessionType string
-
-const SessionTypeMemory SessionType = "MEMORY"
-
 var defaultSessionProvider httpsession.SessionProvider = nil
 var mutex = sync.Mutex{}
 
-var DefaultSessionType = SessionTypeMemory
+var DefaultSessionType = memory.SessionTypeMemory
 var SessionKey = "DEFAULT"
 var SessionDomain = ""
 var SessionExpireTime = 86400
 var SessionHttpOnly = false
 var SessionSecure = false
 
-var sessionProviders = make(map[SessionType]httpsession.SessionProvider)
+var sessionProviders = make(map[httpsession.SessionType]httpsession.SessionProvider)
 
-func RegisterSessionProvider(name SessionType, provider httpsession.SessionProvider) {
-	sessionProviders[name] = provider
+func RegisterSessionProvider(provider httpsession.SessionProvider) {
+	sessionProviders[provider.Type()] = provider
 }
 
 func SessionProvider() httpsession.SessionProvider {
 	if defaultSessionProvider == nil {
-		RegisterSessionProvider(SessionTypeMemory, memory.NewSessionProvider())
+		RegisterSessionProvider(memory.NewSessionProvider())
 		mutex.Lock()
 		defer mutex.Unlock()
 		defaultSessionProvider = sessionProviders[DefaultSessionType]
 		if defaultSessionProvider == nil {
 			kklogger.WarnJ("ghttp:SessionProvider", "default session provider not found, use memory session provider")
-			defaultSessionProvider = sessionProviders[SessionTypeMemory]
+			defaultSessionProvider = sessionProviders[memory.SessionTypeMemory]
 		}
 	}
 

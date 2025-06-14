@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const SessionTypeMemory httpsession.SessionType = "MEMORY"
+
 type SessionProvider struct {
 	sessions  sync.Map
 	lastClean time.Time
@@ -13,6 +15,10 @@ type SessionProvider struct {
 
 func NewSessionProvider() *SessionProvider {
 	return &SessionProvider{}
+}
+
+func (s *SessionProvider) Type() httpsession.SessionType {
+	return SessionTypeMemory
 }
 
 func (s *SessionProvider) NewSession(expire time.Time) httpsession.Session {

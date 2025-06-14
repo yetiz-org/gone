@@ -4,7 +4,10 @@ import (
 	"time"
 )
 
+type SessionType string
+
 type SessionProvider interface {
+	Type() SessionType
 	NewSession(expire time.Time) Session
 	// Sessions Readonly
 	Sessions() map[string]Session
