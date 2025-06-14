@@ -32,15 +32,15 @@ func RegisterSessionProvider(name SessionType, provider httpsession.SessionProvi
 	sessionProviders[name] = provider
 }
 
-func DefaultSessionProvider() httpsession.SessionProvider {
+func SessionProvider() httpsession.SessionProvider {
 	if defaultSessionProvider == nil {
-		RegisterSessionProvider(SessionTypeMemory, memory.SessionProvider())
+		RegisterSessionProvider(SessionTypeMemory, memory.NewSessionProvider())
 		mutex.Lock()
 		defer mutex.Unlock()
 		defaultSessionProvider = sessionProviders[DefaultSessionType]
 		if defaultSessionProvider == nil {
-			kklogger.WarnJ("ghttp:DefaultSessionProvider", "default session provider not found, use memory session provider")
-			defaultSessionProvider = memory.SessionProvider()
+			kklogger.WarnJ("ghttp:SessionProvider", "default session provider not found, use memory session provider")
+			defaultSessionProvider = sessionProviders[SessionTypeMemory]
 		}
 	}
 
@@ -55,7 +55,7 @@ func GetSession(req *Request) httpsession.Session {
 		if data == nil || timestamp == 0 || time.Now().Unix() >= timestamp {
 			session = _NewSession(req)
 		} else {
-			session = DefaultSessionProvider().Session(string(data))
+			session = SessionProvider().Session(string(data))
 		}
 		if session == nil {
 			session = _NewSession(req)
@@ -69,7 +69,7 @@ func GetSession(req *Request) httpsession.Session {
 
 func _NewSession(req *Request) httpsession.Session {
 	expireTime := time.Now().Add(time.Second * time.Duration(SessionExpireTime))
-	session := DefaultSessionProvider().NewSession(&expireTime)
+	session := SessionProvider().NewSession(expireTime)
 	if session == nil {
 		return nil
 	}

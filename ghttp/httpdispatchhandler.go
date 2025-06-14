@@ -329,7 +329,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 		if timestamp := hash.TimestampOfTimeHash(cke.Value); timestamp < time.Now().Add(time.Second*time.Duration(SessionExpireTime/10)).Unix() {
 			resp.SetCookie(&http.Cookie{
 				Name:     SessionKey,
-				Value:    hash.TimeHash([]byte(resp.request.session.ID()), time.Now().Add(time.Second*time.Duration(SessionExpireTime)).Unix()),
+				Value:    hash.TimeHash([]byte(resp.request.session.Id()), time.Now().Add(time.Second*time.Duration(SessionExpireTime)).Unix()),
 				Path:     "/",
 				MaxAge:   SessionExpireTime,
 				Domain:   SessionDomain,
@@ -340,7 +340,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 	} else if err == http.ErrNoCookie {
 		resp.SetCookie(&http.Cookie{
 			Name:     SessionKey,
-			Value:    hash.TimeHash([]byte(resp.request.session.ID()), time.Now().Add(time.Second*time.Duration(SessionExpireTime)).Unix()),
+			Value:    hash.TimeHash([]byte(resp.request.session.Id()), time.Now().Add(time.Second*time.Duration(SessionExpireTime)).Unix()),
 			Path:     "/",
 			MaxAge:   SessionExpireTime,
 			Domain:   SessionDomain,
