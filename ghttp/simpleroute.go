@@ -180,6 +180,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 		}
 	}
 
+	handler.Register()
 	return r
 }
 

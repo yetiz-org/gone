@@ -99,6 +99,7 @@ func (r *DefaultRoute) AddRecursivePoint(point *_EndPoint) *DefaultRoute {
 	r.root.Resources()[point.Name()] = point
 	point.parent = r.root
 	point.routeType = RouteTypeRecursiveEndPoint
+	point.handler.Register()
 	return r
 }
 
@@ -131,6 +132,7 @@ func (r *DefaultRoute) AddEndPoint(point *_EndPoint) *DefaultRoute {
 
 	r.root.Resources()[point.Name()] = point
 	point.parent = r.root
+	point.handler.Register()
 	return r
 }
 
@@ -237,6 +239,7 @@ func (ep *_EndPoint) AddEndPoint(point *_EndPoint) *_EndPoint {
 
 	point.parent = ep
 	ep.resources[point.Name()] = point
+	point.handler.Register()
 	return ep
 }
 
@@ -270,6 +273,7 @@ func (ep *_EndPoint) AddRecursiveEndPoint(point *_EndPoint) *_EndPoint {
 	point.parent = ep
 	point.routeType = RouteTypeRecursiveEndPoint
 	ep.resources[point.Name()] = point
+	point.handler.Register()
 	return ep
 }
 
@@ -323,6 +327,7 @@ func (rg *_RouteGroup) AddEndPoint(point *_EndPoint) *_RouteGroup {
 
 	point.parent = rg
 	rg.resources[point.Name()] = point
+	point.handler.Register()
 	return rg
 }
 
@@ -340,5 +345,6 @@ func (rg *_RouteGroup) AddRecursiveEndPoint(point *_EndPoint) *_RouteGroup {
 	point.parent = rg
 	point.routeType = RouteTypeRecursiveEndPoint
 	rg.resources[point.Name()] = point
+	point.handler.Register()
 	return rg
 }

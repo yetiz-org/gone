@@ -23,6 +23,7 @@ type HttpTask interface {
 }
 
 type HandlerTask interface {
+	Register()
 	GetNodeName(params map[string]any) string
 	GetID(name string, params map[string]any) string
 }
@@ -253,6 +254,9 @@ type DefaultHandlerTask struct {
 
 func NewDefaultHandlerTask() *DefaultHandlerTask {
 	return new(DefaultHandlerTask)
+}
+
+func (h *DefaultHandlerTask) Register() {
 }
 
 func (h *DefaultHandlerTask) IsIndex(params map[string]any) bool {
