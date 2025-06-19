@@ -180,7 +180,10 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 		}
 	}
 
-	handler.Register()
+	if handler != nil {
+		handler.Register()
+	}
+	
 	return r
 }
 
