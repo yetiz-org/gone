@@ -6,8 +6,8 @@ import (
 	"github.com/yetiz-org/gone/utils"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	kklogger "github.com/yetiz-org/goth-kklogger"
-	"github.com/yetiz-org/goth-kkutil/structs"
 	kkpanic "github.com/yetiz-org/goth-panic"
+	"github.com/yetiz-org/goth-util/structs"
 )
 
 type ReplayState int

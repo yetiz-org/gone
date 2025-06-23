@@ -3,7 +3,7 @@ package channel
 import (
 	"github.com/yetiz-org/gone/utils"
 	buf "github.com/yetiz-org/goth-bytebuf"
-	"github.com/yetiz-org/goth-kkutil/structs"
+	"github.com/yetiz-org/goth-util/structs"
 )
 
 type MessageDecoder interface {

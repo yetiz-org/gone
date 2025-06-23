@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yetiz-org/goth-base62"
-	"github.com/yetiz-org/goth-kkutil"
+	"github.com/yetiz-org/goth-util"
 )
 
 type Session interface {

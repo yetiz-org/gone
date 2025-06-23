@@ -13,8 +13,8 @@ import (
 	"github.com/yetiz-org/gone/erresponse"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	"github.com/yetiz-org/goth-kklogger"
-	"github.com/yetiz-org/goth-kkutil/hash"
 	kkpanic "github.com/yetiz-org/goth-panic"
+	"github.com/yetiz-org/goth-util/hash"
 )
 
 type DispatchHandler struct {

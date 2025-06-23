@@ -44,10 +44,10 @@ github.com/yetiz-org/goth-kkerror v0.0.0-20250611121220-43dff8e5308a h1:CKQmgn5y
 github.com/yetiz-org/goth-kkerror v0.0.0-20250611121220-43dff8e5308a/go.mod h1:NvTcdya53QVdHrLUQzojd8VGXVLW8reczCQzbseN6mw=
 github.com/yetiz-org/goth-kklogger v0.0.0-20250611122328-03d2bbd5bc69 h1:0AF0f33PZdIDsgS4oGCx9ykXtaj57IOaUVLSNTi+CYE=
 github.com/yetiz-org/goth-kklogger v0.0.0-20250611122328-03d2bbd5bc69/go.mod h1:0+Vm4Pvd71vE3KgldC9BaFTrf3btlMYUCyliSgDZMhY=
-github.com/yetiz-org/goth-kkutil v0.0.0-20250611122830-a80c97dfb90a h1:rRSrkYor3DmDgp6cPIFaEd8RoMEbzxm1kZMbukBoSzY=
-github.com/yetiz-org/goth-kkutil v0.0.0-20250611122830-a80c97dfb90a/go.mod h1:sqj+a0v+Ru8Km5YGClJVrn4ayyfsKNV+YyUcJcd4euU=
 github.com/yetiz-org/goth-panic v0.0.0-20250611122910-c5d5c596fa0d h1:MEWwEWXi87Y9g4lMu+dL9gA01McYgTfN0p+qMQEy95Q=
 github.com/yetiz-org/goth-panic v0.0.0-20250611122910-c5d5c596fa0d/go.mod h1:ZxDU7Bnc69jZhSNyGn0g1tif4UlHyU5ga64KZ/pRKmg=
+github.com/yetiz-org/goth-util v1.3.4 h1:Fs1ZTXVwxZMLgI+zkxbaFEZAfGb6sNBQmveQIjR7cpY=
+github.com/yetiz-org/goth-util v1.3.4/go.mod h1:yX32Bdb8mTuiT3E7bvL+L0ToK34VMcFMqx3SnqOT/qg=
 golang.org/x/sys v0.0.0-20181031143558-9b800f95dbbc/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.30.0 h1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=

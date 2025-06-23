@@ -7,7 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	kklogger "github.com/yetiz-org/goth-kklogger"
-	"github.com/yetiz-org/goth-kkutil/hex"
+	"github.com/yetiz-org/goth-util/hex"
 )
 
 const (

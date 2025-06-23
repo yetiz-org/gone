@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yetiz-org/goth-kkutil/hash"
+	"github.com/yetiz-org/goth-util/hash"
 )
 
 var defaultSessionProvider httpsession.SessionProvider = nil

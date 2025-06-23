@@ -15,8 +15,8 @@ require (
 	github.com/yetiz-org/goth-concurrent v0.0.0-20250611120725-165fd8cbef39
 	github.com/yetiz-org/goth-kkerror v0.0.0-20250611121220-43dff8e5308a
 	github.com/yetiz-org/goth-kklogger v0.0.0-20250611122328-03d2bbd5bc69
-	github.com/yetiz-org/goth-kkutil v0.0.0-20250611122830-a80c97dfb90a
 	github.com/yetiz-org/goth-panic v0.0.0-20250611122910-c5d5c596fa0d
+	github.com/yetiz-org/goth-util v1.3.4
 	golang.org/x/text v0.26.0
 )
 

@@ -21,7 +21,7 @@ import (
 	"github.com/yetiz-org/goth-base62"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	"github.com/yetiz-org/goth-kklogger"
-	"github.com/yetiz-org/goth-kkutil/validate"
+	"github.com/yetiz-org/goth-util/validate"
 	"golang.org/x/text/language"
 )
 
