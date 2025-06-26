@@ -3,7 +3,8 @@ package ghttp
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
-	erresponse "github.com/yetiz-org/gone/erresponse"
+	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/erresponse"
 	"net/http"
 	"net/url"
 	"testing"
@@ -13,7 +14,7 @@ type acceptance400 struct {
 	DispatchAcceptance
 }
 
-func (a *acceptance400) Do(req *Request, resp *Response, params map[string]any) error {
+func (a *acceptance400) Do(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) error {
 	return erresponse.InvalidRequest
 }
 

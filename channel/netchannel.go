@@ -2,6 +2,9 @@ package channel
 
 import (
 	"errors"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	concurrent "github.com/yetiz-org/goth-concurrent"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 	"io"
 	"net"
 	"os"
@@ -9,9 +12,6 @@ import (
 	"time"
 
 	errors2 "github.com/pkg/errors"
-	buf "github.com/yetiz-org/goth-bytebuf"
-	concurrent "github.com/yetiz-org/goth-concurrent"
-	"github.com/yetiz-org/goth-kklogger"
 )
 
 type NetChannel interface {

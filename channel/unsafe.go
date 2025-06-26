@@ -2,12 +2,11 @@ package channel
 
 import (
 	"fmt"
+	concurrent "github.com/yetiz-org/goth-concurrent"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 	"net"
 	"sync/atomic"
 	"time"
-
-	concurrent "github.com/yetiz-org/goth-concurrent"
-	"github.com/yetiz-org/goth-kklogger"
 )
 
 const DefaultAcceptTimeout = 5000

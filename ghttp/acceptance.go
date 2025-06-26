@@ -1,9 +1,12 @@
 package ghttp
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/yetiz-org/gone/channel"
+)
 
 type Acceptance interface {
-	Do(req *Request, resp *Response, params map[string]any) error
+	Do(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) error
 	SkipMethodOptions() bool
 }
 
@@ -15,7 +18,7 @@ func (a *DispatchAcceptance) SkipMethodOptions() bool {
 	return false
 }
 
-func (a *DispatchAcceptance) Do(req *Request, resp *Response, params map[string]any) error {
+func (a *DispatchAcceptance) Do(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) error {
 	return nil
 }
 

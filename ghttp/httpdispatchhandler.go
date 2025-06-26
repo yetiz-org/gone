@@ -3,18 +3,17 @@ package ghttp
 import (
 	"errors"
 	"fmt"
+	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	"github.com/yetiz-org/gone/ghttp/httpstatus"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	kklogger "github.com/yetiz-org/goth-kklogger"
+	kkpanic "github.com/yetiz-org/goth-panic"
+	"github.com/yetiz-org/goth-util/hash"
 	"net/http"
 	"reflect"
 	"time"
-
-	"github.com/yetiz-org/gone/channel"
-	"github.com/yetiz-org/gone/erresponse"
-	buf "github.com/yetiz-org/goth-bytebuf"
-	"github.com/yetiz-org/goth-kklogger"
-	kkpanic "github.com/yetiz-org/goth-panic"
-	"github.com/yetiz-org/goth-util/hash"
 )
 
 type DispatchHandler struct {
@@ -73,7 +72,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 				continue
 			}
 
-			if err := acceptance.Do(request, response, params); err != nil {
+			if err := acceptance.Do(ctx, request, response, params); err != nil {
 				if err == AcceptanceInterrupt {
 					kklogger.TraceJ("Acceptance", ObjectLogStruct{
 						ChannelID:  ctx.Channel().ID(),

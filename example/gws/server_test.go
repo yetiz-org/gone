@@ -1,18 +1,17 @@
 package example
 
 import (
-	"net"
-	http2 "net/http"
-	"testing"
-	"time"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
 	websocket "github.com/yetiz-org/gone/gws"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	concurrent "github.com/yetiz-org/goth-concurrent"
-	"github.com/yetiz-org/goth-kklogger"
+	kklogger "github.com/yetiz-org/goth-kklogger"
+	"net"
+	http2 "net/http"
+	"testing"
+	"time"
 )
 
 func TestServer_Start(t *testing.T) {
@@ -28,7 +27,7 @@ func TestServer_Start(t *testing.T) {
 			ch.Pipeline().
 				AddLast("CLIENT_COUNT_HANDLER", clientCountHandler).
 				AddLast("DISPATCHER", ghttp.NewDispatchHandler(NewRoute())).
-				AddLast("WS_UPGRADE", &websocket.UpgradeProcessor{})
+				AddLast("WS_UPGRADE", &websocket.WSUpgradeProcessor{})
 		})).
 		Bind(&net.TCPAddr{IP: nil, Port: 18081}).Sync().Channel()
 

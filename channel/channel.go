@@ -2,13 +2,13 @@ package channel
 
 import (
 	"fmt"
+	base62 "github.com/yetiz-org/goth-base62"
+	concurrent "github.com/yetiz-org/goth-concurrent"
 	"net"
 	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/yetiz-org/goth-base62"
-	concurrent "github.com/yetiz-org/goth-concurrent"
 )
 
 type Channel interface {

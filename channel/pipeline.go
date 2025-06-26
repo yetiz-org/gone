@@ -2,10 +2,9 @@ package channel
 
 import (
 	"fmt"
-	"net"
-
-	"github.com/yetiz-org/goth-kklogger"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 	kkpanic "github.com/yetiz-org/goth-panic"
+	"net"
 )
 
 type Pipeline interface {

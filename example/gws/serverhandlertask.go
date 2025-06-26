@@ -2,7 +2,6 @@ package example
 
 import (
 	"fmt"
-
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
 	websocket "github.com/yetiz-org/gone/gws"
@@ -26,11 +25,20 @@ func (h *ServerHandlerTask) WSPong(ctx channel.HandlerContext, message *websocke
 func (h *ServerHandlerTask) WSText(ctx channel.HandlerContext, message *websocket.DefaultMessage, params map[string]any) {
 	println("server WSText")
 	println(message.StringMessage())
+	pams := map[string]any{}
+	for s, a := range params {
+		if s == "[gone-http]context_pack" {
+			continue
+		}
+
+		pams[s] = a
+	}
+
 	var obj any = h.Builder.Text(value.JsonMarshal(struct {
 		Params  map[string]any `json:"params"`
 		Message string         `json:"message"`
 	}{
-		Params:  params,
+		Params:  pams,
 		Message: message.StringMessage(),
 	}))
 

@@ -183,7 +183,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	if handler != nil {
 		handler.Register()
 	}
-	
+
 	return r
 }
 

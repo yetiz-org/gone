@@ -1,24 +1,24 @@
 package gws
 
 import (
+	"github.com/yetiz-org/gone/channel"
+	gtp "github.com/yetiz-org/gone/ghttp"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 	"net"
 	"net/http"
 	"reflect"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/yetiz-org/gone/channel"
-	gtp "github.com/yetiz-org/gone/ghttp"
-	"github.com/yetiz-org/goth-kklogger"
 )
 
-type UpgradeProcessor struct {
+type WSUpgradeProcessor struct {
 	channel.DefaultHandler
 	upgrade          *websocket.Upgrader
 	UpgradeCheckFunc func(req *gtp.Request, resp *gtp.Response, params map[string]any) bool
 }
 
-func (h *UpgradeProcessor) Added(ctx channel.HandlerContext) {
+func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
 	h.upgrade = &websocket.Upgrader{
 		CheckOrigin: func() func(r *http.Request) bool {
 			if !channel.GetParamBoolDefault(ctx.Channel(), ParamCheckOrigin, true) {
@@ -32,7 +32,7 @@ func (h *UpgradeProcessor) Added(ctx channel.HandlerContext) {
 	}
 }
 
-func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
+func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 	if obj == nil {
 		return
 	}
@@ -40,7 +40,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 	if pack, cast := obj.(*gtp.Pack); cast && pack.RouteNode != nil {
 		if task, ok := pack.RouteNode.HandlerTask().(ServerHandlerTask); ok {
 			for _, acceptance := range pack.RouteNode.AggregatedAcceptances() {
-				if err := acceptance.Do(pack.Request, pack.Response, pack.Params); err != nil {
+				if err := acceptance.Do(ctx, pack.Request, pack.Response, pack.Params); err != nil {
 					if err == gtp.AcceptanceInterrupt {
 						return
 					}
@@ -83,7 +83,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 			wsConn := func() *websocket.Conn {
 				wsConn, err := h.upgrade.Upgrade(pack.Writer, pack.Request.Request(), pack.Response.Header())
 				if err != nil {
-					kklogger.WarnJ("UpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
+					kklogger.WarnJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
 					ctx.Channel().Disconnect()
 					return nil
 				}
@@ -95,7 +95,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 				return
 			}
 
-			kklogger.TraceJ("UpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
+			kklogger.TraceJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
 			pack.Params["[gone-http]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
 
 			// create ws channel and replace it
@@ -122,7 +122,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 	return
 }
 
-func (h *UpgradeProcessor) _NewWSLog(cID string, tID string, uri string, wsConn *websocket.Conn, err error) *LogStruct {
+func (h *WSUpgradeProcessor) _NewWSLog(cID string, tID string, uri string, wsConn *websocket.Conn, err error) *LogStruct {
 	log := &LogStruct{
 		LogType:    LogType,
 		ChannelID:  cID,

@@ -1,8 +1,6 @@
 package channel
 
-import (
-	buf "github.com/yetiz-org/goth-bytebuf"
-)
+import buf "github.com/yetiz-org/goth-bytebuf"
 
 type MessageEncoder interface {
 	Encode(ctx HandlerContext, msg any, out buf.ByteBuf)

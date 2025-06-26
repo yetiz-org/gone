@@ -2,14 +2,13 @@ package example
 
 import (
 	"fmt"
+	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/erresponse"
+	"github.com/yetiz-org/gone/ghttp"
 	"github.com/yetiz-org/gone/ghttp/httpstatus"
+	buf "github.com/yetiz-org/goth-bytebuf"
 	"runtime/pprof"
 	"time"
-
-	"github.com/yetiz-org/gone/channel"
-	"github.com/yetiz-org/gone/ghttp"
-	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 type DefaultTask struct {
@@ -85,7 +84,7 @@ type Acceptance400 struct {
 	ghttp.DispatchAcceptance
 }
 
-func (a *Acceptance400) Do(req *ghttp.Request, resp *ghttp.Response, params map[string]any) error {
+func (a *Acceptance400) Do(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) error {
 	return erresponse.InvalidRequest
 }
 

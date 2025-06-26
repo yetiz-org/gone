@@ -1,8 +1,6 @@
 package channel
 
-import (
-	concurrent "github.com/yetiz-org/goth-concurrent"
-)
+import concurrent "github.com/yetiz-org/goth-concurrent"
 
 type Future interface {
 	concurrent.Future
