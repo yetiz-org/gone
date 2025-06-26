@@ -437,7 +437,7 @@ func (r *Response) JsonResponse(obj any) {
 			r.SetBody(buf.NewByteBuf(body))
 			return
 		} else {
-			kklogger.ErrorJ("gone:Response.JsonResponse#JsonMarshal", e.Error())
+			kklogger.ErrorJ("ghttp:Response.JsonResponse#JsonMarshal", e.Error())
 		}
 	}
 }

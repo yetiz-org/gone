@@ -67,11 +67,11 @@ func (h *InvokeHandler) _Call(ctx channel.HandlerContext, req *ghttp.Request, re
 			task.WSPong(ctx, msg.(*PongMessage), params)
 		}
 	}, func(r kkpanic.Caught) {
-		kklogger.ErrorJ("websocket:InvokeHandler._Call", fmt.Sprintf("error occurred, %s", r.Error()))
+		kklogger.ErrorJ("gws:InvokeHandler._Call", fmt.Sprintf("error occurred, %s", r.Error()))
 		task.WSErrorCaught(ctx, req, resp, msg, r)
 	})
 }
 
 func (h *InvokeHandler) ErrorCaught(ctx channel.HandlerContext, err error) {
-	kklogger.ErrorJ("websocket:InvokeHandler.ErrorCaught", err.Error())
+	kklogger.ErrorJ("gwsInvokeHandler.ErrorCaught", err.Error())
 }

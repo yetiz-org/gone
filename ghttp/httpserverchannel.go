@@ -30,13 +30,13 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer c.panicCatch()
 	conn := r.Context().Value(ConnCtx)
 	if conn == nil {
-		kklogger.ErrorJ("http:ServerChannel.ServeHTTP", "can't get conn")
+		kklogger.ErrorJ("ghttp:ServerChannel.ServeHTTP", "can't get conn")
 		return
 	}
 
 	cch := r.Context().Value(ConnChCtx).(*Channel)
 	if cch == nil {
-		kklogger.ErrorJ("http:ServerChannel.ServeHTTP", "can't get Channel")
+		kklogger.ErrorJ("ghttp:ServerChannel.ServeHTTP", "can't get Channel")
 		return
 	}
 
@@ -46,7 +46,7 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	request := WrapRequest(cch, r)
 	if request == nil {
-		kklogger.WarnJ("http:ServerChannel.ServeHTTP", fmt.Sprintf("conn from %s, target: %s, body is too large", r.RemoteAddr, r.RequestURI))
+		kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP", fmt.Sprintf("conn from %s, target: %s, body is too large", r.RemoteAddr, r.RequestURI))
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
 		w.Write([]byte{})
 		return
@@ -67,7 +67,7 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (c *ServerChannel) panicCatch() {
 	kkpanic.Call(func(r kkpanic.Caught) {
-		kklogger.ErrorJ("http:ServerChannelPanicCatch", r.String())
+		kklogger.ErrorJ("ghttp:ServerChannelPanicCatch", r.String())
 	})
 }
 
@@ -78,7 +78,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 	}
 
 	if c.active {
-		kklogger.Error("http:ServerChannel.bind", fmt.Sprintf("%s bind twice", c.Name))
+		kklogger.Error("ghttp:ServerChannel.bind", fmt.Sprintf("%s bind twice", c.Name))
 		os.Exit(1)
 	}
 
@@ -100,12 +100,12 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 			case http.StateHijacked:
 				if v, f := c.chMap.LoadAndDelete(conn); f {
 					ch := v.(channel.NetChannel)
-					kklogger.TraceJ("http:ServerChannel.StateHijacked", fmt.Sprintf("channel_id: %s", ch.ID()))
+					kklogger.TraceJ("ghttp:ServerChannel.StateHijacked", fmt.Sprintf("channel_id: %s", ch.ID()))
 				}
 			case http.StateClosed:
 				if v, f := c.chMap.LoadAndDelete(conn); f {
 					ch := v.(channel.NetChannel)
-					kklogger.TraceJ("http:ServerChannel.StateClosed", fmt.Sprintf("channel_id: %s", ch.ID()))
+					kklogger.TraceJ("ghttp:ServerChannel.StateClosed", fmt.Sprintf("channel_id: %s", ch.ID()))
 					if ch.IsActive() {
 						ch.Deregister()
 					}
@@ -154,7 +154,7 @@ func (c *ServerChannel) UnsafeClose() error {
 	shutdownTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	if err := c.server.Shutdown(shutdownTimeout); err != nil {
-		kklogger.ErrorJ("http:ServerChannel#UnsafeClose", err.Error())
+		kklogger.ErrorJ("ghttp:ServerChannel#UnsafeClose", err.Error())
 	}
 
 	c.active = false

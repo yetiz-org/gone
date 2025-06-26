@@ -12,13 +12,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type WSUpgradeProcessor struct {
+type UpgradeProcessor struct {
 	channel.DefaultHandler
 	upgrade          *websocket.Upgrader
 	UpgradeCheckFunc func(req *gtp.Request, resp *gtp.Response, params map[string]any) bool
 }
 
-func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
+func (h *UpgradeProcessor) Added(ctx channel.HandlerContext) {
 	h.upgrade = &websocket.Upgrader{
 		CheckOrigin: func() func(r *http.Request) bool {
 			if !channel.GetParamBoolDefault(ctx.Channel(), ParamCheckOrigin, true) {
@@ -32,7 +32,7 @@ func (h *WSUpgradeProcessor) Added(ctx channel.HandlerContext) {
 	}
 }
 
-func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
+func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 	if obj == nil {
 		return
 	}
@@ -83,7 +83,7 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 			wsConn := func() *websocket.Conn {
 				wsConn, err := h.upgrade.Upgrade(pack.Writer, pack.Request.Request(), pack.Response.Header())
 				if err != nil {
-					kklogger.WarnJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
+					kklogger.WarnJ("gws:UpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
 					ctx.Channel().Disconnect()
 					return nil
 				}
@@ -95,7 +95,7 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 				return
 			}
 
-			kklogger.TraceJ("WSUpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
+			kklogger.TraceJ("gws:UpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
 			pack.Params["[gone-http]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
 
 			// create ws channel and replace it
@@ -122,7 +122,7 @@ func (h *WSUpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 	return
 }
 
-func (h *WSUpgradeProcessor) _NewWSLog(cID string, tID string, uri string, wsConn *websocket.Conn, err error) *LogStruct {
+func (h *UpgradeProcessor) _NewWSLog(cID string, tID string, uri string, wsConn *websocket.Conn, err error) *LogStruct {
 	log := &LogStruct{
 		LogType:    LogType,
 		ChannelID:  cID,

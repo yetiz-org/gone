@@ -89,7 +89,7 @@ func (c *DefaultNetChannel) UnsafeWrite(obj any) error {
 	case []byte:
 		bs = v
 	default:
-		kklogger.ErrorJ("DefaultNetChannel.UnsafeWrite", errors2.Wrap(ErrUnknownObjectType, reflect.TypeOf(v).String()))
+		kklogger.ErrorJ("gone:DefaultNetChannel.UnsafeWrite", errors2.Wrap(ErrUnknownObjectType, reflect.TypeOf(v).String()))
 		return ErrUnknownObjectType
 	}
 
@@ -100,7 +100,7 @@ func (c *DefaultNetChannel) UnsafeWrite(obj any) error {
 	}
 
 	if _, err := c.Conn().Write(bs); err != nil {
-		kklogger.WarnJ("DefaultNetChannel.UnsafeWrite", err.Error())
+		kklogger.WarnJ("gone:DefaultNetChannel.UnsafeWrite", err.Error())
 		return err
 	}
 
@@ -133,7 +133,7 @@ func (c *DefaultNetChannel) UnsafeRead() (any, error) {
 		}
 
 		if c.IsActive() && err != io.EOF {
-			kklogger.TraceJ("DefaultNetChannel.UnsafeRead", err.Error())
+			kklogger.TraceJ("gone:DefaultNetChannel.UnsafeRead", err.Error())
 		}
 
 		return nil, err

@@ -30,7 +30,7 @@ type DefaultHandlerTask struct {
 }
 
 func (h *DefaultHandlerTask) ErrorCaught(ctx channel.HandlerContext, err error) {
-	kklogger.ErrorJ("websocket:DefaultHandlerTask", err.Error())
+	kklogger.ErrorJ("gwsDefaultHandlerTask", err.Error())
 }
 
 func (h *DefaultHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMessage, params map[string]any) {

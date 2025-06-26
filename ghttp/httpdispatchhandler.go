@@ -74,7 +74,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 
 			if err := acceptance.Do(ctx, request, response, params); err != nil {
 				if err == AcceptanceInterrupt {
-					kklogger.TraceJ("Acceptance", ObjectLogStruct{
+					kklogger.TraceJ("ghttp:Acceptance", ObjectLogStruct{
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    request.TrackID(),
 						State:      "Skip",
@@ -87,7 +87,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 				}
 
 				params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
-				kklogger.WarnJ("Acceptance", ObjectLogStruct{
+				kklogger.WarnJ("ghttp:Acceptance", ObjectLogStruct{
 					ChannelID:  ctx.Channel().ID(),
 					TrackID:    request.TrackID(),
 					State:      "Fail",
@@ -109,7 +109,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 					continue
 				}
 
-				kklogger.TraceJ("Acceptance", ObjectLogStruct{
+				kklogger.TraceJ("ghttp:Acceptance", ObjectLogStruct{
 					ChannelID:  ctx.Channel().ID(),
 					TrackID:    request.TrackID(),
 					State:      "Pass",
@@ -137,7 +137,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 		}
 
 		response.SetStatusCode(404)
-		kklogger.WarnJ("DispatchHandler.Read#EndpointNotExist", ObjectLogStruct{
+		kklogger.WarnJ("ghttp:DispatchHandler.Read#EndpointNotExist", ObjectLogStruct{
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    request.TrackID(),
 			URI:        request.RequestURI(),
@@ -218,7 +218,7 @@ func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Reque
 		}
 
 		h.ErrorCaught(ctx, err)
-		kklogger.ErrorJ("DispatchHandler.Read#ErrorCaught", ObjectLogStruct{
+		kklogger.ErrorJ("ghttp:DispatchHandler.Read#ErrorCaught", ObjectLogStruct{
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    request.TrackID(),
 			URI:        request.RequestURI(),
@@ -301,7 +301,7 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 			return task.Connect(ctx, request, response, params)
 		}
 
-		kklogger.WarnJ("DispatchHandler", fmt.Sprintf("no match method %s", request.Method()))
+		kklogger.WarnJ("ghttp:DispatchHandler", fmt.Sprintf("no match method %s", request.Method()))
 		return nil
 	}(); invokeErr != nil {
 		return invokeErr
@@ -315,7 +315,7 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 }
 
 func (h *DispatchHandler) ErrorCaught(ctx channel.HandlerContext, err error) {
-	kklogger.ErrorJ("DispatchHandler.ErrorCaught", err.Error())
+	kklogger.ErrorJ("ghttp:DispatchHandler.ErrorCaught", err.Error())
 }
 
 func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
@@ -347,7 +347,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 			Secure:   SessionSecure,
 		})
 	} else {
-		kklogger.WarnJ("UpdateSessionCookie", fmt.Sprintf("get req cookie error [%s]", err))
+		kklogger.WarnJ("ghttp:UpdateSessionCookie", fmt.Sprintf("get req cookie error [%s]", err))
 	}
 
 	resp.request.session.Save()

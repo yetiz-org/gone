@@ -27,7 +27,7 @@ func TestServer_Start(t *testing.T) {
 			ch.Pipeline().
 				AddLast("CLIENT_COUNT_HANDLER", clientCountHandler).
 				AddLast("DISPATCHER", ghttp.NewDispatchHandler(NewRoute())).
-				AddLast("WS_UPGRADE", &websocket.WSUpgradeProcessor{})
+				AddLast("WS_UPGRADE", &websocket.UpgradeProcessor{})
 		})).
 		Bind(&net.TCPAddr{IP: nil, Port: 18081}).Sync().Channel()
 

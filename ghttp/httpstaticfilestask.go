@@ -100,13 +100,13 @@ func (h *StaticFilesHandlerTask) _Load(path string) (*staticFileCacheEntity, err
 
 			return &entity, nil
 		} else {
-			kklogger.ErrorJ("http:StaticFilesHandlerTask", e.Error())
+			kklogger.ErrorJ("ghttp:StaticFilesHandlerTask", e.Error())
 			return nil, e
 		}
 	} else if os.IsNotExist(e) {
 		return nil, nil
 	} else {
-		kklogger.WarnJ("http:StaticFilesHandlerTask", e.Error())
+		kklogger.WarnJ("ghttp:StaticFilesHandlerTask", e.Error())
 		return nil, e
 	}
 }

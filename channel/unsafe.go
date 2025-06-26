@@ -144,7 +144,7 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 		go func(u *DefaultUnsafe, localAddr net.Addr, future Future) {
 			defer u.resetState(&u.bindS)
 			if err := u.channel.(UnsafeBind).UnsafeBind(localAddr); err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Bind", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
+				kklogger.WarnJ("gone:DefaultUnsafe.Bind", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 				u.channel.inactiveChannel()
 				future.(*DefaultFuture).channel = nil
 				u.futureFail(future, err)
@@ -155,7 +155,7 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 						for u.channel.IsActive() {
 							if child, future := channel.UnsafeAccept(); child == nil {
 								if u.channel.IsActive() {
-									kklogger.WarnJ("DefaultUnsafe.UnsafeAccept", "nil child")
+									kklogger.WarnJ("gone:DefaultUnsafe.UnsafeAccept", "nil child")
 								}
 
 								u.futureCancel(future)
@@ -169,7 +169,7 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 								go func(u *DefaultUnsafe, child Channel, future Future) {
 									<-time.After(time.Duration(GetParamIntDefault(child, ParamAcceptTimeout, DefaultAcceptTimeout)) * time.Millisecond)
 									if u.futureFail(future, ErrAcceptTimeout) {
-										kklogger.ErrorJ("DefaultUnsafe.UnsafeAccept", future.Error().Error())
+										kklogger.ErrorJ("gone:DefaultUnsafe.UnsafeAccept", future.Error().Error())
 										child.inactiveChannel()
 									}
 								}(u, child, future)
@@ -191,7 +191,7 @@ func (u *DefaultUnsafe) Close(future Future) {
 			func() concurrent.Future { _, f := u.channel.inactiveChannel(); return f }().Await()
 			err := channel.UnsafeClose()
 			if err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Close", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
+				kklogger.WarnJ("gone:DefaultUnsafe.Close", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 			}
 
 			u.futureSuccess(u.channel.CloseFuture())
@@ -210,7 +210,7 @@ func (u *DefaultUnsafe) Connect(localAddr net.Addr, remoteAddr net.Addr, future 
 		go func(u *DefaultUnsafe, localAddr net.Addr, remoteAddr net.Addr, future Future) {
 			defer u.resetState(&u.connectS)
 			if err := channel.UnsafeConnect(localAddr, remoteAddr); err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Connect", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
+				kklogger.WarnJ("gone:DefaultUnsafe.Connect", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 				u.channel.inactiveChannel()
 				future.(*DefaultFuture).channel = nil
 				u.futureFail(future, err)
@@ -229,7 +229,7 @@ func (u *DefaultUnsafe) Disconnect(future Future) {
 			u.channel.inactiveChannel()
 			err := channel.UnsafeDisconnect()
 			if err != nil {
-				kklogger.WarnJ("DefaultUnsafe.Disconnect", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
+				kklogger.WarnJ("gone:DefaultUnsafe.Disconnect", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 			}
 
 			u.futureSuccess(future)
