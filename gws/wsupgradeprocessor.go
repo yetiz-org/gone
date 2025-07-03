@@ -45,7 +45,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 						return
 					}
 
-					kklogger.WarnJ("Acceptance", gtp.ObjectLogStruct{
+					kklogger.WarnJ("gws:UpgradeProcessor.Acceptance#acceptance!warn", gtp.ObjectLogStruct{
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    pack.Request.TrackID(),
 						State:      "Fail",
@@ -62,7 +62,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 						continue
 					}
 
-					kklogger.TraceJ("Acceptance", gtp.ObjectLogStruct{
+					kklogger.TraceJ("gws:UpgradeProcessor.Acceptance#acceptance!trace", gtp.ObjectLogStruct{
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    pack.Request.TrackID(),
 						State:      "Pass",
@@ -83,7 +83,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 			wsConn := func() *websocket.Conn {
 				wsConn, err := h.upgrade.Upgrade(pack.Writer, pack.Request.Request(), pack.Response.Header())
 				if err != nil {
-					kklogger.WarnJ("gws:UpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
+					kklogger.WarnJ("gws:UpgradeProcessor.Read#ws_upgrade!upgrade_error", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
 					ctx.Channel().Disconnect()
 					return nil
 				}
@@ -95,7 +95,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 				return
 			}
 
-			kklogger.TraceJ("gws:UpgradeProcessor.Read#WSUpgrade", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
+			kklogger.TraceJ("gws:UpgradeProcessor.Read#ws_upgrade!upgrade_success", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
 			pack.Params["[gone-http]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
 
 			// create ws channel and replace it

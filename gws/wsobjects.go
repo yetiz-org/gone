@@ -108,7 +108,7 @@ func _ParseMessage(messageType int, bs []byte) *DefaultMessage {
 			Message:     bs,
 		}
 	default:
-		kklogger.ErrorJ("_ParseMessage", fmt.Sprintf("unknown message type %d with data %s", messageType, hex.EncodeToString(bs)))
+		kklogger.ErrorJ("gws:_ParseMessage#parse_message!unknown_type", fmt.Sprintf("unknown message type %d with data %s", messageType, hex.EncodeToString(bs)))
 	}
 
 	return nil

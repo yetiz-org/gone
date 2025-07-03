@@ -35,7 +35,7 @@ func SessionProvider() httpsession.SessionProvider {
 		defer mutex.Unlock()
 		defaultSessionProvider = sessionProviders[DefaultSessionType]
 		if defaultSessionProvider == nil {
-			kklogger.WarnJ("ghttp:SessionProvider", "default session provider not found, use memory session provider")
+			kklogger.WarnJ("ghttp:SessionProvider.init#init!default_provider", "default session provider not found, use memory session provider")
 			defaultSessionProvider = sessionProviders[memory.SessionTypeMemory]
 		}
 	}

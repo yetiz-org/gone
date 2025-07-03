@@ -36,7 +36,7 @@ func (c *Channel) UnsafeWrite(obj any) error {
 	}
 
 	if message, ok := obj.(Message); !ok {
-		kklogger.ErrorJ("gwsChannel.UnsafeWrite", channel.ErrUnknownObjectType)
+		kklogger.ErrorJ("gws:WebSocketChannel.UnsafeWrite#unsafe_write!type_error", channel.ErrUnknownObjectType)
 		return channel.ErrUnknownObjectType
 	} else {
 		if err := func() error {
@@ -58,7 +58,7 @@ func (c *Channel) UnsafeWrite(obj any) error {
 				return ErrWrongObjectType
 			}
 		}(); err != nil {
-			kklogger.WarnJ("gwsChannel.UnsafeWrite", c._NewWSLog(message, err))
+			kklogger.WarnJ("gws:WebSocketChannel.UnsafeWrite#unsafe_write!write_error", c._NewWSLog(message, err))
 			return err
 		}
 	}
@@ -80,7 +80,7 @@ func (c *Channel) UnsafeRead() (any, error) {
 	if err != nil {
 		if c.IsActive() {
 			if wsErr, ok := err.(*websocket.CloseError); !(ok && wsErr.Code == 1000) {
-				kklogger.WarnJ("gwsChannel.read", err.Error())
+				kklogger.WarnJ("gws:WebSocketChannel.read#read!read_error", err.Error())
 			}
 		}
 

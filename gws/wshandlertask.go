@@ -30,7 +30,7 @@ type DefaultHandlerTask struct {
 }
 
 func (h *DefaultHandlerTask) ErrorCaught(ctx channel.HandlerContext, err error) {
-	kklogger.ErrorJ("gwsDefaultHandlerTask", err.Error())
+	kklogger.ErrorJ("gws:DefaultHandlerTask.WSErrorCaught#error_caught!error", err.Error())
 }
 
 func (h *DefaultHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMessage, params map[string]any) {
@@ -65,6 +65,7 @@ func (h *DefaultHandlerTask) WSDisconnected(ch channel.Channel, req *ghttp.Reque
 }
 
 func (h *DefaultHandlerTask) WSErrorCaught(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, msg Message, err error) {
+	kklogger.ErrorJ("gws:DefaultHandlerTask.WSErrorCaught#error_caught!error", err.Error())
 }
 
 type MessageBuilder interface {

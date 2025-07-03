@@ -59,13 +59,13 @@ func (h *ReplayDecoder) Read(ctx HandlerContext, obj any) {
 		kkpanic.CatchExcept(func() {
 			h.Decode(ctx, h.in, out)
 		}, buf.ErrInsufficientSize, func(r kkpanic.Caught) {
-			kklogger.ErrorJ("gone:ReplayDecoder.Read#Decode", r.String())
+			kklogger.ErrorJ("channel:ReplayDecoder.Read#decode!decode_error", r.String())
 		})
 
 		for elem := out.Pop(); elem != nil; elem = out.Pop() {
 			ctx.FireRead(elem)
 		}
 	} else {
-		kklogger.WarnJ("gone:ReplayDecoder.Read#Decode", "no decoder")
+		kklogger.WarnJ("channel:ReplayDecoder.Read#decode!no_decoder", "no decoder")
 	}
 }

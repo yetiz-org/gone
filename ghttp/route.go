@@ -87,12 +87,12 @@ func (r *DefaultRoute) SetRoot(point *_EndPoint) *DefaultRoute {
 
 func (r *DefaultRoute) AddRecursivePoint(point *_EndPoint) *DefaultRoute {
 	if point == nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddRecursivePoint", "add nil point")
+		kklogger.ErrorJ("ghttp:DefaultRoute.AddRecursivePoint#add_recursive!nil_point", "add nil point")
 		return nil
 	}
 
 	if r.root.Resources()[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddRecursivePoint", "add same name endpoint")
+		kklogger.ErrorJ("ghttp:DefaultRoute.AddRecursivePoint#add_recursive!duplicate_name", "add same name endpoint")
 		return nil
 	}
 
@@ -108,12 +108,12 @@ func (r *DefaultRoute) AddRecursivePoint(point *_EndPoint) *DefaultRoute {
 
 func (r *DefaultRoute) AddGroup(group *_RouteGroup) *DefaultRoute {
 	if group == nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddGroup", "add nil group")
+		kklogger.ErrorJ("ghttp:DefaultRoute.AddGroup#add_group!nil_group", "add nil group")
 		return nil
 	}
 
 	if r.root.Resources()[group.Name()] != nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddGroup", "add same name group")
+		kklogger.ErrorJ("ghttp:DefaultRoute.AddGroup#add_group!duplicate_name", "add same name group")
 		return nil
 	}
 
@@ -124,12 +124,12 @@ func (r *DefaultRoute) AddGroup(group *_RouteGroup) *DefaultRoute {
 
 func (r *DefaultRoute) AddEndPoint(point *_EndPoint) *DefaultRoute {
 	if point == nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddEndPoint", "add nil point")
+		kklogger.ErrorJ("ghttp:DefaultRoute.AddEndPoint#add_endpoint!nil_point", "add nil point")
 		return nil
 	}
 
 	if r.root.Resources()[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddEndPoint", "add same name endpoint")
+		kklogger.ErrorJ("ghttp:DefaultRoute.AddEndPoint#add_endpoint!duplicate_name", "add same name endpoint")
 		return nil
 	}
 
@@ -234,12 +234,12 @@ func NewEndPoint(name string, task HandlerTask, acceptances []Acceptance) *_EndP
 
 func (ep *_EndPoint) AddEndPoint(point *_EndPoint) *_EndPoint {
 	if point == nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddEndPoint", "add nil task")
+		kklogger.ErrorJ("ghttp:_EndPoint.AddEndPoint#add_endpoint!nil_task", "add nil task")
 		return nil
 	}
 
 	if ep.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddEndPoint", "add same name endpoint")
+		kklogger.ErrorJ("ghttp:_EndPoint.AddEndPoint#add_endpoint!duplicate_name", "add same name endpoint")
 		return nil
 	}
 
@@ -254,12 +254,12 @@ func (ep *_EndPoint) AddEndPoint(point *_EndPoint) *_EndPoint {
 
 func (ep *_EndPoint) AddGroup(group *_RouteGroup) *_EndPoint {
 	if group == nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddGroup", "add nil group")
+		kklogger.ErrorJ("ghttp:_EndPoint.AddGroup#add_group!nil_group", "add nil group")
 		return nil
 	}
 
 	if ep.resources[group.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddGroup", "add same name group")
+		kklogger.ErrorJ("ghttp:_EndPoint.AddGroup#add_group!duplicate_name", "add same name group")
 		return nil
 	}
 
@@ -270,12 +270,12 @@ func (ep *_EndPoint) AddGroup(group *_RouteGroup) *_EndPoint {
 
 func (ep *_EndPoint) AddRecursiveEndPoint(point *_EndPoint) *_EndPoint {
 	if point == nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddRecursiveEndPoint", "add nil task")
+		kklogger.ErrorJ("ghttp:_EndPoint.AddRecursiveEndPoint#add_recursive!nil_task", "add nil task")
 		return nil
 	}
 
 	if ep.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddRecursiveEndPoint", "add same name endpoint")
+		kklogger.ErrorJ("ghttp:_EndPoint.AddRecursiveEndPoint#add_recursive!duplicate_name", "add same name endpoint")
 		return nil
 	}
 
@@ -312,12 +312,12 @@ func NewGroup(name string, acceptances []Acceptance) *_RouteGroup {
 
 func (rg *_RouteGroup) AddGroup(group *_RouteGroup) *_RouteGroup {
 	if group == nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddGroup", "add nil group")
+		kklogger.ErrorJ("ghttp:_RouteGroup.AddGroup#add_group!nil_group", "add nil group")
 		return nil
 	}
 
 	if rg.resources[group.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddGroup", "add same name group")
+		kklogger.ErrorJ("ghttp:_RouteGroup.AddGroup#add_group!duplicate_name", "add same name group")
 		return nil
 	}
 
@@ -328,12 +328,12 @@ func (rg *_RouteGroup) AddGroup(group *_RouteGroup) *_RouteGroup {
 
 func (rg *_RouteGroup) AddEndPoint(point *_EndPoint) *_RouteGroup {
 	if point == nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddEndPoint", "add nil task")
+		kklogger.ErrorJ("ghttp:_RouteGroup.AddEndPoint#add_endpoint!nil_task", "add nil task")
 		return nil
 	}
 
 	if rg.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddEndPoint", "add same name endpoint")
+		kklogger.ErrorJ("ghttp:_RouteGroup.AddEndPoint#add_endpoint!duplicate_name", "add same name endpoint")
 		return nil
 	}
 
@@ -348,12 +348,12 @@ func (rg *_RouteGroup) AddEndPoint(point *_EndPoint) *_RouteGroup {
 
 func (rg *_RouteGroup) AddRecursiveEndPoint(point *_EndPoint) *_RouteGroup {
 	if point == nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddRecursiveEndPoint", "add nil task")
+		kklogger.ErrorJ("ghttp:_RouteGroup.AddRecursiveEndPoint#add_recursive!nil_task", "add nil task")
 		return nil
 	}
 
 	if rg.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddRecursiveEndPoint", "add same name endpoint")
+		kklogger.ErrorJ("ghttp:_RouteGroup.AddRecursiveEndPoint#add_recursive!duplicate_name", "add same name endpoint")
 		return nil
 	}
 

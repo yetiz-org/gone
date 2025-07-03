@@ -409,7 +409,7 @@ func (c *DefaultHandlerContext) prev() HandlerContext {
 func (c *DefaultHandlerContext) deferErrorCaught() {
 	if v := recover(); v != nil {
 		caught := kkpanic.Convert(v)
-		kklogger.ErrorJ("gone:HandlerContext.ErrorCaught", caught.Error())
+		kklogger.ErrorJ("channel:HandlerContext.ErrorCaught#error_caught!error", caught.Error())
 		c.handler().ErrorCaught(c, caught)
 	}
 }

@@ -35,13 +35,13 @@ func (h *NetStatusInbound) _AddrString(ctx HandlerContext) string {
 
 func (h *NetStatusInbound) Active(ctx HandlerContext) {
 	h._Init()
-	kklogger.LogJ(h.LogLevel, "gone:NetStatusHandler.Active", h._AddrString(ctx))
+	kklogger.LogJ(h.LogLevel, "channel:NetStatusHandler.Active#status!active", h._AddrString(ctx))
 	ctx.FireActive()
 }
 
 func (h *NetStatusInbound) Inactive(ctx HandlerContext) {
 	h._Init()
-	kklogger.LogJ(h.LogLevel, "gone:NetStatusHandler.Inactive", h._AddrString(ctx))
+	kklogger.LogJ(h.LogLevel, "channel:NetStatusHandler.Inactive#status!inactive", h._AddrString(ctx))
 	ctx.FireInactive()
 }
 
@@ -80,13 +80,13 @@ func (h *NetStatusOutbound) _AddrString(ctx HandlerContext) string {
 
 func (h *NetStatusOutbound) Bind(ctx HandlerContext, localAddr net.Addr, future Future) {
 	h._Init()
-	kklogger.LogJ(h.LogLevel, "gone:NetStatusHandler.Bind", h._AddrString(ctx))
+	kklogger.LogJ(h.LogLevel, "channel:NetStatusHandler.Bind#status!bind", h._AddrString(ctx))
 	ctx.Bind(localAddr, future)
 }
 
 func (h *NetStatusOutbound) Close(ctx HandlerContext, future Future) {
 	h._Init()
-	kklogger.LogJ(h.LogLevel, "gone:NetStatusHandler.Close", h._AddrString(ctx))
+	kklogger.LogJ(h.LogLevel, "channel:NetStatusHandler.Close#status!close", h._AddrString(ctx))
 	ctx.Close(future)
 }
 
@@ -108,13 +108,13 @@ func (h *NetStatusOutbound) Connect(ctx HandlerContext, localAddr net.Addr, remo
 	}()
 
 	h._Init()
-	kklogger.LogJ(h.LogLevel, "gone:NetStatusHandler.Connect", fmt.Sprintf("LocalAddr: %s, RemoteAddr: %s", lAddr, rAddr))
+	kklogger.LogJ(h.LogLevel, "channel:NetStatusHandler.Connect#status!connect", fmt.Sprintf("LocalAddr: %s, RemoteAddr: %s", lAddr, rAddr))
 	ctx.Connect(localAddr, remoteAddr, future)
 }
 
 func (h *NetStatusOutbound) Disconnect(ctx HandlerContext, future Future) {
 	h._Init()
-	kklogger.LogJ(h.LogLevel, "gone:NetStatusHandler.Disconnect", h._AddrString(ctx))
+	kklogger.LogJ(h.LogLevel, "channel:NetStatusHandler.Disconnect#status!disconnect", h._AddrString(ctx))
 	ctx.Disconnect(future)
 }
 

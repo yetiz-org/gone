@@ -120,7 +120,7 @@ func (h *headHandler) ErrorCaught(ctx HandlerContext, err error) {
 		ce = kkpanic.Convert(e)
 	}
 
-	kklogger.ErrorJ("gone:HeadHandler.ErrorCaught", ce)
+	kklogger.ErrorJ("channel:HeadHandler.ErrorCaught#error_caught!error", ce)
 }
 
 type tailHandler struct {

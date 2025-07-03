@@ -55,7 +55,7 @@ func (h *LogHandler) Read(ctx channel.HandlerContext, obj any) {
 			Request: h.constructReq(pack.Request),
 		}
 
-		kklogger.InfoJ("ghttp:LogHandler.Read", logStruct)
+		kklogger.InfoJ("ghttp:LogHandler.Read#log_request!read", logStruct)
 	}
 
 	ctx.FireRead(obj)
@@ -213,7 +213,7 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj any, future channel.F
 			logStruct.Extend = v
 		}
 
-		kklogger.InfoJ("ghttp:LogHandler.Write", logStruct)
+		kklogger.InfoJ("ghttp:LogHandler.Write#log_response!write", logStruct)
 	} else {
 		logStruct := LogStruct{
 			ChannelID:  ctx.Channel().ID(),
@@ -248,7 +248,7 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj any, future channel.F
 			logStruct.Extend = v
 		}
 
-		kklogger.InfoJ("ghttp:LogHandler.Write", logStruct)
+		kklogger.InfoJ("ghttp:LogHandler.Write#log_response!write", logStruct)
 	}
 
 	ctx.Write(obj, future)
@@ -256,7 +256,7 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj any, future channel.F
 
 func deferError() {
 	if err := recover(); err != nil {
-		kklogger.ErrorJ("ghttp:LogHandler.deferError", err)
+		kklogger.ErrorJ("ghttp:LogHandler.deferError#defer_error!error", err)
 	}
 }
 

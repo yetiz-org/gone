@@ -24,12 +24,12 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 
 	if c.IsActive() {
 		err := errors.Wrap(ErrBindTwice, c.Name)
-		kklogger.Error("gtcp:ServerChannel.UnsafeBind", err)
+		kklogger.ErrorJ("gtcp:ServerChannel.UnsafeBind#unsafe_bind!bind_twice", err.Error())
 		return err
 	}
 
 	if listen, err := net.Listen("tcp4", localAddr.String()); err != nil {
-		kklogger.ErrorJ("gtcp:ServerChannel.UnsafeBind", fmt.Sprintf("bind at %s fail %s", localAddr.String(), err.Error()))
+		kklogger.ErrorJ("gtcp:ServerChannel.UnsafeBind#unsafe_bind!bind_error", fmt.Sprintf("bind at %s fail %s", localAddr.String(), err.Error()))
 		return err
 	} else {
 		c.listen = listen
@@ -45,7 +45,7 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 			return nil, c.Pipeline().NewFuture()
 		}
 
-		kklogger.ErrorJ("gtcp:ServerChannel.UnsafeAccept", err.Error())
+		kklogger.ErrorJ("gtcp:ServerChannel.UnsafeAccept#unsafe_accept!accept_error", err.Error())
 		return nil, c.Pipeline().NewFuture()
 	} else {
 		ch := c.DeriveNetChildChannel(&Channel{}, c, conn)
