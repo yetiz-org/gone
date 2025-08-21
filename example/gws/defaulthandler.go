@@ -1,8 +1,9 @@
 package example
 
 import (
-	"github.com/yetiz-org/gone/ghttp/httpstatus"
 	"time"
+
+	"github.com/yetiz-org/gone/ghttp/httpstatus"
 
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"

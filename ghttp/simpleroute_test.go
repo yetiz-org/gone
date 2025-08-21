@@ -2,12 +2,13 @@ package ghttp
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"github.com/yetiz-org/gone/channel"
-	"github.com/yetiz-org/gone/erresponse"
 	"net/http"
 	"net/url"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/erresponse"
 )
 
 type acceptance400 struct {

@@ -3,12 +3,13 @@ package ghttp
 import (
 	"compress/gzip"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	"github.com/yetiz-org/goth-kklogger"
-	"strings"
-	"time"
 )
 
 const LogHandlerDefaultMaxBodySize = 204800

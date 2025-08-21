@@ -1,9 +1,10 @@
 package channel
 
 import (
-	concurrent "github.com/yetiz-org/goth-concurrent"
 	"net"
 	"sync"
+
+	concurrent "github.com/yetiz-org/goth-concurrent"
 )
 
 type ServerChannel interface {

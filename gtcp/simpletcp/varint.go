@@ -8,7 +8,7 @@ import (
 
 func VarIntEncode(val uint64) buf.ByteBuf {
 	if val < 0xfd {
-		return buf.EmptyByteBuf().WriteByte(byte(val))
+		return buf.EmptyByteBuf().AppendByte(byte(val))
 	} else if val <= math.MaxUint16 {
 		return buf.NewByteBuf([]byte{0xfd}).WriteUInt16(uint16(val))
 	} else if val <= math.MaxUint32 {

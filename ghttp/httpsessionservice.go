@@ -1,13 +1,14 @@
 package ghttp
 
 import (
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	"github.com/yetiz-org/gone/ghttp/httpsession"
 	"github.com/yetiz-org/gone/ghttp/httpsession/memory"
 	kklogger "github.com/yetiz-org/goth-kklogger"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/yetiz-org/goth-util/hash"
 )

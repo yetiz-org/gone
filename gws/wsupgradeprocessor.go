@@ -1,13 +1,14 @@
 package gws
 
 import (
-	"github.com/yetiz-org/gone/channel"
-	gtp "github.com/yetiz-org/gone/ghttp"
-	kklogger "github.com/yetiz-org/goth-kklogger"
 	"net"
 	"net/http"
 	"reflect"
 	"time"
+
+	"github.com/yetiz-org/gone/channel"
+	gtp "github.com/yetiz-org/gone/ghttp"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 
 	"github.com/gorilla/websocket"
 )

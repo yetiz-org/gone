@@ -2,6 +2,7 @@ package example
 
 import (
 	"fmt"
+
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
 	websocket "github.com/yetiz-org/gone/gws"

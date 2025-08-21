@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
-	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	"io"
 	"math/rand"
 	"net"
 	http2 "net/http"
 	"testing"
 	"time"
+
+	"github.com/yetiz-org/gone/ghttp/httpheadername"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/yetiz-org/gone/channel"

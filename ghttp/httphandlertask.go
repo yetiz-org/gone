@@ -2,11 +2,12 @@ package ghttp
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	buf "github.com/yetiz-org/goth-bytebuf"
-	"net/http"
 )
 
 type HttpTask interface {

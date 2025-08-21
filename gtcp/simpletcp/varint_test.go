@@ -14,7 +14,7 @@ func TestVarInt(t *testing.T) {
 		for i := 0; i < 256; i++ {
 			v := uint64(rand.Intn(int(max)))
 			varint := VarIntEncode(v)
-			assert.Equal(t, v, VarIntDecode(varint.ReadByte(), varint))
+			assert.Equal(t, v, VarIntDecode(varint.MustReadByte(), varint))
 		}
 	}
 }

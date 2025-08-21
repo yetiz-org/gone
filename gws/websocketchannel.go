@@ -2,10 +2,11 @@ package gws
 
 import (
 	"fmt"
-	kklogger "github.com/yetiz-org/goth-kklogger"
 	"net"
 	"net/http"
 	"time"
+
+	kklogger "github.com/yetiz-org/goth-kklogger"
 
 	"github.com/gorilla/websocket"
 	"github.com/yetiz-org/gone/channel"

@@ -2,13 +2,14 @@ package example
 
 import (
 	"fmt"
+	"runtime/pprof"
+	"time"
+
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/ghttp"
 	"github.com/yetiz-org/gone/ghttp/httpstatus"
 	buf "github.com/yetiz-org/goth-bytebuf"
-	"runtime/pprof"
-	"time"
 )
 
 type DefaultTask struct {

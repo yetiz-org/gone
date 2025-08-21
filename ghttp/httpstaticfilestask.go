@@ -2,14 +2,15 @@ package ghttp
 
 import (
 	"fmt"
-	"github.com/yetiz-org/gone/ghttp/httpheadername"
-	"github.com/yetiz-org/gone/ghttp/httpstatus"
 	"io/ioutil"
 	"mime"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/yetiz-org/gone/ghttp/httpheadername"
+	"github.com/yetiz-org/gone/ghttp/httpstatus"
 
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"

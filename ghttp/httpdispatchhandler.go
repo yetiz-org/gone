@@ -3,6 +3,10 @@ package ghttp
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"reflect"
+	"time"
+
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
@@ -11,9 +15,6 @@ import (
 	kklogger "github.com/yetiz-org/goth-kklogger"
 	kkpanic "github.com/yetiz-org/goth-panic"
 	"github.com/yetiz-org/goth-util/hash"
-	"net/http"
-	"reflect"
-	"time"
 )
 
 type DispatchHandler struct {

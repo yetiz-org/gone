@@ -1,8 +1,9 @@
 package ghttp
 
 import (
-	"github.com/yetiz-org/gone/channel"
 	"net/http"
+
+	"github.com/yetiz-org/gone/channel"
 )
 
 type Channel struct {

@@ -24,7 +24,7 @@ func (h *DecodeHandler) decode(ctx channel.HandlerContext, in buf.ByteBuf, out s
 	for true {
 		switch h.State() {
 		case HEAD:
-			bs := in.ReadByte()
+			bs := in.MustReadByte()
 			h.obj = "h:" + string(bs)
 			h.Checkpoint(BODY)
 		case BODY:

@@ -31,7 +31,7 @@ func (h *SimpleCodec) decode(ctx channel.HandlerContext, in buf.ByteBuf, out str
 	for true {
 		switch h.State() {
 		case FLAG:
-			h.flag = in.ReadByte()
+			h.flag = in.MustReadByte()
 			if h.flag == 0 {
 				continue
 			}

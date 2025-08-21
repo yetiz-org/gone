@@ -1,9 +1,10 @@
 package simpletcp
 
 import (
-	"github.com/yetiz-org/gone/gtcp"
 	"net"
 	"time"
+
+	"github.com/yetiz-org/gone/gtcp"
 
 	"github.com/yetiz-org/gone/channel"
 	buf "github.com/yetiz-org/goth-bytebuf"

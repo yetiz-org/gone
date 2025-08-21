@@ -2,10 +2,11 @@ package httpsession
 
 import (
 	"encoding/json"
-	buf "github.com/yetiz-org/goth-bytebuf"
 	"math"
 	"strconv"
 	"time"
+
+	buf "github.com/yetiz-org/goth-bytebuf"
 
 	"github.com/google/uuid"
 	"github.com/yetiz-org/goth-base62"

@@ -2,6 +2,7 @@ package erresponse
 
 import (
 	"encoding/json"
+
 	kkerror "github.com/yetiz-org/goth-kkerror"
 )
 

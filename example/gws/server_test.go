@@ -1,6 +1,11 @@
 package example
 
 import (
+	"net"
+	http2 "net/http"
+	"testing"
+	"time"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
@@ -8,10 +13,6 @@ import (
 	buf "github.com/yetiz-org/goth-bytebuf"
 	concurrent "github.com/yetiz-org/goth-concurrent"
 	kklogger "github.com/yetiz-org/goth-kklogger"
-	"net"
-	http2 "net/http"
-	"testing"
-	"time"
 )
 
 func TestServer_Start(t *testing.T) {

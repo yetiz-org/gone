@@ -1,8 +1,9 @@
 package simpletcp
 
 import (
-	"github.com/yetiz-org/gone/gtcp"
 	"net"
+
+	"github.com/yetiz-org/gone/gtcp"
 
 	"github.com/yetiz-org/gone/channel"
 )

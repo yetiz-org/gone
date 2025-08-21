@@ -1,10 +1,11 @@
 package memory
 
 import (
-	"github.com/yetiz-org/gone/ghttp/httpsession"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yetiz-org/gone/ghttp/httpsession"
 )
 
 func TestNewSessionProvider(t *testing.T) {
@@ -257,7 +258,7 @@ func TestSessionProvider_CleanFrequency(t *testing.T) {
 
 	// Immediately Save again, should not cleanup again due to < 10 second interval
 	provider.Save(session)
-	
+
 	if !provider.lastClean.Equal(firstCleanTime) {
 		t.Error("Should not cleanup again within 10 seconds")
 	}

@@ -3,9 +3,6 @@ package ghttp
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/yetiz-org/gone/ghttp/httpheadername"
-	"github.com/yetiz-org/gone/ghttp/httpsession"
-	"github.com/yetiz-org/gone/ghttp/httpstatus"
 	"io"
 	"mime/multipart"
 	"net"
@@ -15,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yetiz-org/gone/ghttp/httpheadername"
+	"github.com/yetiz-org/gone/ghttp/httpsession"
+	"github.com/yetiz-org/gone/ghttp/httpstatus"
 
 	"github.com/google/uuid"
 	"github.com/yetiz-org/gone/channel"

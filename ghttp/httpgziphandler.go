@@ -2,11 +2,12 @@ package ghttp
 
 import (
 	"compress/gzip"
+	"strings"
+	"time"
+
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	buf "github.com/yetiz-org/goth-bytebuf"
-	"strings"
-	"time"
 )
 
 type GZipHandler struct {

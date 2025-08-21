@@ -2,10 +2,11 @@ package channel
 
 import (
 	"context"
-	kklogger "github.com/yetiz-org/goth-kklogger"
-	kkpanic "github.com/yetiz-org/goth-panic"
 	"net"
 	"time"
+
+	kklogger "github.com/yetiz-org/goth-kklogger"
+	kkpanic "github.com/yetiz-org/goth-panic"
 )
 
 type HandlerContext interface {

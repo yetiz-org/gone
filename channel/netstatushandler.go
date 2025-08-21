@@ -2,8 +2,9 @@ package channel
 
 import (
 	"fmt"
-	kklogger "github.com/yetiz-org/goth-kklogger"
 	"net"
+
+	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
 type NetStatusInbound struct {

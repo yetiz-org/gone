@@ -1,9 +1,10 @@
 package memory
 
 import (
-	"github.com/yetiz-org/gone/ghttp/httpsession"
 	"sync"
 	"time"
+
+	"github.com/yetiz-org/gone/ghttp/httpsession"
 )
 
 const SessionTypeMemory httpsession.SessionType = "MEMORY"
