@@ -151,14 +151,33 @@ func (c *ServerChannel) UnsafeClose() error {
 	}
 
 	c.DefaultNetServerChannel.UnsafeClose()
+
+	// First attempt graceful shutdown - this will trigger StateClosed callbacks
 	shutdownTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	if err := c.server.Shutdown(shutdownTimeout); err != nil {
-		kklogger.ErrorJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!shutdown_error", err.Error())
+		kklogger.WarnJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!shutdown_timeout", err.Error())
+
+		// Force close any remaining connections that didn't close gracefully
+		c.chMap.Range(func(key, value interface{}) bool {
+			ch := value.(channel.NetChannel)
+			if ch.IsActive() {
+				kklogger.TraceJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!force_close", fmt.Sprintf("force closing channel_id: %s", ch.ID()))
+				ch.Deregister()
+			}
+
+			c.chMap.Delete(key)
+			return true
+		})
 	}
 
 	c.active = false
-	kklogger.InfoJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!close", fmt.Sprintf("server %s[%s] closed", c.Name, c.LocalAddr().String()))
+	localAddrStr := "unknown"
+	if c.LocalAddr() != nil {
+		localAddrStr = c.LocalAddr().String()
+	}
+
+	kklogger.InfoJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!close", fmt.Sprintf("server %s[%s] closed", c.Name, localAddrStr))
 	return nil
 }
 

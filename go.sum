@@ -40,8 +40,8 @@ github.com/yetiz-org/goth-base62 v1.1.0 h1:PbAlMlSXcsM34i/ILjrZtNzvC+90vOHVYSoAB
 github.com/yetiz-org/goth-base62 v1.1.0/go.mod h1:ZQ2JR61ySTzysTsqCyxysxHj/VOaYQ3ZoI13kWr6+YU=
 github.com/yetiz-org/goth-bytebuf v1.1.0 h1:YHvpr4RT0tqPsQz5c4hIFJ+3x1fTJQREPhtG/X6Gpao=
 github.com/yetiz-org/goth-bytebuf v1.1.0/go.mod h1:jRCqQB9z1LjzA7c1Jw6sV7OmMLXgZcfBO19y7VbCEGw=
-github.com/yetiz-org/goth-concurrent v1.2.1 h1:wVLSTUYHD4H1gZND49rLis6fnKugI18MZG7q2VGJ0i8=
-github.com/yetiz-org/goth-concurrent v1.2.1/go.mod h1:JzlvrOl1DfASyf/OA5CIj7LZmgfTTUlSfkVjLr7YwIc=
+github.com/yetiz-org/goth-concurrent v1.2.2 h1:25T4uhirQNIImbP4wv1D9q6NFkT+cw+ownvY8XdWvTo=
+github.com/yetiz-org/goth-concurrent v1.2.2/go.mod h1:JzlvrOl1DfASyf/OA5CIj7LZmgfTTUlSfkVjLr7YwIc=
 github.com/yetiz-org/goth-kkerror v1.0.0 h1:lYaBPBQiDFOToUWgPCnjSYxvy0Nbpq0+tV0DANHbPE0=
 github.com/yetiz-org/goth-kkerror v1.0.0/go.mod h1:NvTcdya53QVdHrLUQzojd8VGXVLW8reczCQzbseN6mw=
 github.com/yetiz-org/goth-kklogger v1.1.1 h1:QCKH/Bt0iyiRwTITL7Bz6SGBFAyFA3wvXw2UaqUGCY0=

@@ -31,6 +31,10 @@ func (h *SimpleCodec) decode(ctx channel.HandlerContext, in buf.ByteBuf, out str
 	for true {
 		switch h.State() {
 		case FLAG:
+			// Check if buffer has enough bytes to read - use Skip() to trigger proper exception handling
+			if in.ReadableBytes() < 1 {
+				h.Skip() // This will panic with buf.ErrInsufficientSize - should be caught by caller
+			}
 			h.flag = in.MustReadByte()
 			if h.flag == 0 {
 				continue

@@ -81,7 +81,15 @@ var ErrReadError = fmt.Errorf("read error")
 var ErrSkip = fmt.Errorf("skip")
 
 var IDEncoder = base62.FlipEncoding
-var serialSequence = uint64(0)
+
+// Use atomic counter to avoid test interference and ensure thread safety
+var globalSerialSequence = uint64(0)
+
+// ResetSerialSequenceForTesting resets the global serial sequence counter for test isolation
+// This should only be called from test code to ensure test independence
+func ResetSerialSequenceForTesting() {
+	atomic.StoreUint64(&globalSerialSequence, 0)
+}
 
 type DefaultChannel struct {
 	id          string
@@ -105,6 +113,7 @@ func (c *DefaultChannel) ID() string {
 }
 
 func (c *DefaultChannel) Init() Channel {
+	c.init(c)
 	return c
 }
 
@@ -117,7 +126,9 @@ func (c *DefaultChannel) CloseFuture() Future {
 }
 
 func (c *DefaultChannel) Bind(localAddr net.Addr) Future {
-	return c.Pipeline().Bind(localAddr)
+	pipeline := c.Pipeline()
+	future := pipeline.Bind(localAddr)
+	return future
 }
 
 func (c *DefaultChannel) Close() Future {
@@ -186,7 +197,7 @@ func (c *DefaultChannel) LocalAddr() net.Addr {
 func (c *DefaultChannel) init(channel Channel) {
 	u := uuid.New()
 	c.id = IDEncoder.EncodeToString(u[:])
-	c.serial = atomic.AddUint64(&serialSequence, 1)
+	c.serial = atomic.AddUint64(&globalSerialSequence, 1)
 	c.setPipeline(_NewDefaultPipeline(channel))
 	c.setCloseFuture(c.Pipeline().NewFuture())
 }

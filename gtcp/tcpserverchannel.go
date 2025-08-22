@@ -56,7 +56,12 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 func (c *ServerChannel) UnsafeClose() error {
 	c.DefaultNetServerChannel.UnsafeClose()
 	c.active = false
-	return c.listen.Close()
+	
+	// Prevent nil pointer dereference - check if listener exists before closing
+	if c.listen != nil {
+		return c.listen.Close()
+	}
+	return nil
 }
 
 func (c *ServerChannel) IsActive() bool {

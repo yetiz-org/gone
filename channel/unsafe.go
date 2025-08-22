@@ -48,6 +48,11 @@ func (u *DefaultUnsafe) Read() {
 			defer u.resetState(&u.readS)
 			lastObjRead := false
 			for {
+				// Check if channel is still active before processing
+				if !u.channel.IsActive() {
+					break
+				}
+
 				if obj, err := uf.UnsafeRead(); err != nil {
 					if err == ErrSkip {
 						if u.channel.IsActive() && lastObjRead {
@@ -55,6 +60,8 @@ func (u *DefaultUnsafe) Read() {
 							u.channel.FireReadCompleted()
 						}
 					} else {
+						// Call inactiveChannel synchronously - cleanup is now synchronous but returns
+						// a completed future to avoid complex chaining deadlocks
 						u.channel.inactiveChannel()
 						break
 					}
@@ -137,15 +144,20 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 
 func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 	if localAddr == nil {
+		kklogger.WarnJ("channel:DefaultUnsafe.Bind#bind!nil_addr", "localAddr is nil")
 		u.futureFail(future, ErrLocalAddrIsEmpty)
 		return
 	}
 
-	if _, ok := u.channel.(UnsafeBind); ok && u.markState(&u.bindS) && !u.channel.CloseFuture().IsDone() {
+	_, hasUnsafeBind := u.channel.(UnsafeBind)
+	markStateOk := u.markState(&u.bindS)
+	closeFutureNotDone := !u.channel.CloseFuture().IsDone()
+
+	if hasUnsafeBind && markStateOk && closeFutureNotDone {
 		go func(u *DefaultUnsafe, localAddr net.Addr, future Future) {
 			defer u.resetState(&u.bindS)
 			if err := u.channel.(UnsafeBind).UnsafeBind(localAddr); err != nil {
-				kklogger.WarnJ("channel:DefaultUnsafe.Bind#bind!bind_error", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
+				kklogger.ErrorJ("channel:DefaultUnsafe.Bind#bind!bind_error", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
 				u.channel.inactiveChannel()
 				future.(*DefaultFuture).channel = nil
 				u.futureFail(future, err)

@@ -40,12 +40,18 @@ func (h *ReplayDecoder) State() ReplayState {
 
 func (h *ReplayDecoder) Checkpoint(state ReplayState) {
 	h.state = state
+
+	// Prevent nil pointer dereference - initialize h.in if not already initialized
+	if h.in == nil {
+		h.in = buf.EmptyByteBuf()
+	}
+
 	if h.in.Cap()-h.in.ReadableBytes() > replayDecoderTruncateLen {
 		h.op.Lock()
 		defer h.op.Unlock()
 		bs := h.in.Bytes()
 		h.in.Reset()
-		h.in.Write(bs)
+		h.in.WriteBytes(bs)
 	}
 }
 

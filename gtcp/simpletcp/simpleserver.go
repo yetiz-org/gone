@@ -3,9 +3,8 @@ package simpletcp
 import (
 	"net"
 
-	"github.com/yetiz-org/gone/gtcp"
-
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/gtcp"
 )
 
 type Server struct {

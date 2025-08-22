@@ -36,6 +36,7 @@ func (d *DefaultServerBootstrap) ChildParams() *Params {
 func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 	serverChannelType := reflect.New(d.channelType)
 	var serverChannel = serverChannelType.Interface().(ServerChannel)
+
 	if preInit, ok := serverChannel.(BootstrapChannelPreInit); ok {
 		preInit.BootstrapPreInit()
 	}
@@ -51,7 +52,8 @@ func (d *DefaultServerBootstrap) Bind(localAddr net.Addr) Future {
 		return true
 	})
 
-	serverChannel.Init()
+	// NOTE: serverChannel.Init() removed - channel.init(serverChannel) already called above
+	// The duplicate Init() was causing pipeline to be overwritten with wrong channel type
 	if d.handler != nil {
 		serverChannel.Pipeline().AddLast("ROOT", d.handler)
 	}
