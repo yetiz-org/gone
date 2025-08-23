@@ -5,54 +5,11 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
 )
 
-// MockSessionProvider for testing DefaultSession
-type MockSessionProvider struct {
-	sessions map[string]Session
-	saveErr  error
-}
-
-func (m *MockSessionProvider) Type() SessionType {
-	return SessionType("mock")
-}
-
-func NewMockSessionProvider() *MockSessionProvider {
-	return &MockSessionProvider{
-		sessions: make(map[string]Session),
-	}
-}
-
-func (m *MockSessionProvider) NewSession(expire time.Time) Session {
-	session := NewDefaultSession(m)
-	session.SetExpire(expire)
-	m.sessions[session.Id()] = session
-	return session
-}
-
-func (m *MockSessionProvider) Sessions() map[string]Session {
-	return m.sessions
-}
-
-func (m *MockSessionProvider) Session(key string) Session {
-	return m.sessions[key]
-}
-
-func (m *MockSessionProvider) Save(session Session) error {
-	if m.saveErr != nil {
-		return m.saveErr
-	}
-	m.sessions[session.Id()] = session
-	return nil
-}
-
-func (m *MockSessionProvider) Delete(key string) {
-	delete(m.sessions, key)
-}
-
-func (m *MockSessionProvider) SetSaveError(err error) {
-	m.saveErr = err
-}
+// Use the unified MockSessionProvider from mock_session.go
 
 func TestNewDefaultSession(t *testing.T) {
 	provider := NewMockSessionProvider()
@@ -433,17 +390,22 @@ func TestDefaultSession_Save(t *testing.T) {
 	provider := NewMockSessionProvider()
 	session := NewDefaultSession(provider)
 
+	// Set up mock expectation for successful save
+	provider.On("Save", session).Return(nil).Once()
+
 	// Test successful save
 	err := session.Save()
 	if err != nil {
 		t.Errorf("Save() should not return error, but got: %v", err)
 	}
 
-	// Test save with provider error
+	// Test save with provider error - create a new provider to avoid mock conflicts
+	provider2 := NewMockSessionProvider()
+	session2 := NewDefaultSession(provider2)
 	expectedErr := &MockError{"save failed"}
-	provider.SetSaveError(expectedErr)
+	provider2.SetSaveError(expectedErr)
 
-	err = session.Save()
+	err = session2.Save()
 	if err != expectedErr {
 		t.Errorf("Expected save error, but got: %v", err)
 	}
@@ -452,6 +414,12 @@ func TestDefaultSession_Save(t *testing.T) {
 func TestDefaultSession_Reload(t *testing.T) {
 	provider := NewMockSessionProvider()
 	session := NewDefaultSession(provider)
+
+	// Set up mock expectation for Save call
+	provider.On("Save", session).Return(nil).Once()
+	
+	// Set up mock expectation for Session call (used by Reload)
+	provider.On("Session", mock.AnythingOfType("string")).Return(session).Maybe()
 
 	// Add some data and save
 	session.PutString("key1", "value1")

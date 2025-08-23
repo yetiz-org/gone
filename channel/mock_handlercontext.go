@@ -205,4 +205,7 @@ func (m *MockHandlerContext) handler() Handler {
 	return args.Get(0).(Handler)
 }
 
+// Ensure MockHandlerContext implements HandlerContext interface
+var _ HandlerContext = (*MockHandlerContext)(nil)
+
 // MockHandlerContext implements HandlerContext interface

@@ -121,23 +121,6 @@ func TestTCPMocks(t *testing.T) {
 		mock.AssertExpectations(t)
 	})
 
-	t.Run("MockSimpleClient", func(t *testing.T) {
-		mock := NewMockSimpleClient()
-		assert.NotNil(t, mock)
-		
-		mockChannel := NewMockChannel()
-		remoteAddr := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080}
-		
-		mock.On("Start", remoteAddr).Return(mockChannel)
-		mock.On("Channel").Return(mockChannel)
-		
-		ch := mock.Start(remoteAddr)
-		assert.Equal(t, mockChannel, ch)
-		
-		result := mock.Channel()
-		assert.Equal(t, mockChannel, result)
-		mock.AssertExpectations(t)
-	})
 }
 
 // TestWebSocketMocks verifies all WebSocket mock implementations  

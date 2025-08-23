@@ -96,4 +96,7 @@ func (m *MockServerChannel) setCloseFuture(future Future) {
 	m.Called(future)
 }
 
+// Ensure MockServerChannel implements ServerChannel interface
+var _ ServerChannel = (*MockServerChannel)(nil)
+
 // MockServerChannel implements ServerChannel interface

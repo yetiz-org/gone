@@ -2,19 +2,20 @@ package gtcp
 
 import (
 	"net"
-	"github.com/stretchr/testify/mock"
 	"github.com/yetiz-org/gone/channel"
 )
 
 // MockTcpChannel is a mock implementation of TCP Channel
+// It embeds MockNetChannel to provide proper mock inheritance
 type MockTcpChannel struct {
-	mock.Mock
-	channel.DefaultNetChannel
+	channel.MockNetChannel
 }
 
 // NewMockTcpChannel creates a new MockTcpChannel instance
 func NewMockTcpChannel() *MockTcpChannel {
-	return &MockTcpChannel{}
+	return &MockTcpChannel{
+		MockNetChannel: *channel.NewMockNetChannel(),
+	}
 }
 
 // UnsafeConnect mocks the UnsafeConnect method with TCP address validation
@@ -24,16 +25,18 @@ func (m *MockTcpChannel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) 
 }
 
 // MockTcpServerChannel is a mock implementation of TCP ServerChannel
+// It embeds MockServerChannel to provide proper mock inheritance
 type MockTcpServerChannel struct {
-	mock.Mock
-	channel.DefaultNetServerChannel
+	channel.MockServerChannel
 	listen net.Listener
 	active bool
 }
 
 // NewMockTcpServerChannel creates a new MockTcpServerChannel instance
 func NewMockTcpServerChannel() *MockTcpServerChannel {
-	return &MockTcpServerChannel{}
+	return &MockTcpServerChannel{
+		MockServerChannel: *channel.NewMockServerChannel(),
+	}
 }
 
 // UnsafeBind mocks the UnsafeBind method with TCP binding logic
@@ -67,3 +70,7 @@ func (m *MockTcpServerChannel) IsActive() bool {
 	args := m.Called()
 	return args.Bool(0)
 }
+
+// Ensure interface compliance
+var _ channel.NetChannel = (*MockTcpChannel)(nil)
+var _ channel.ServerChannel = (*MockTcpServerChannel)(nil)

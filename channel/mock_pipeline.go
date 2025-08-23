@@ -188,5 +188,8 @@ func (m *MockPipeline) fireErrorCaught(err error) Pipeline {
 	return args.Get(0).(Pipeline)
 }
 
+// Ensure MockPipeline implements Pipeline interface
+var _ Pipeline = (*MockPipeline)(nil)
+
 // Note: Interface compliance check removed due to unexported methods
 // MockPipeline implements Pipeline interface

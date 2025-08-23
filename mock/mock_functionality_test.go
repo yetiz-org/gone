@@ -59,11 +59,7 @@ func TestBasicMockConstructors(t *testing.T) {
 		mockTcpServerChannel := NewMockTcpServerChannel()
 		assert.NotNil(t, mockTcpServerChannel, "NewMockTcpServerChannel should return non-nil")
 		
-		mockSimpleClient := NewMockSimpleClient()
-		assert.NotNil(t, mockSimpleClient, "NewMockSimpleClient should return non-nil")
-		
-		mockSimpleServer := NewMockSimpleServer()
-		assert.NotNil(t, mockSimpleServer, "NewMockSimpleServer should return non-nil")
+		// Note: SimpleClient and SimpleServer mocks were removed as they are not needed
 	})
 
 	t.Run("WebSocket_Mocks", func(t *testing.T) {

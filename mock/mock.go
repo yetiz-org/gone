@@ -7,6 +7,7 @@ package mock
 // - Channel mocks: github.com/yetiz-org/gone/channel
 // - HTTP mocks: github.com/yetiz-org/gone/ghttp  
 // - TCP mocks: github.com/yetiz-org/gone/gtcp
+// - UDP mocks: github.com/yetiz-org/gone/gudp
 // - WebSocket mocks: github.com/yetiz-org/gone/gws
 // - Utility mocks: github.com/yetiz-org/gone/utils
 //
@@ -28,6 +29,11 @@ package mock
 //   mockTcpChannel := gtcp.NewMockTcpChannel()
 //   mockTcpServerChannel := gtcp.NewMockTcpServerChannel()
 //
+// UDP Mocks:
+//   import "github.com/yetiz-org/gone/gudp"
+//   mockUdpChannel := gudp.NewMockUdpChannel()
+//   mockUdpServerChannel := gudp.NewMockUdpServerChannel()
+//
 // WebSocket Mocks:
 //   import "github.com/yetiz-org/gone/gws"
 //   mockWSChannel := gws.NewMockWebSocketChannel()
@@ -41,8 +47,9 @@ import (
 	// Import all packages with mocks for convenient access
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
+	"github.com/yetiz-org/gone/ghttp/httpsession"
 	"github.com/yetiz-org/gone/gtcp"
-	"github.com/yetiz-org/gone/gtcp/simpletcp"
+	"github.com/yetiz-org/gone/gudp"
 	"github.com/yetiz-org/gone/gws"
 	"github.com/yetiz-org/gone/utils"
 )
@@ -80,6 +87,15 @@ func NewMockConn() *channel.MockConn {
 	return channel.NewMockConn()
 }
 
+// NEW Channel Message Processing Mock Constructors
+func NewMockMessageEncoder() *channel.MockMessageEncoder {
+	return channel.NewMockMessageEncoder()
+}
+
+func NewMockMessageDecoder() *channel.MockMessageDecoder {
+	return channel.NewMockMessageDecoder()
+}
+
 // HTTP Mock Constructors
 func NewMockHTTPServerChannel() *ghttp.MockHTTPServerChannel {
 	return ghttp.NewMockHTTPServerChannel()
@@ -93,6 +109,34 @@ func NewMockResponse() *ghttp.MockResponse {
 	return ghttp.NewMockResponse()
 }
 
+// NEW HTTP Handler Task Mock Constructors
+func NewMockHttpHandlerTask() *ghttp.MockHttpHandlerTask {
+	return ghttp.NewMockHttpHandlerTask()
+}
+
+// NEW HTTP Route Mock Constructors
+func NewMockRoute() *ghttp.MockRoute {
+	return ghttp.NewMockRoute()
+}
+
+func NewMockRouteNode() *ghttp.MockRouteNode {
+	return ghttp.NewMockRouteNode()
+}
+
+// NEW HTTP SSE Mock Constructors
+func NewMockSSEOperation() *ghttp.MockSSEOperation {
+	return ghttp.NewMockSSEOperation()
+}
+
+// NEW HTTP Session Mock Constructors
+func NewMockSessionProvider() *httpsession.MockSessionProvider {
+	return httpsession.NewMockSessionProvider()
+}
+
+func NewMockSession() *httpsession.MockSession {
+	return httpsession.NewMockSession()
+}
+
 // TCP Mock Constructors
 func NewMockTcpChannel() *gtcp.MockTcpChannel {
 	return gtcp.NewMockTcpChannel()
@@ -102,13 +146,15 @@ func NewMockTcpServerChannel() *gtcp.MockTcpServerChannel {
 	return gtcp.NewMockTcpServerChannel()
 }
 
-// SimpleTCP Mock Constructors
-func NewMockSimpleClient() *simpletcp.MockSimpleClient {
-	return simpletcp.NewMockSimpleClient()
+// SimpleTCP Mock Constructors - Removed (simpletcp package has no mocks)
+
+// UDP Mock Constructors
+func NewMockUdpChannel() *gudp.MockUdpChannel {
+	return gudp.NewMockUdpChannel()
 }
 
-func NewMockSimpleServer() *simpletcp.MockSimpleServer {
-	return simpletcp.NewMockSimpleServer()
+func NewMockUdpServerChannel() *gudp.MockUdpServerChannel {
+	return gudp.NewMockUdpServerChannel()
 }
 
 // WebSocket Mock Constructors
@@ -122,6 +168,15 @@ func NewMockHandlerTask() *gws.MockHandlerTask {
 
 func NewMockServerHandlerTask() *gws.MockServerHandlerTask {
 	return gws.NewMockServerHandlerTask()
+}
+
+// NEW WebSocket Message Mock Constructors
+func NewMockMessage() *gws.MockMessage {
+	return gws.NewMockMessage()
+}
+
+func NewMockMessageBuilder() *gws.MockMessageBuilder {
+	return gws.NewMockMessageBuilder()
 }
 
 // Utility Mock Constructors

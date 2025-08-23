@@ -110,4 +110,7 @@ func (m *MockNetChannel) setCloseFuture(future Future) {
 	m.Called(future)
 }
 
+// Ensure MockNetChannel implements NetChannel interface
+var _ NetChannel = (*MockNetChannel)(nil)
+
 // MockNetChannel implements NetChannel interface

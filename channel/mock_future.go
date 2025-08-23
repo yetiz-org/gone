@@ -173,3 +173,6 @@ func (m *MockFuture) Completable() concurrent.Completable {
 	}
 	return args.Get(0).(concurrent.Completable)
 }
+
+// Ensure MockFuture implements Future interface
+var _ Future = (*MockFuture)(nil)

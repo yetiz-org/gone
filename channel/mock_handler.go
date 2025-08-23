@@ -91,3 +91,6 @@ func (m *MockHandler) Deregister(ctx HandlerContext, future Future) {
 func (m *MockHandler) ErrorCaught(ctx HandlerContext, err error) {
 	m.Called(ctx, err)
 }
+
+// Ensure MockHandler implements Handler interface
+var _ Handler = (*MockHandler)(nil)

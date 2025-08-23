@@ -1,16 +1,15 @@
 package gws
 
 import (
-	"github.com/stretchr/testify/mock"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
 	"github.com/gorilla/websocket"
 )
 
 // MockWebSocketChannel is a mock implementation of WebSocket Channel
+// It embeds MockNetChannel to provide proper mock inheritance
 type MockWebSocketChannel struct {
-	mock.Mock
-	*channel.DefaultNetChannel
+	channel.MockNetChannel
 	wsConn   *websocket.Conn
 	Response *ghttp.Response
 	Request  *ghttp.Request
@@ -19,7 +18,7 @@ type MockWebSocketChannel struct {
 // NewMockWebSocketChannel creates a new MockWebSocketChannel instance
 func NewMockWebSocketChannel() *MockWebSocketChannel {
 	return &MockWebSocketChannel{
-		DefaultNetChannel: &channel.DefaultNetChannel{},
+		MockNetChannel: *channel.NewMockNetChannel(),
 	}
 }
 
@@ -48,3 +47,6 @@ func (m *MockWebSocketChannel) UnsafeRead() (any, error) {
 	args := m.Called()
 	return args.Get(0), args.Error(1)
 }
+
+// Ensure interface compliance
+var _ channel.NetChannel = (*MockWebSocketChannel)(nil)

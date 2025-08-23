@@ -211,14 +211,5 @@ func (m *MockChannel) setCloseFuture(future Future) {
 	m.Called(future)
 }
 
-// Interface compliance checks - ensures all mocks implement their respective interfaces
-var (
-	_ Channel        = (*MockChannel)(nil)
-	_ Pipeline       = (*MockPipeline)(nil)
-	_ Handler        = (*MockHandler)(nil)
-	_ Future         = (*MockFuture)(nil)
-	_ NetChannel     = (*MockNetChannel)(nil)
-	_ ServerChannel  = (*MockServerChannel)(nil)
-	_ HandlerContext = (*MockHandlerContext)(nil)
-	_ Conn           = (*MockConn)(nil)
-)
+// Ensure MockChannel implements Channel interface
+var _ Channel = (*MockChannel)(nil)

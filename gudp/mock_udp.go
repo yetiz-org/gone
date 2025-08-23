@@ -2,19 +2,20 @@ package gudp
 
 import (
 	"net"
-	"github.com/stretchr/testify/mock"
 	"github.com/yetiz-org/gone/channel"
 )
 
 // MockUdpChannel is a mock implementation of UDP Channel
+// It embeds MockNetChannel to provide proper mock inheritance
 type MockUdpChannel struct {
-	mock.Mock
-	channel.DefaultNetChannel
+	channel.MockNetChannel
 }
 
 // NewMockUdpChannel creates a new MockUdpChannel instance
 func NewMockUdpChannel() *MockUdpChannel {
-	return &MockUdpChannel{}
+	return &MockUdpChannel{
+		MockNetChannel: *channel.NewMockNetChannel(),
+	}
 }
 
 // UnsafeConnect mocks the UnsafeConnect method with UDP address validation
@@ -24,16 +25,18 @@ func (m *MockUdpChannel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) 
 }
 
 // MockUdpServerChannel is a mock implementation of UDP ServerChannel
+// It embeds MockServerChannel to provide proper mock inheritance
 type MockUdpServerChannel struct {
-	mock.Mock
-	channel.DefaultNetServerChannel
+	channel.MockServerChannel
 	conn   *net.UDPConn
 	active bool
 }
 
 // NewMockUdpServerChannel creates a new MockUdpServerChannel instance
 func NewMockUdpServerChannel() *MockUdpServerChannel {
-	return &MockUdpServerChannel{}
+	return &MockUdpServerChannel{
+		MockServerChannel: *channel.NewMockServerChannel(),
+	}
 }
 
 // UnsafeBind mocks the UnsafeBind method with UDP binding logic
@@ -67,3 +70,7 @@ func (m *MockUdpServerChannel) IsActive() bool {
 	args := m.Called()
 	return args.Bool(0)
 }
+
+// Ensure interface compliance
+var _ channel.NetChannel = (*MockUdpChannel)(nil)
+var _ channel.ServerChannel = (*MockUdpServerChannel)(nil)
