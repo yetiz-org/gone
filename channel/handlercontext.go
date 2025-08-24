@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	kklogger "github.com/yetiz-org/goth-kklogger"
@@ -216,10 +217,13 @@ type DefaultHandlerContext struct {
 	nextCtx  HandlerContext
 	prevCtx  HandlerContext
 	ctx      context.Context
+	mu       sync.RWMutex // Protect concurrent access to nextCtx and prevCtx
 }
 
 func (c *DefaultHandlerContext) setPrev(prev HandlerContext) HandlerContext {
+	c.mu.Lock()
 	c.prevCtx = prev
+	c.mu.Unlock()
 	return c
 }
 
@@ -404,7 +408,10 @@ func (c *DefaultHandlerContext) Deregister(future Future) Future {
 }
 
 func (c *DefaultHandlerContext) prev() HandlerContext {
-	return c.prevCtx
+	c.mu.RLock()
+	prev := c.prevCtx
+	c.mu.RUnlock()
+	return prev
 }
 
 func (c *DefaultHandlerContext) deferErrorCaught() {

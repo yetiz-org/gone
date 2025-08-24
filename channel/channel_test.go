@@ -209,8 +209,10 @@ func TestDefaultChannel_ConcurrentActivationDeactivation(t *testing.T) {
 		t.Fatal("Test timed out - potential deadlock detected")
 	}
 	
-	t.Logf("Activations: %d, Deactivations: %d", activationCount, deactivationCount)
-	assert.Greater(t, activationCount, int32(0), "Should have some activations")
+	finalActivationCount := atomic.LoadInt32(&activationCount)
+	finalDeactivationCount := atomic.LoadInt32(&deactivationCount)
+	t.Logf("Activations: %d, Deactivations: %d", finalActivationCount, finalDeactivationCount)
+	assert.Greater(t, finalActivationCount, int32(0), "Should have some activations")
 }
 
 // Test concurrent read operations with complete isolation

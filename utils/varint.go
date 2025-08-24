@@ -1,4 +1,4 @@
-package simpletcp
+package utils
 
 import (
 	"math"
@@ -6,6 +6,7 @@ import (
 	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
+// VarIntEncode encodes a uint64 value using variable-length encoding
 func VarIntEncode(val uint64) buf.ByteBuf {
 	if val < 0xfd {
 		return buf.EmptyByteBuf().AppendByte(byte(val))
@@ -18,6 +19,7 @@ func VarIntEncode(val uint64) buf.ByteBuf {
 	}
 }
 
+// VarIntDecode decodes a variable-length encoded value from a ByteBuf
 func VarIntDecode(flag byte, bbf buf.ByteBuf) uint64 {
 	switch flag {
 	case 0xfd:

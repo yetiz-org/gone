@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/yetiz-org/gone/utils"
 	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
@@ -23,13 +24,13 @@ func TestVarInt_BasicCorrectness(t *testing.T) {
 	for _, original := range testCases {
 		t.Run(fmt.Sprintf("value_%d", original), func(t *testing.T) {
 			// Encode
-			encoded := VarIntEncode(original)
+			encoded := utils.VarIntEncode(original)
 			assert.NotNil(t, encoded, "Encoded result should not be nil")
 			assert.Greater(t, len(encoded.Bytes()), 0, "Encoded length should be greater than 0")
 
 			// Decode
 			flag := encoded.MustReadByte()
-			decoded := VarIntDecode(flag, encoded)
+			decoded := utils.VarIntDecode(flag, encoded)
 
 			assert.Equal(t, original, decoded, "Decoded value should match original")
 		})
@@ -66,7 +67,7 @@ func TestVarInt_ConcurrentEncoding(t *testing.T) {
 				testValue += uint64(goroutineID*encodingsPerGoroutine + j)
 
 				// Encode value
-				encoded := VarIntEncode(testValue)
+				encoded := utils.VarIntEncode(testValue)
 				
 				// Verify encoding properties
 				if encoded != nil && len(encoded.Bytes()) > 0 {
@@ -114,7 +115,7 @@ func TestVarInt_ConcurrentDecoding(t *testing.T) {
 	}
 
 	for _, value := range testValues {
-		encoded := VarIntEncode(value)
+		encoded := utils.VarIntEncode(value)
 		testData = append(testData, struct {
 			original uint64
 			encoded  buf.ByteBuf
@@ -136,7 +137,7 @@ func TestVarInt_ConcurrentDecoding(t *testing.T) {
 				
 				// Decode value
 				flag := encodedCopy.MustReadByte()
-				decoded := VarIntDecode(flag, encodedCopy)
+				decoded := utils.VarIntDecode(flag, encodedCopy)
 				
 				// Verify correctness
 				if decoded == testEntry.original {
@@ -188,7 +189,7 @@ func TestVarInt_ConcurrentEncodeDecode(t *testing.T) {
 				}
 
 				// Encode
-				encoded := VarIntEncode(testValue)
+				encoded := utils.VarIntEncode(testValue)
 				if encoded == nil || len(encoded.Bytes()) == 0 {
 					t.Errorf("Goroutine %d: Encoding failed for value %d", goroutineID, testValue)
 					continue
@@ -196,7 +197,7 @@ func TestVarInt_ConcurrentEncodeDecode(t *testing.T) {
 
 				// Decode
 				flag := encoded.MustReadByte()
-				decoded := VarIntDecode(flag, encoded)
+				decoded := utils.VarIntDecode(flag, encoded)
 
 				// Verify round-trip correctness
 				if decoded == testValue {
@@ -241,26 +242,26 @@ func TestVarInt_HighFrequencyOperations(t *testing.T) {
 
 				switch operationType {
 				case 0: // Pure encoding
-					encoded := VarIntEncode(testValue)
+					encoded := utils.VarIntEncode(testValue)
 					if encoded != nil && len(encoded.Bytes()) > 0 {
 						atomic.AddInt64(&totalOperations, 1)
 					}
 
 				case 1: // Pure decoding from pre-encoded data
-					preEncoded := VarIntEncode(testValue)
+					preEncoded := utils.VarIntEncode(testValue)
 					if preEncoded != nil {
 						flag := preEncoded.MustReadByte()
-						decoded := VarIntDecode(flag, preEncoded)
+						decoded := utils.VarIntDecode(flag, preEncoded)
 						if decoded == testValue {
 							atomic.AddInt64(&totalOperations, 1)
 						}
 					}
 
 				case 2: // Mixed encode-decode with verification
-					encoded := VarIntEncode(testValue)
+					encoded := utils.VarIntEncode(testValue)
 					if encoded != nil {
 						flag := encoded.MustReadByte()
-						decoded := VarIntDecode(flag, encoded)
+						decoded := utils.VarIntDecode(flag, encoded)
 						if decoded == testValue {
 							atomic.AddInt64(&totalOperations, 1)
 						}
@@ -305,7 +306,7 @@ func TestVarInt_ConcurrentBoundaryValues(t *testing.T) {
 				boundaryValue := boundaryValues[j%len(boundaryValues)]
 
 				// Test encoding
-				encoded := VarIntEncode(boundaryValue)
+				encoded := utils.VarIntEncode(boundaryValue)
 				if encoded == nil || len(encoded.Bytes()) == 0 {
 					t.Errorf("Goroutine %d: Failed to encode boundary value %d", goroutineID, boundaryValue)
 					continue
@@ -313,7 +314,7 @@ func TestVarInt_ConcurrentBoundaryValues(t *testing.T) {
 
 				// Test decoding
 				flag := encoded.MustReadByte()
-				decoded := VarIntDecode(flag, encoded)
+				decoded := utils.VarIntDecode(flag, encoded)
 
 				// Verify correctness
 				if decoded == boundaryValue {
@@ -342,7 +343,7 @@ func BenchmarkVarInt_ConcurrentEncoding(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			testValue := testValues[i%len(testValues)] + uint64(i)
-			encoded := VarIntEncode(testValue)
+			encoded := utils.VarIntEncode(testValue)
 			_ = len(encoded.Bytes())
 			i++
 		}
@@ -353,11 +354,11 @@ func BenchmarkVarInt_ConcurrentEncoding(b *testing.B) {
 func BenchmarkVarInt_ConcurrentDecoding(b *testing.B) {
 	// Pre-encoded test data
 	testData := []buf.ByteBuf{
-		VarIntEncode(100),
-		VarIntEncode(1000),
-		VarIntEncode(100000),
-		VarIntEncode(math.MaxUint32),
-		VarIntEncode(math.MaxUint64),
+		utils.VarIntEncode(100),
+		utils.VarIntEncode(1000),
+		utils.VarIntEncode(100000),
+		utils.VarIntEncode(math.MaxUint32),
+		utils.VarIntEncode(math.MaxUint64),
 	}
 	
 	b.RunParallel(func(pb *testing.PB) {
@@ -366,7 +367,7 @@ func BenchmarkVarInt_ConcurrentDecoding(b *testing.B) {
 			encoded := testData[i%len(testData)]
 			encodedCopy := buf.NewByteBuf(encoded.Bytes())
 			flag := encodedCopy.MustReadByte()
-			decoded := VarIntDecode(flag, encodedCopy)
+			decoded := utils.VarIntDecode(flag, encodedCopy)
 			_ = decoded
 			i++
 		}
@@ -379,9 +380,9 @@ func BenchmarkVarInt_ConcurrentEncodeDecode(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			testValue := uint64(i + 12345)
-			encoded := VarIntEncode(testValue)
+			encoded := utils.VarIntEncode(testValue)
 			flag := encoded.MustReadByte()
-			decoded := VarIntDecode(flag, encoded)
+			decoded := utils.VarIntDecode(flag, encoded)
 			_ = decoded
 			i++
 		}
@@ -424,10 +425,10 @@ func TestVarInt_EdgeCasesAndErrors(t *testing.T) {
 
 			for _, testValue := range edgeCases {
 				// Test normal encoding/decoding
-				encoded := VarIntEncode(testValue)
+				encoded := utils.VarIntEncode(testValue)
 				if encoded != nil && len(encoded.Bytes()) > 0 {
 					flag := encoded.MustReadByte()
-					decoded := VarIntDecode(flag, encoded)
+					decoded := utils.VarIntDecode(flag, encoded)
 					
 					if decoded == testValue {
 						atomic.AddInt64(&successfulTests, 1)

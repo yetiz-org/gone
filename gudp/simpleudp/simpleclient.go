@@ -43,6 +43,9 @@ func (c *Client) Start(remoteAddr net.Addr) channel.Channel {
 
 // start establishes the UDP connection
 func (c *Client) start() channel.Channel {
+	if c.bootstrap == nil {
+		return nil // Return nil if bootstrap is not initialized
+	}
 	c.ch = c.bootstrap.Connect(nil, c.remoteAddr).Sync().Channel()
 	return c.ch
 }

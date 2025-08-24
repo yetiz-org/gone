@@ -3,6 +3,7 @@ package channel
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	base62 "github.com/yetiz-org/goth-base62"
@@ -102,6 +103,8 @@ type DefaultChannel struct {
 	_unsafe     Unsafe
 	parent      ServerChannel
 	closeFuture Future
+	aliveMu     sync.RWMutex // Protect concurrent access to alive field
+	addrMu      sync.RWMutex // Protect concurrent access to localAddr field
 }
 
 func (c *DefaultChannel) Serial() uint64 {
@@ -167,7 +170,10 @@ func (c *DefaultChannel) Write(obj any) Future {
 }
 
 func (c *DefaultChannel) IsActive() bool {
-	return c.alive != nil && !c.alive.IsDone()
+	c.aliveMu.RLock()
+	alive := c.alive
+	c.aliveMu.RUnlock()
+	return alive != nil && !alive.IsDone()
 }
 
 func (c *DefaultChannel) SetParam(key ParamKey, value any) {
@@ -191,7 +197,10 @@ func (c *DefaultChannel) Parent() ServerChannel {
 }
 
 func (c *DefaultChannel) LocalAddr() net.Addr {
-	return c.localAddr
+	c.addrMu.RLock()
+	addr := c.localAddr
+	c.addrMu.RUnlock()
+	return addr
 }
 
 func (c *DefaultChannel) init(channel Channel) {
@@ -207,20 +216,26 @@ func (c *DefaultChannel) unsafe() Unsafe {
 }
 
 func (c *DefaultChannel) setLocalAddr(addr net.Addr) {
+	c.addrMu.Lock()
 	c.localAddr = addr
+	c.addrMu.Unlock()
 }
 
 func (c *DefaultChannel) activeChannel() {
+	c.aliveMu.Lock()
 	c.alive = concurrent.NewFuture()
+	c.aliveMu.Unlock()
 	c.Pipeline().fireActive()
 	c.Read()
 }
 
 func (c *DefaultChannel) inactiveChannel() (success bool, future concurrent.Future) {
-	if c.alive != nil {
-		if c.alive.Completable().Complete(c) {
+	c.aliveMu.Lock()
+	alive := c.alive
+	if alive != nil {
+		if alive.Completable().Complete(c) {
 			cu := c
-			rf := c.alive.Chainable().Then(func(parent concurrent.Future) any {
+			rf := alive.Chainable().Then(func(parent concurrent.Future) any {
 				// if server channel, wait all child channels be closed.
 				if sch, ok := cu.Pipeline().Channel().(ServerChannel); ok {
 					sch.waitChildren()
@@ -235,11 +250,13 @@ func (c *DefaultChannel) inactiveChannel() (success bool, future concurrent.Futu
 				cu.release()
 				return cu
 			})
-
+			c.aliveMu.Unlock()
 			return true, rf
 		}
+		c.aliveMu.Unlock()
 	} else {
 		c.alive = concurrent.NewFailedFuture(ErrNotActive)
+		c.aliveMu.Unlock()
 		c.Pipeline().fireUnregistered()
 	}
 

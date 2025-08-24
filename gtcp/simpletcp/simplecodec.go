@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/utils"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	kklogger "github.com/yetiz-org/goth-kklogger"
 	"github.com/yetiz-org/goth-util/structs"
@@ -42,7 +43,7 @@ func (h *SimpleCodec) decode(ctx channel.HandlerContext, in buf.ByteBuf, out str
 
 			h.Checkpoint(LENGTH)
 		case LENGTH:
-			h.length = VarIntDecode(h.flag, in)
+			h.length = utils.VarIntDecode(h.flag, in)
 			h.Checkpoint(BODY)
 		case BODY:
 			h.out = in.ReadByteBuf(int(h.length))
@@ -55,7 +56,7 @@ func (h *SimpleCodec) decode(ctx channel.HandlerContext, in buf.ByteBuf, out str
 func (h *SimpleCodec) Write(ctx channel.HandlerContext, obj any, future channel.Future) {
 	switch m := obj.(type) {
 	case buf.ByteBuf:
-		ctx.Write(VarIntEncode(uint64(m.ReadableBytes())).WriteByteBuf(m), future)
+		ctx.Write(utils.VarIntEncode(uint64(m.ReadableBytes())).WriteByteBuf(m), future)
 	default:
 		kklogger.ErrorJ("gtcp:SimpleCodec.Write#write!type_error", fmt.Sprintf("obj(%s) is not type of buf.ByteBuf", reflect.TypeOf(obj).String()))
 	}

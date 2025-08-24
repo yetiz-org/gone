@@ -151,7 +151,7 @@ func TestSimpleCodec_ConcurrentDecode(t *testing.T) {
 				testMsg := testMessages[(goroutineID+j)%len(testMessages)]
 				
 				// Encode message for decoding
-				encoded := VarIntEncode(uint64(len(testMsg)))
+				encoded := utils.VarIntEncode(uint64(len(testMsg)))
 				encoded.WriteBytes(testMsg)
 				
 				// Use proper ReplayDecoder lifecycle - Added() then Read()
@@ -258,7 +258,7 @@ func TestSimpleCodec_StateConsistency(t *testing.T) {
 				testMsg := fmt.Sprintf("State test %d-%d", goroutineID, j)
 				
 				// Encode complete message
-				encoded := VarIntEncode(uint64(len(testMsg)))
+				encoded := utils.VarIntEncode(uint64(len(testMsg)))
 				encoded.WriteBytes([]byte(testMsg))
 				
 				// Track state transitions
@@ -318,7 +318,7 @@ func TestSimpleCodec_PartialMessageHandling(t *testing.T) {
 				testMsg := fmt.Sprintf("Partial test message %d-%d for concurrency testing", goroutineID, j)
 				
 				// Encode complete message
-				encoded := VarIntEncode(uint64(len(testMsg)))
+				encoded := utils.VarIntEncode(uint64(len(testMsg)))
 				encoded.WriteBytes([]byte(testMsg))
 				
 				// Use proper ReplayDecoder lifecycle for complete message
@@ -514,7 +514,7 @@ func TestSimpleCodec_HighFrequencyOperations(t *testing.T) {
 					testMsg := fmt.Sprintf("HF-Decode-%d-%d", goroutineID, j)
 					
 					// Prepare encoded data
-					encoded := VarIntEncode(uint64(len(testMsg)))
+					encoded := utils.VarIntEncode(uint64(len(testMsg)))
 					encoded.WriteBytes([]byte(testMsg))
 					
 					// Use proper ReplayDecoder lifecycle
@@ -555,7 +555,7 @@ func BenchmarkSimpleCodec_ConcurrentEncode(b *testing.B) {
 // Benchmark concurrent decode operations
 func BenchmarkSimpleCodec_ConcurrentDecode(b *testing.B) {
 	testMsg := "Benchmark test message for concurrent decoding performance"
-	encoded := VarIntEncode(uint64(len(testMsg)))
+	encoded := utils.VarIntEncode(uint64(len(testMsg)))
 	encoded.WriteBytes([]byte(testMsg))
 	
 	b.RunParallel(func(pb *testing.PB) {
