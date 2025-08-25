@@ -1,9 +1,9 @@
 package gws
 
 import (
+	"github.com/gorilla/websocket"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
-	"github.com/gorilla/websocket"
 )
 
 // MockWebSocketChannel is a mock implementation of WebSocket Channel

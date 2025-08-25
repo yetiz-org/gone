@@ -11,7 +11,7 @@ import (
 func TestGetParamIntDefault(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	defaultValue := 42
-	
+
 	testCases := []struct {
 		name     string
 		value    interface{}
@@ -30,20 +30,20 @@ func TestGetParamIntDefault(t *testing.T) {
 		{"uint unsupported", uint(100), defaultValue},
 		{"non-numeric value", "not-a-number", defaultValue},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockChannel := NewMockChannel()
 			testKey := ParamKey("test-int-key")
-			
+
 			mockChannel.On("Param", testKey).Return(tc.value)
 			result := GetParamIntDefault(mockChannel, testKey, defaultValue)
 			assert.Equal(t, tc.expected, result)
-			
+
 			mockChannel.AssertExpectations(t)
 		})
 	}
-	
+
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
 	}
@@ -53,7 +53,7 @@ func TestGetParamIntDefault(t *testing.T) {
 func TestGetParamInt64Default(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	defaultValue := int64(1234567890)
-	
+
 	testCases := []struct {
 		name     string
 		value    interface{}
@@ -65,20 +65,20 @@ func TestGetParamInt64Default(t *testing.T) {
 		{"uint32 value", uint32(2000000000), int64(2000000000)},
 		{"non-numeric value", "not-a-number", defaultValue},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockChannel := NewMockChannel()
 			testKey := ParamKey("test-int64-key")
-			
+
 			mockChannel.On("Param", testKey).Return(tc.value)
 			result := GetParamInt64Default(mockChannel, testKey, defaultValue)
 			assert.Equal(t, tc.expected, result)
-			
+
 			mockChannel.AssertExpectations(t)
 		})
 	}
-	
+
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
 	}
@@ -88,7 +88,7 @@ func TestGetParamInt64Default(t *testing.T) {
 func TestGetParamStringDefault(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	defaultValue := "default-string"
-	
+
 	testCases := []struct {
 		name     string
 		value    interface{}
@@ -98,20 +98,20 @@ func TestGetParamStringDefault(t *testing.T) {
 		{"string value", "test-value", "test-value"},
 		{"non-string value", 12345, defaultValue},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockChannel := NewMockChannel()
 			testKey := ParamKey("test-string-key")
-			
+
 			mockChannel.On("Param", testKey).Return(tc.value)
 			result := GetParamStringDefault(mockChannel, testKey, defaultValue)
 			assert.Equal(t, tc.expected, result)
-			
+
 			mockChannel.AssertExpectations(t)
 		})
 	}
-	
+
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
 	}
@@ -121,7 +121,7 @@ func TestGetParamStringDefault(t *testing.T) {
 func TestGetParamBoolDefault(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	defaultValue := true
-	
+
 	testCases := []struct {
 		name     string
 		value    interface{}
@@ -132,20 +132,20 @@ func TestGetParamBoolDefault(t *testing.T) {
 		{"bool value true", true, true},
 		{"non-bool value", "not-a-bool", defaultValue},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockChannel := NewMockChannel()
 			testKey := ParamKey("test-bool-key")
-			
+
 			mockChannel.On("Param", testKey).Return(tc.value)
 			result := GetParamBoolDefault(mockChannel, testKey, defaultValue)
 			assert.Equal(t, tc.expected, result)
-			
+
 			mockChannel.AssertExpectations(t)
 		})
 	}
-	
+
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
 	}
@@ -154,30 +154,30 @@ func TestGetParamBoolDefault(t *testing.T) {
 // TestParamSyncMap tests the sync.Map functionality for parameter storage
 func TestParamSyncMap(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
-	
+
 	// Create a new Params struct
 	params := &Params{}
 	testKey := ParamKey("test-key")
 	testValue := "test-value"
-	
+
 	// Test Store and Load
 	params.Store(testKey, testValue)
 	value, ok := params.Load(testKey)
 	assert.True(t, ok)
 	assert.Equal(t, testValue, value)
-	
+
 	// Test LoadOrStore with existing key
 	actualValue, loaded := params.LoadOrStore(testKey, "different-value")
 	assert.True(t, loaded)
 	assert.Equal(t, testValue, actualValue)
-	
-	// Test LoadOrStore with new key  
+
+	// Test LoadOrStore with new key
 	newValue := "new-value"
 	newKey := ParamKey("new-key")
 	actualValue, loaded = params.LoadOrStore(newKey, newValue)
 	assert.False(t, loaded)
 	assert.Equal(t, newValue, actualValue)
-	
+
 	// Test Range function
 	rangeCount := 0
 	params.Range(func(key ParamKey, value any) bool {
@@ -186,12 +186,12 @@ func TestParamSyncMap(t *testing.T) {
 		return true
 	})
 	assert.Equal(t, 2, rangeCount)
-	
+
 	// Test Delete
 	params.Delete(testKey)
 	_, ok = params.Load(testKey)
 	assert.False(t, ok)
-	
+
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
 	}

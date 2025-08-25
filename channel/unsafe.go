@@ -3,6 +3,7 @@ package channel
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,7 +36,8 @@ type DefaultUnsafe struct {
 	closeS,
 	connectS,
 	disconnectS int32
-	writeBuffer concurrent.Queue
+	writeBuffer   concurrent.Queue
+	writeBufferMu sync.RWMutex // Protect writeBuffer operations from race conditions
 }
 
 func NewUnsafe(channel Channel) Unsafe {
@@ -87,7 +89,10 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 
 	if obj != nil && u.channel.IsActive() {
 		future.(concurrent.Settable).Set(obj)
+		// Protect writeBuffer.Push() from race conditions
+		u.writeBufferMu.Lock()
 		u.writeBuffer.Push(future)
+		u.writeBufferMu.Unlock()
 	} else {
 		if obj == nil {
 			u.futureSuccess(future)
@@ -101,10 +106,12 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 		go func(u *DefaultUnsafe, uf UnsafeWrite) {
 			for u.channel.IsActive() {
 				future := func() Future {
+					// Protect writeBuffer.Pop() from race conditions
+					u.writeBufferMu.Lock()
+					defer u.writeBufferMu.Unlock()
 					if v := u.writeBuffer.Pop(); v != nil {
 						return v.(Future)
 					}
-
 					return nil
 				}()
 
@@ -124,6 +131,8 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 			}
 
 			if !u.channel.IsActive() {
+				// Protect cleanup operations from race conditions
+				u.writeBufferMu.Lock()
 				for v := u.writeBuffer.Pop(); v != nil; v = u.writeBuffer.Pop() {
 					future := v.(Future)
 					if u.channel.CloseFuture().IsDone() {
@@ -132,10 +141,15 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 						u.futureFail(future, ErrChannelNotActive)
 					}
 				}
+				u.writeBufferMu.Unlock()
 			}
 
 			u.resetState(&u.writeS)
-			if u.writeBuffer.Len() > 0 {
+			// Protect writeBuffer.Len() check from race conditions
+			u.writeBufferMu.RLock()
+			hasBufferedWrites := u.writeBuffer.Len() > 0
+			u.writeBufferMu.RUnlock()
+			if hasBufferedWrites {
 				u.Write(nil, nil)
 			}
 		}(u, uf)

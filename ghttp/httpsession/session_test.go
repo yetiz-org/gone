@@ -417,7 +417,7 @@ func TestDefaultSession_Reload(t *testing.T) {
 
 	// Set up mock expectation for Save call
 	provider.On("Save", session).Return(nil).Once()
-	
+
 	// Set up mock expectation for Session call (used by Reload)
 	provider.On("Session", mock.AnythingOfType("string")).Return(session).Maybe()
 

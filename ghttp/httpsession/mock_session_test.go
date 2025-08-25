@@ -50,7 +50,7 @@ func TestMockSessionProvider_SessionManagement(t *testing.T) {
 	mockSession1 := NewMockSession()
 	mockSession2 := NewMockSession()
 	sessionKey := "session_123"
-	
+
 	expectedSessions := map[string]Session{
 		"session_1": mockSession1,
 		"session_2": mockSession2,
@@ -107,7 +107,7 @@ func TestMockSessionProvider_SaveAndDelete(t *testing.T) {
 func TestMockSession_BasicMethods(t *testing.T) {
 	mockSession := NewMockSession()
 	sessionId := "session_abc123"
-	
+
 	// Test Id method
 	mockSession.On("Id").Return(sessionId).Once()
 	result := mockSession.Id()
@@ -159,12 +159,12 @@ func TestMockSession_IntegerMethods(t *testing.T) {
 func TestMockSession_StructMethods(t *testing.T) {
 	mockSession := NewMockSession()
 	key := "user_data"
-	
+
 	type TestStruct struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
 	}
-	
+
 	testData := TestStruct{Name: "Alice", Age: 30}
 
 	// Test GetStruct method (void method, just verify it's called)
@@ -286,13 +286,13 @@ func TestMockSession_ChainedOperations(t *testing.T) {
 	// Execute chained operations
 	result := mockSession.PutString("name", "Alice")
 	assert.Equal(t, mockSession, result)
-	
+
 	result = result.PutInt64("age", 25)
 	assert.Equal(t, mockSession, result)
-	
+
 	result = result.SetExpire(time.Now().Add(time.Hour))
 	assert.Equal(t, mockSession, result)
-	
+
 	err := result.Save()
 	assert.NoError(t, err)
 

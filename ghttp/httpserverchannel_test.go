@@ -107,23 +107,23 @@ func TestChannelRangeLoopDeregistration(t *testing.T) {
 	serverChannel := &ServerChannel{}
 	serverChannel.Init()
 	serverChannel.Name = "test-server"
-	
+
 	// Create mock channels that are initially active
 	mockCh1 := NewMockNetChannel("test-ch-1", true)
 	mockCh2 := NewMockNetChannel("test-ch-2", true)
-	
+
 	// Add them directly to chMap (simulating active connections)
 	conn1 := &mockConn{id: "conn1"}
 	conn2 := &mockConn{id: "conn2"}
 	serverChannel.chMap.Store(conn1, mockCh1)
 	serverChannel.chMap.Store(conn2, mockCh2)
-	
+
 	// Verify initial state
 	assert.True(t, mockCh1.IsActive(), "Channel 1 should be initially active")
 	assert.True(t, mockCh2.IsActive(), "Channel 2 should be initially active")
 	assert.Equal(t, int32(0), mockCh1.GetDeregisterCount(), "Channel 1 should have 0 deregister calls initially")
 	assert.Equal(t, int32(0), mockCh2.GetDeregisterCount(), "Channel 2 should have 0 deregister calls initially")
-	
+
 	// Simulate the Range loop logic from UnsafeClose (when server.Shutdown fails)
 	serverChannel.chMap.Range(func(key, value interface{}) bool {
 		ch := value.(channel.NetChannel)
@@ -133,7 +133,7 @@ func TestChannelRangeLoopDeregistration(t *testing.T) {
 		serverChannel.chMap.Delete(key)
 		return true
 	})
-	
+
 	// Verify that channels were deregistered exactly once through Range loop
 	assert.Equal(t, int32(1), mockCh1.GetDeregisterCount(), "Channel 1 should be deregistered exactly once")
 	assert.Equal(t, int32(1), mockCh2.GetDeregisterCount(), "Channel 2 should be deregistered exactly once")
@@ -147,13 +147,13 @@ func TestChannelRangeLoopDeregistration(t *testing.T) {
 func TestLoadAndDeleteRaceCondition(t *testing.T) {
 	serverChannel := &ServerChannel{}
 	serverChannel.Init()
-	
+
 	mockCh := NewMockNetChannel("test-ch", true)
 	conn := &mockConn{id: "test-conn"}
 	serverChannel.chMap.Store(conn, mockCh)
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Simulate StateClosed callback doing LoadAndDelete
 	wg.Add(1)
 	go func() {
@@ -165,7 +165,7 @@ func TestLoadAndDeleteRaceCondition(t *testing.T) {
 			}
 		}
 	}()
-	
+
 	// Simulate Range loop trying to access the same connection
 	wg.Add(1)
 	go func() {
@@ -182,9 +182,9 @@ func TestLoadAndDeleteRaceCondition(t *testing.T) {
 			return true
 		})
 	}()
-	
+
 	wg.Wait()
-	
+
 	// In race condition, channel should be deregistered at least once but not more than twice
 	// Due to atomic protection in MockNetChannel, actual deactivation happens only once
 	count := mockCh.GetDeregisterCount()
@@ -197,11 +197,11 @@ func TestLoadAndDeleteRaceCondition(t *testing.T) {
 // TestServerChannelMultipleDeregisterSafety tests that multiple Deregister calls are safe
 func TestServerChannelMultipleDeregisterSafety(t *testing.T) {
 	mockCh := NewMockNetChannel("test-ch", true)
-	
+
 	// Call Deregister multiple times concurrently
 	var wg sync.WaitGroup
 	concurrentCalls := 10
-	
+
 	for i := 0; i < concurrentCalls; i++ {
 		wg.Add(1)
 		go func() {
@@ -209,16 +209,15 @@ func TestServerChannelMultipleDeregisterSafety(t *testing.T) {
 			mockCh.Deregister()
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	// All calls should be counted, but only first one actually deactivates
 	count := mockCh.GetDeregisterCount()
 	assert.Equal(t, int32(concurrentCalls), count, "All Deregister calls should be counted")
 	assert.True(t, mockCh.IsDeactivated(), "Channel should be deactivated after first deregistration")
 	assert.False(t, mockCh.IsActive(), "Channel should be inactive after deregistration")
 }
-
 
 // mockConn is a minimal implementation of net.Conn for testing
 type mockConn struct {
@@ -228,8 +227,8 @@ type mockConn struct {
 func (m *mockConn) Read(b []byte) (n int, err error)   { return 0, nil }
 func (m *mockConn) Write(b []byte) (n int, err error)  { return len(b), nil }
 func (m *mockConn) Close() error                       { return nil }
-func (m *mockConn) LocalAddr() net.Addr               { return &net.TCPAddr{} }
-func (m *mockConn) RemoteAddr() net.Addr              { return &net.TCPAddr{} }
-func (m *mockConn) SetDeadline(t time.Time) error     { return nil }
-func (m *mockConn) SetReadDeadline(t time.Time) error { return nil }
+func (m *mockConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
+func (m *mockConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
+func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }

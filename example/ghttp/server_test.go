@@ -216,10 +216,10 @@ func TestServer_Start(t *testing.T) {
 	}()
 
 	ch.CloseFuture().Sync()
-	
+
 	// Wait for all connections to be properly unregistered
 	time.Sleep(time.Millisecond * 500)
-	
+
 	// Ensure all deregister events have been processed
 	for i := 0; i < 50; i++ {
 		if clientCountHandler.regTrigCount == 0 && clientCountHandler.actTrigCount == 0 {
@@ -227,7 +227,7 @@ func TestServer_Start(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond * 10)
 	}
-	
+
 	assert.Equal(t, int32(0), clientCountHandler.regTrigCount)
 	assert.Equal(t, int32(0), clientCountHandler.actTrigCount)
 }

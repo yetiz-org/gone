@@ -2,6 +2,7 @@ package gtcp
 
 import (
 	"net"
+
 	"github.com/yetiz-org/gone/channel"
 )
 
@@ -45,7 +46,7 @@ func (m *MockTcpServerChannel) UnsafeBind(localAddr net.Addr) error {
 	return args.Error(0)
 }
 
-// UnsafeAccept mocks the UnsafeAccept method 
+// UnsafeAccept mocks the UnsafeAccept method
 func (m *MockTcpServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 	args := m.Called()
 	var ch channel.Channel

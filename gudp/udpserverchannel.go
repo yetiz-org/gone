@@ -7,6 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/utils"
 	"github.com/yetiz-org/goth-kklogger"
 )
 
@@ -56,8 +57,11 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 		return nil, c.Pipeline().NewFuture()
 	}
 
+	// Get buffer from pool for memory optimization - using 64KB buffer for UDP max packet size
+	buffer := utils.GetLargeBuffer()
+	defer utils.PutLargeBuffer(buffer) // Return buffer to pool when done
+
 	// For UDP, we need to read a packet to know which client is connecting
-	buffer := make([]byte, 65536) // Maximum UDP packet size
 	n, clientAddr, err := c.conn.ReadFromUDP(buffer)
 	if err != nil {
 		if !c.IsActive() {
@@ -68,11 +72,15 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 		return nil, c.Pipeline().NewFuture()
 	}
 
+	// Create a copy of the data since we're returning the buffer to the pool
+	data := make([]byte, n)
+	copy(data, buffer[:n])
+
 	// Create a virtual UDP connection for this client
 	clientConn := &UDPClientConn{
 		server:     c.conn,
 		clientAddr: clientAddr,
-		lastData:   buffer[:n], // Store the first packet
+		lastData:   data, // Store the first packet (copied data)
 	}
 
 	// Create child channel for this client
@@ -84,7 +92,7 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 func (c *ServerChannel) UnsafeClose() error {
 	c.DefaultNetServerChannel.UnsafeClose()
 	c.active = false
-	
+
 	// Prevent nil pointer dereference and double close - check if connection exists before closing
 	if c.conn != nil {
 		conn := c.conn
@@ -98,7 +106,6 @@ func (c *ServerChannel) UnsafeClose() error {
 func (c *ServerChannel) IsActive() bool {
 	return c.active
 }
-
 
 // UDPClientConn represents a virtual connection to a specific UDP client
 // This allows UDP to work with the existing channel framework
@@ -117,7 +124,7 @@ func (c *UDPClientConn) Read(b []byte) (n int, err error) {
 		n = copy(b, c.lastData)
 		if n < len(c.lastData) {
 			// If buffer is too small, we lose data - this is a limitation of UDP
-			kklogger.WarnJ("gudp:UDPClientConn.Read#read!buffer_too_small", 
+			kklogger.WarnJ("gudp:UDPClientConn.Read#read!buffer_too_small",
 				fmt.Sprintf("Buffer size %d smaller than packet size %d", len(b), len(c.lastData)))
 		}
 		return n, nil
@@ -130,7 +137,7 @@ func (c *UDPClientConn) Read(b []byte) (n int, err error) {
 		if err != nil {
 			return 0, err
 		}
-		
+
 		// Only return packets from our specific client
 		if addr.String() == c.clientAddr.String() {
 			return n, nil

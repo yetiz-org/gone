@@ -23,7 +23,7 @@ func TestMockMessageEncoder_Encode(t *testing.T) {
 
 	// Test basic Encode functionality
 	mockEncoder.On("Encode", mockCtx, testMessage, outputBuffer).Once()
-	
+
 	// Call the method
 	mockEncoder.Encode(mockCtx, testMessage, outputBuffer)
 
@@ -65,7 +65,7 @@ func TestMockMessageEncoder_EncodeWithMatchers(t *testing.T) {
 	outputBuffer := buf.EmptyByteBuf()
 
 	// Test with custom matchers
-	mockEncoder.On("Encode", 
+	mockEncoder.On("Encode",
 		mock.AnythingOfType("*channel.MockHandlerContext"),
 		mock.MatchedBy(func(msg interface{}) bool {
 			str, ok := msg.(string)
@@ -106,7 +106,7 @@ func TestMockMessageEncoder_ConcurrentUsage(t *testing.T) {
 	mockEncoder := NewMockMessageEncoder()
 	mockCtx := NewMockHandlerContext()
 	outputBuffer := buf.EmptyByteBuf()
-	
+
 	// Test that the mock can handle concurrent expectations
 	numCalls := 10
 	mockEncoder.On("Encode", mockCtx, mock.AnythingOfType("string"), outputBuffer).Times(numCalls)

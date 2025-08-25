@@ -2,7 +2,7 @@ package ghttp
 
 // This comprehensive test file merges:
 // - mock_sseoperation_test.go
-// - mock_route_test.go  
+// - mock_route_test.go
 // - mock_httphandlertask_test.go
 // Original files will be archived to avoid duplicate execution.
 
@@ -144,7 +144,7 @@ func TestMockSSEOperation_ComplexScenarios(t *testing.T) {
 
 	// Test a typical SSE flow: WriteHeader -> WriteMessage -> WriteMessages
 	mockSSE.On("WriteHeader", mockCtx, header, params).Return(mockFuture).Once()
-	
+
 	message := SSEMessage{
 		Event: "connection-established",
 		Data:  []string{"Connected successfully"},
@@ -178,7 +178,7 @@ func TestMockSSEOperation_ParameterMatching(t *testing.T) {
 	mockFuture := &channel.MockFuture{}
 
 	// Test with parameter matching
-	mockSSE.On("WriteMessage", 
+	mockSSE.On("WriteMessage",
 		mock.AnythingOfType("*channel.MockHandlerContext"),
 		mock.MatchedBy(func(msg SSEMessage) bool {
 			return msg.Event == "test-event" && len(msg.Data) > 0
@@ -233,7 +233,7 @@ func TestMockSSEOperation_ErrorHandling(t *testing.T) {
 
 func TestSSEMessage_Validation(t *testing.T) {
 	// Test SSEMessage validation behavior (this tests the actual struct, not the mock)
-	
+
 	// Valid messages
 	validMessage1 := SSEMessage{Data: []string{"test"}}
 	assert.True(t, validMessage1.Validate(), "Message with data should be valid")
@@ -279,7 +279,7 @@ func TestMockRoute_RouteNode(t *testing.T) {
 
 	// Test RouteNode method with successful result
 	mockRoute.On("RouteNode", path).Return(mockNode, params, true).Once()
-	
+
 	resultNode, resultParams, isLast := mockRoute.RouteNode(path)
 	assert.Equal(t, mockNode, resultNode, "RouteNode should return expected node")
 	assert.Equal(t, params, resultParams, "RouteNode should return expected params")
@@ -287,7 +287,7 @@ func TestMockRoute_RouteNode(t *testing.T) {
 
 	// Test RouteNode method with nil result
 	mockRoute.On("RouteNode", "/not/found").Return(nil, nil, false).Once()
-	
+
 	resultNode, resultParams, isLast = mockRoute.RouteNode("/not/found")
 	assert.Nil(t, resultNode, "RouteNode should return nil for not found path")
 	assert.Nil(t, resultParams, "RouteNode should return nil params for not found path")
@@ -337,7 +337,7 @@ func TestMockRouteNode_AcceptanceMethods(t *testing.T) {
 	expectedAcceptances := []Acceptance{
 		// Note: Acceptance is an interface, would need actual implementations for real testing
 	}
-	
+
 	// Test AggregatedAcceptances method
 	mockNode.On("AggregatedAcceptances").Return(expectedAcceptances).Once()
 	result := mockNode.AggregatedAcceptances()
@@ -405,7 +405,7 @@ func TestMockRouteNode_ResourcesAndType(t *testing.T) {
 
 func TestMockRoute_ComplexRouting(t *testing.T) {
 	mockRoute := NewMockRoute()
-	
+
 	// Test complex routing scenarios
 	testCases := []struct {
 		path       string
@@ -426,15 +426,15 @@ func TestMockRoute_ComplexRouting(t *testing.T) {
 		}
 
 		mockRoute.On("RouteNode", tc.path).Return(expectedNode, tc.params, tc.expectLast).Once()
-		
+
 		node, params, isLast := mockRoute.RouteNode(tc.path)
-		
+
 		if tc.expectNode {
 			assert.NotNil(t, node, "Expected node for path %s", tc.path)
 		} else {
 			assert.Nil(t, node, "Expected nil node for path %s", tc.path)
 		}
-		
+
 		assert.Equal(t, tc.params, params, "Expected params for path %s", tc.path)
 		assert.Equal(t, tc.expectLast, isLast, "Expected isLast value for path %s", tc.path)
 	}
@@ -452,11 +452,11 @@ func TestMockRouteNode_ChainedCalls(t *testing.T) {
 	// Set up a chain: root -> child -> grandchild
 	mockRoot.On("Name").Return("root").Maybe()
 	mockRoot.On("Resources").Return(map[string]RouteNode{"child": mockChild}).Maybe()
-	
+
 	mockChild.On("Name").Return("child").Maybe()
 	mockChild.On("Parent").Return(mockRoot).Maybe()
 	mockChild.On("Resources").Return(map[string]RouteNode{"grandchild": mockGrandchild}).Maybe()
-	
+
 	mockGrandchild.On("Name").Return("grandchild").Maybe()
 	mockGrandchild.On("Parent").Return(mockChild).Maybe()
 	mockGrandchild.On("Resources").Return(map[string]RouteNode{}).Maybe()
@@ -464,14 +464,14 @@ func TestMockRouteNode_ChainedCalls(t *testing.T) {
 	// Test the chain
 	rootName := mockRoot.Name()
 	assert.Equal(t, "root", rootName)
-	
+
 	rootResources := mockRoot.Resources()
 	assert.Contains(t, rootResources, "child")
-	
+
 	childNode := rootResources["child"]
 	childName := childNode.Name()
 	assert.Equal(t, "child", childName)
-	
+
 	parent := childNode.Parent()
 	assert.Equal(t, mockRoot, parent)
 
@@ -486,7 +486,7 @@ func TestMockRouteNode_ChainedCalls(t *testing.T) {
 func TestMockHttpHandlerTask_InterfaceCompliance(t *testing.T) {
 	// Test that MockHttpHandlerTask implements all required interfaces
 	var mockTask interface{} = NewMockHttpHandlerTask()
-	
+
 	// Verify interface compliance
 	assert.Implements(t, (*HttpHandlerTask)(nil), mockTask, "MockHttpHandlerTask should implement HttpHandlerTask")
 	assert.Implements(t, (*HttpTask)(nil), mockTask, "MockHttpHandlerTask should implement HttpTask")
@@ -507,7 +507,7 @@ func TestMockHttpHandlerTask_HttpTaskMethods(t *testing.T) {
 	result := mockTask.Index(mockCtx, mockReq, mockResp, params)
 	assert.Equal(t, expectedError, result, "Index should return expected error")
 
-	// Test Get method  
+	// Test Get method
 	mockTask.On("Get", mockCtx, mockReq, mockResp, params).Return(nil).Once()
 	result = mockTask.Get(mockCtx, mockReq, mockResp, params)
 	assert.Nil(t, result, "Get should return nil")

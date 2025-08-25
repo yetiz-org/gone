@@ -5,7 +5,7 @@ package mock
 //
 // All mocks are now located in their respective packages for interface compliance:
 // - Channel mocks: github.com/yetiz-org/gone/channel
-// - HTTP mocks: github.com/yetiz-org/gone/ghttp  
+// - HTTP mocks: github.com/yetiz-org/gone/ghttp
 // - TCP mocks: github.com/yetiz-org/gone/gtcp
 // - UDP mocks: github.com/yetiz-org/gone/gudp
 // - WebSocket mocks: github.com/yetiz-org/gone/gws

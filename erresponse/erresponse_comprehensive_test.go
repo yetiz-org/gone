@@ -16,14 +16,14 @@ import (
 // TestDefaultErrorResponse_CoreMethods tests core methods of DefaultErrorResponse
 func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 	t.Parallel()
-	
+
 	testCases := []struct {
-		name        string
-		setupError  func() *DefaultErrorResponse
-		expectCode  int
-		expectName  string
-		expectDesc  string
-		expectData  map[string]interface{}
+		name       string
+		setupError func() *DefaultErrorResponse
+		expectCode int
+		expectName string
+		expectDesc string
+		expectData map[string]interface{}
 	}{
 		{
 			name: "Basic error response test",
@@ -39,7 +39,7 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 				}
 			},
 			expectCode: 400,
-			expectName: "test_error", 
+			expectName: "test_error",
 			expectDesc: "Test error description",
 			expectData: map[string]interface{}{"key": "value"},
 		},
@@ -58,7 +58,7 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 			},
 			expectCode: 500,
 			expectName: "server_error",
-			expectDesc: "Server error", 
+			expectDesc: "Server error",
 			expectData: map[string]interface{}{},
 		},
 	}
@@ -67,18 +67,18 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			
+
 			err := tc.setupError()
-			
+
 			// Test ErrorStatusCode method
 			assert.Equal(t, tc.expectCode, err.ErrorStatusCode())
-			
+
 			// Test ErrorName method
 			assert.Equal(t, tc.expectName, err.ErrorName())
-			
+
 			// Test ErrorDescription method
 			assert.Equal(t, tc.expectDesc, err.ErrorDescription())
-			
+
 			// Test ErrorData method
 			data := err.ErrorData()
 			assert.NotNil(t, data)
@@ -92,11 +92,11 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 // TestDefaultErrorResponse_Error_JSONSerialization tests JSON serialization of Error method
 func TestDefaultErrorResponse_Error_JSONSerialization(t *testing.T) {
 	t.Parallel()
-	
+
 	testCases := []struct {
-		name       string
-		error      *DefaultErrorResponse
-		expectJSON bool
+		name           string
+		error          *DefaultErrorResponse
+		expectJSON     bool
 		expectContains []string
 	}{
 		{
@@ -110,19 +110,19 @@ func TestDefaultErrorResponse_Error_JSONSerialization(t *testing.T) {
 					ErrorCode: "400001",
 				},
 			},
-			expectJSON: true,
+			expectJSON:     true,
 			expectContains: []string{"invalid_request", "Invalid request", "400001", "email", "format"},
 		},
 		{
 			name: "Minimal error response JSON serialization",
 			error: &DefaultErrorResponse{
 				StatusCode: 500,
-				Name:       "server_error", 
+				Name:       "server_error",
 				DefaultKKError: kkerror.DefaultKKError{
 					ErrorCode: "500001",
 				},
 			},
-			expectJSON: true,
+			expectJSON:     true,
 			expectContains: []string{"server_error", "500001"},
 		},
 	}
@@ -131,15 +131,15 @@ func TestDefaultErrorResponse_Error_JSONSerialization(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			
+
 			result := tc.error.Error()
-			
+
 			if tc.expectJSON {
 				// Verify it's valid JSON
 				var jsonData map[string]interface{}
 				err := json.Unmarshal([]byte(result), &jsonData)
 				assert.NoError(t, err, "Error response should produce valid JSON")
-				
+
 				// Verify contains expected content
 				for _, expected := range tc.expectContains {
 					assert.Contains(t, result, expected, "JSON should contain expected content: %s", expected)
@@ -152,7 +152,7 @@ func TestDefaultErrorResponse_Error_JSONSerialization(t *testing.T) {
 // TestDefaultErrorResponse_Clone tests Clone method
 func TestDefaultErrorResponse_Clone(t *testing.T) {
 	t.Parallel()
-	
+
 	original := &DefaultErrorResponse{
 		StatusCode:  403,
 		Name:        "forbidden",
@@ -164,16 +164,16 @@ func TestDefaultErrorResponse_Clone(t *testing.T) {
 			ErrorCategory: kkerror.Client,
 		},
 	}
-	
+
 	// Execute Clone
 	cloned := original.Clone()
-	
+
 	// Verify Clone result
 	require.NotNil(t, cloned)
 	assert.IsType(t, &DefaultErrorResponse{}, cloned)
-	
+
 	clonedErr := cloned.(*DefaultErrorResponse)
-	
+
 	// Verify all fields are correctly copied
 	assert.Equal(t, original.StatusCode, clonedErr.StatusCode)
 	assert.Equal(t, original.Name, clonedErr.Name)
@@ -181,29 +181,30 @@ func TestDefaultErrorResponse_Clone(t *testing.T) {
 	assert.Equal(t, original.ErrorCode, clonedErr.ErrorCode)
 	assert.Equal(t, original.ErrorLevel, clonedErr.ErrorLevel)
 	assert.Equal(t, original.ErrorCategory, clonedErr.ErrorCategory)
-	
+
 	// Verify Data field copying (Note: Clone implements shallow copy, map references are shared)
 	assert.Equal(t, original.Data, clonedErr.Data)
-	
+
 	// Verify Clone created new struct instance (different memory address)
 	assert.NotSame(t, original, clonedErr, "Clone should create new struct instance")
-	
+
 	// Verify modifying cloned other fields doesn't affect original object
 	clonedErr.StatusCode = 999
 	clonedErr.Name = "modified_clone"
 	assert.NotEqual(t, original.StatusCode, clonedErr.StatusCode)
 	assert.NotEqual(t, original.Name, clonedErr.Name)
 }
+
 // TestCollect_Registration tests Collection registration and management functionality
 func TestCollect_Registration(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create new Collection for testing
 	testCollection := &Collect{}
-	
+
 	// Test initial state
 	assert.Nil(t, testCollection.ErrorResponses)
-	
+
 	// Create test error responses
 	testError1 := &DefaultErrorResponse{
 		StatusCode:  400,
@@ -213,29 +214,29 @@ func TestCollect_Registration(t *testing.T) {
 			ErrorCode: "TEST001",
 		},
 	}
-	
+
 	testError2 := &DefaultErrorResponse{
 		StatusCode:  500,
-		Name:        "test_error_2", 
+		Name:        "test_error_2",
 		Description: "Test error 2",
 		DefaultKKError: kkerror.DefaultKKError{
 			ErrorCode: "TEST002",
 		},
 	}
-	
+
 	// Test registering first error
 	result1 := testCollection.Register(testError1)
 	assert.Equal(t, testError1, result1)
 	assert.NotNil(t, testCollection.ErrorResponses)
 	assert.Len(t, testCollection.ErrorResponses, 1)
 	assert.Contains(t, testCollection.ErrorResponses, testError1)
-	
+
 	// Test registering second error
 	result2 := testCollection.Register(testError2)
 	assert.Equal(t, testError2, result2)
 	assert.Len(t, testCollection.ErrorResponses, 2)
 	assert.Contains(t, testCollection.ErrorResponses, testError2)
-	
+
 	// Test duplicate registration of same error
 	result1Dup := testCollection.Register(testError1)
 	assert.Equal(t, testError1, result1Dup)
@@ -245,22 +246,22 @@ func TestCollect_Registration(t *testing.T) {
 // TestCollect_ConcurrentAccess tests Collection concurrent access safety
 func TestCollect_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
-	
+
 	testCollection := &Collect{}
-	numGoroutines := 5  // Reduce goroutine count to avoid deadlock
-	numErrorsPerGoroutine := 3  // Reduce error count per goroutine
-	
+	numGoroutines := 5         // Reduce goroutine count to avoid deadlock
+	numErrorsPerGoroutine := 3 // Reduce error count per goroutine
+
 	// Use WaitGroup to synchronize goroutines
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	results := make([]ErrorResponse, 0, numGoroutines*numErrorsPerGoroutine)
-	
+
 	// Concurrent error response registration
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < numErrorsPerGoroutine; j++ {
 				testError := &DefaultErrorResponse{
 					StatusCode:  400 + j,
@@ -270,9 +271,9 @@ func TestCollect_ConcurrentAccess(t *testing.T) {
 						ErrorCode: fmt.Sprintf("CONC%03d%03d", goroutineID, j),
 					},
 				}
-				
+
 				result := testCollection.Register(testError)
-				
+
 				// Safely add result to slice
 				mu.Lock()
 				results = append(results, result)
@@ -280,25 +281,25 @@ func TestCollect_ConcurrentAccess(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	// Wait for all goroutines to complete, set timeout
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All goroutines completed normally
 	case <-time.After(10 * time.Second):
 		t.Fatal("Concurrent test timeout")
 	}
-	
+
 	// Verify results
 	assert.Len(t, results, numGoroutines*numErrorsPerGoroutine)
 	assert.NotNil(t, testCollection.ErrorResponses)
-	
+
 	// Verify all errors are correctly registered
 	for _, result := range results {
 		assert.Contains(t, testCollection.ErrorResponses, result)
@@ -308,48 +309,48 @@ func TestCollect_ConcurrentAccess(t *testing.T) {
 // TestPredefinedErrorResponses_BasicValidation tests basic validation of all predefined error responses
 func TestPredefinedErrorResponses_BasicValidation(t *testing.T) {
 	t.Parallel()
-	
+
 	// Test common predefined error responses
 	predefinedErrors := []struct {
-		name     string
-		error    ErrorResponse
-		codeMin  int
-		codeMax  int
+		name    string
+		error   ErrorResponse
+		codeMin int
+		codeMax int
 	}{
 		{"InvalidRequest", InvalidRequest, 400, 499},
 		{"NotFound", NotFound, 404, 404},
 		{"ServerError", ServerError, 500, 599},
 	}
-	
+
 	for _, test := range predefinedErrors {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			
+
 			// Basic interface verification
 			assert.NotNil(t, test.error)
-			
+
 			// Status code range verification
 			statusCode := test.error.ErrorStatusCode()
 			assert.GreaterOrEqual(t, statusCode, test.codeMin)
 			assert.LessOrEqual(t, statusCode, test.codeMax)
-			
+
 			// Error name should not be empty
 			errorName := test.error.ErrorName()
 			assert.NotEmpty(t, errorName)
-			
+
 			// Error code should not be empty
 			errorCode := test.error.Code()
 			assert.NotEmpty(t, errorCode)
-			
+
 			// Error message JSON format validation
 			errorMessage := test.error.Error()
 			assert.NotEmpty(t, errorMessage)
-			
+
 			var jsonData map[string]interface{}
 			err := json.Unmarshal([]byte(errorMessage), &jsonData)
 			assert.NoError(t, err, "Predefined error responses should produce valid JSON")
-			
+
 			// Verify JSON contains necessary fields
 			if statusCode > 0 {
 				assert.Contains(t, jsonData, "status_code")
@@ -357,7 +358,7 @@ func TestPredefinedErrorResponses_BasicValidation(t *testing.T) {
 			if errorName != "" {
 				assert.Contains(t, jsonData, "error")
 			}
-			
+
 			// Test Clone functionality
 			cloned := test.error.Clone()
 			assert.NotNil(t, cloned)
@@ -371,7 +372,7 @@ func TestPredefinedErrorResponses_BasicValidation(t *testing.T) {
 // TestErrorResponse_InterfaceCompliance tests ErrorResponse interface completeness
 func TestErrorResponse_InterfaceCompliance(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create test error response
 	testError := &DefaultErrorResponse{
 		StatusCode:  418,
@@ -384,25 +385,25 @@ func TestErrorResponse_InterfaceCompliance(t *testing.T) {
 			ErrorCategory: kkerror.Client,
 		},
 	}
-	
+
 	// Verify interface implementation
 	var _ ErrorResponse = testError
 	var _ kkerror.KKError = testError
-	
+
 	// Test ErrorResponse specific methods
 	assert.Equal(t, 418, testError.ErrorStatusCode())
 	assert.Equal(t, "teapot_error", testError.ErrorName())
 	assert.Equal(t, "I'm a teapot error", testError.ErrorDescription())
-	
+
 	data := testError.ErrorData()
 	assert.Equal(t, 300, data["brew_time"])
 	assert.Equal(t, 85, data["temperature"])
-	
+
 	// Test KKError inherited methods
 	assert.Equal(t, "418001", testError.Code())
 	assert.Equal(t, kkerror.Normal, testError.Level())
 	assert.Equal(t, kkerror.Client, testError.Category())
-	
+
 	// Test Error method (JSON serialization)
 	errorJson := testError.Error()
 	assert.Contains(t, errorJson, "teapot_error")
@@ -410,13 +411,13 @@ func TestErrorResponse_InterfaceCompliance(t *testing.T) {
 	assert.Contains(t, errorJson, "418001")
 	assert.Contains(t, errorJson, "300")
 	assert.Contains(t, errorJson, "85")
-}// TestErrorResponse_EdgeCases tests edge cases and exceptional conditions
+} // TestErrorResponse_EdgeCases tests edge cases and exceptional conditions
 func TestErrorResponse_EdgeCases(t *testing.T) {
 	t.Parallel()
-	
+
 	t.Run("Null and nil handling", func(t *testing.T) {
 		t.Parallel()
-		
+
 		// Test empty string fields
 		emptyError := &DefaultErrorResponse{
 			StatusCode:  0,
@@ -427,7 +428,7 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 				ErrorCode: "",
 			},
 		}
-		
+
 		// Basic methods should not panic
 		assert.NotPanics(t, func() {
 			_ = emptyError.ErrorStatusCode()
@@ -437,22 +438,22 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 			_ = emptyError.Error()
 			_ = emptyError.Clone()
 		})
-		
+
 		// ErrorData should initialize as empty map rather than nil
 		data := emptyError.ErrorData()
 		assert.NotNil(t, data)
 		assert.Len(t, data, 0)
 	})
-	
+
 	t.Run("Large data handling", func(t *testing.T) {
 		t.Parallel()
-		
+
 		// Create error response containing large amount of data
 		largeData := make(map[string]interface{})
 		for i := 0; i < 1000; i++ {
 			largeData[fmt.Sprintf("key_%d", i)] = fmt.Sprintf("value_%d", i)
 		}
-		
+
 		largeError := &DefaultErrorResponse{
 			StatusCode:  500,
 			Name:        "large_data_error",
@@ -462,28 +463,28 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 				ErrorCode: "LARGE001",
 			},
 		}
-		
+
 		// Test no panic and functionality works normally
 		assert.NotPanics(t, func() {
 			data := largeError.ErrorData()
 			assert.Len(t, data, 1000)
-			
+
 			cloned := largeError.Clone()
 			assert.NotNil(t, cloned)
-			
+
 			errorJson := largeError.Error()
 			assert.NotEmpty(t, errorJson)
 		})
 	})
-	
+
 	t.Run("Special character handling", func(t *testing.T) {
 		t.Parallel()
-		
+
 		specialError := &DefaultErrorResponse{
 			StatusCode:  400,
 			Name:        "special_char_error",
 			Description: "Special character test: \n\t\"\\'/{}[]&<>",
-			Data:        map[string]interface{}{
+			Data: map[string]interface{}{
 				"unicode":  "Test Chinese🚀💥",
 				"symbols":  "!@#$%^&*()_+-=",
 				"quotes":   `"'`,
@@ -493,11 +494,11 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 				ErrorCode: "SPECIAL001",
 			},
 		}
-		
+
 		// Test JSON serialization handling special characters
 		errorJson := specialError.Error()
 		assert.NotEmpty(t, errorJson)
-		
+
 		// Verify JSON validity
 		var jsonData map[string]interface{}
 		err := json.Unmarshal([]byte(errorJson), &jsonData)
@@ -508,22 +509,22 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 // TestGlobalCollection_Integration tests global Collection integration functionality
 func TestGlobalCollection_Integration(t *testing.T) {
 	t.Parallel()
-	
+
 	// Verify global Collection exists and is available
 	assert.NotNil(t, Collection)
-	
+
 	// Test whether predefined error responses are in global Collection
 	predefinedErrors := []ErrorResponse{
 		InvalidRequest,
-		NotFound, 
+		NotFound,
 		ServerError,
 	}
-	
+
 	for _, predefinedError := range predefinedErrors {
 		t.Run(fmt.Sprintf("Global_Collection_contains_%s", predefinedError.ErrorName()), func(t *testing.T) {
 			// Check if registered in Collection
 			assert.NotNil(t, Collection.ErrorResponses)
-			
+
 			// Verify error exists in Collection
 			found := false
 			for registeredError := range Collection.ErrorResponses {
@@ -542,9 +543,9 @@ func TestErrorResponse_PerformanceBaseline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skip performance test")
 	}
-	
+
 	t.Parallel()
-	
+
 	// Create standard error response
 	testError := &DefaultErrorResponse{
 		StatusCode:  500,
@@ -557,40 +558,40 @@ func TestErrorResponse_PerformanceBaseline(t *testing.T) {
 			ErrorCategory: kkerror.Server,
 		},
 	}
-	
+
 	// Test performance of massive Error() calls
 	t.Run("Error method performance test", func(t *testing.T) {
 		iterations := 10000
 		start := time.Now()
-		
+
 		for i := 0; i < iterations; i++ {
 			_ = testError.Error()
 		}
-		
+
 		duration := time.Since(start)
 		avgDuration := duration / time.Duration(iterations)
-		
+
 		t.Logf("Error() method average execution time: %v (Total: %v, Iterations: %d)", avgDuration, duration, iterations)
-		
+
 		// Performance threshold: each call should not exceed 1ms
 		assert.Less(t, avgDuration, time.Millisecond, "Error() method performance should be within acceptable range")
 	})
-	
+
 	// Test performance of massive Clone() calls
 	t.Run("Clone method performance test", func(t *testing.T) {
 		iterations := 10000
 		start := time.Now()
-		
+
 		for i := 0; i < iterations; i++ {
 			cloned := testError.Clone()
 			_ = cloned
 		}
-		
+
 		duration := time.Since(start)
 		avgDuration := duration / time.Duration(iterations)
-		
+
 		t.Logf("Clone() method average execution time: %v (Total: %v, Iterations: %d)", avgDuration, duration, iterations)
-		
+
 		// Performance threshold: each call should not exceed 100μs
 		assert.Less(t, avgDuration, 100*time.Microsecond, "Clone() method performance should be within acceptable range")
 	})
@@ -599,7 +600,7 @@ func TestErrorResponse_PerformanceBaseline(t *testing.T) {
 // TestConstantUsage tests constant usage
 func TestConstantUsage(t *testing.T) {
 	t.Parallel()
-	
+
 	// Verify constant definition and usage
 	constantTests := []struct {
 		constant string
@@ -619,7 +620,7 @@ func TestConstantUsage(t *testing.T) {
 		{constant.ErrorSRPUnsupported, "srp_unsupported"},
 		{constant.ErrorNotImplemented, "not_implemented"},
 	}
-	
+
 	for _, test := range constantTests {
 		t.Run(fmt.Sprintf("Constant_%s", test.expected), func(t *testing.T) {
 			t.Parallel()

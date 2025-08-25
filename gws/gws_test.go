@@ -25,6 +25,7 @@ import (
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
 )
+
 // ===== From gws_comprehensive_test.go =====
 
 // TestDefaultHandlerTask_ComprehensiveWSOperations tests all WebSocket handler operations
@@ -78,6 +79,7 @@ func TestDefaultHandlerTask_ComprehensiveWSOperations(t *testing.T) {
 		})
 	}
 }
+
 // Additional WS operations from gws_comprehensive_test.go
 func TestDefaultHandlerTask_RemainingWSOperations(t *testing.T) {
 	t.Parallel()
@@ -233,6 +235,7 @@ func TestDefaultMessageBuilder_ComprehensiveOperations(t *testing.T) {
 		})
 	}
 }
+
 // ===== From gws_invokehandler_test.go =====
 
 // TestInvokeHandler_ComprehensiveOperations tests all InvokeHandler operations
@@ -394,33 +397,33 @@ func TestInvokeHandler_CallMessageTypes(t *testing.T) {
 	params := map[string]any{"call": "test"}
 
 	tests := []struct {
-		name    string
-		message Message
+		name       string
+		message    Message
 		setupMocks func()
 	}{
 		{
-			name: "TextMessage",
-			message: &DefaultMessage{MessageType: TextMessageType, Message: []byte("text")},
+			name:       "TextMessage",
+			message:    &DefaultMessage{MessageType: TextMessageType, Message: []byte("text")},
 			setupMocks: func() { mockTask.On("WSText", mockCtx, mock.AnythingOfType("*gws.DefaultMessage"), params).Return() },
 		},
 		{
-			name: "BinaryMessage",
-			message: &DefaultMessage{MessageType: BinaryMessageType, Message: []byte{0x01, 0x02}},
+			name:       "BinaryMessage",
+			message:    &DefaultMessage{MessageType: BinaryMessageType, Message: []byte{0x01, 0x02}},
 			setupMocks: func() { mockTask.On("WSBinary", mockCtx, mock.AnythingOfType("*gws.DefaultMessage"), params).Return() },
 		},
 		{
-			name: "CloseMessage",
-			message: &CloseMessage{DefaultMessage: DefaultMessage{MessageType: CloseMessageType, Message: []byte("close")}, CloseCode: CloseNormalClosure},
+			name:       "CloseMessage",
+			message:    &CloseMessage{DefaultMessage: DefaultMessage{MessageType: CloseMessageType, Message: []byte("close")}, CloseCode: CloseNormalClosure},
 			setupMocks: func() { mockTask.On("WSClose", mockCtx, mock.AnythingOfType("*gws.CloseMessage"), params).Return() },
 		},
 		{
-			name: "PingMessage",
-			message: &PingMessage{DefaultMessage: DefaultMessage{MessageType: PingMessageType, Message: []byte("ping")}},
+			name:       "PingMessage",
+			message:    &PingMessage{DefaultMessage: DefaultMessage{MessageType: PingMessageType, Message: []byte("ping")}},
 			setupMocks: func() { mockTask.On("WSPing", mockCtx, mock.AnythingOfType("*gws.PingMessage"), params).Return() },
 		},
 		{
-			name: "PongMessage",
-			message: &PongMessage{DefaultMessage: DefaultMessage{MessageType: PongMessageType, Message: []byte("pong")}},
+			name:       "PongMessage",
+			message:    &PongMessage{DefaultMessage: DefaultMessage{MessageType: PongMessageType, Message: []byte("pong")}},
 			setupMocks: func() { mockTask.On("WSPong", mockCtx, mock.AnythingOfType("*gws.PongMessage"), params).Return() },
 		},
 	}
@@ -447,13 +450,14 @@ func TestInvokeHandler_CallMessageTypes(t *testing.T) {
 		})
 	}
 }
+
 // ===== From gws_concurrent_test.go =====
 
 // Test WebSocket Channel interface compliance
 func TestWebSocketChannel_InterfaceCompliance(t *testing.T) {
 	ch := &Channel{}
 	ch.BootstrapPreInit()
-	
+
 	// Verify interface implementations
 	assert.Implements(t, (*channel.Channel)(nil), ch)
 	assert.NotNil(t, ch.DefaultNetChannel)
@@ -463,23 +467,23 @@ func TestWebSocketChannel_InterfaceCompliance(t *testing.T) {
 func TestWebSocketMessage_ConcurrentOperations(t *testing.T) {
 	const numGoroutines = 200
 	const messagesPerGoroutine = 50
-	
+
 	var textMessages int64
 	var binaryMessages int64
 	var closeMessages int64
 	var pingMessages int64
 	var wg sync.WaitGroup
-	
+
 	// Test concurrent message creation and encoding
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < messagesPerGoroutine; j++ {
 				messageType := j % 4
 				payload := []byte("test message data")
-				
+
 				switch messageType {
 				case 0:
 					// Text message
@@ -491,7 +495,7 @@ func TestWebSocketMessage_ConcurrentOperations(t *testing.T) {
 					assert.Equal(t, payload, encoded, "Text message encoding should be consistent")
 					assert.Equal(t, TextMessageType, msg.Type(), "Text message type should be correct")
 					atomic.AddInt64(&textMessages, 1)
-					
+
 				case 1:
 					// Binary message
 					msg := &DefaultMessage{
@@ -502,7 +506,7 @@ func TestWebSocketMessage_ConcurrentOperations(t *testing.T) {
 					assert.Equal(t, payload, encoded, "Binary message encoding should be consistent")
 					assert.Equal(t, BinaryMessageType, msg.Type(), "Binary message type should be correct")
 					atomic.AddInt64(&binaryMessages, 1)
-					
+
 				case 2:
 					// Close message
 					msg := &CloseMessage{
@@ -516,7 +520,7 @@ func TestWebSocketMessage_ConcurrentOperations(t *testing.T) {
 					assert.NotNil(t, encoded, "Close message should encode successfully")
 					assert.Equal(t, CloseMessageType, msg.Type(), "Close message type should be correct")
 					atomic.AddInt64(&closeMessages, 1)
-					
+
 				case 3:
 					// Ping message
 					msg := &PingMessage{
@@ -533,38 +537,39 @@ func TestWebSocketMessage_ConcurrentOperations(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify message creation counts
 	totalMessages := atomic.LoadInt64(&textMessages) + atomic.LoadInt64(&binaryMessages) +
 		atomic.LoadInt64(&closeMessages) + atomic.LoadInt64(&pingMessages)
 	expectedTotal := int64(numGoroutines * messagesPerGoroutine)
 	assert.Equal(t, expectedTotal, totalMessages, "All messages should be created and processed")
-	
+
 	t.Logf("Message creation results: %d text, %d binary, %d close, %d ping out of %d total",
 		textMessages, binaryMessages, closeMessages, pingMessages, totalMessages)
 }
+
 // Test concurrent message parsing operations
 func TestWebSocketMessage_ConcurrentParsing(t *testing.T) {
 	const numGoroutines = 150
 	const parseOperationsPerGoroutine = 100
-	
+
 	var successfulParses int64
 	var nilParses int64
 	var wg sync.WaitGroup
-	
+
 	// Test concurrent message parsing
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < parseOperationsPerGoroutine; j++ {
 				// Mix of valid and invalid message types
 				var messageType int
 				var payload []byte
-				
+
 				if j%3 == 0 {
 					messageType = 1 // TextMessage
 					payload = []byte("text data")
@@ -575,11 +580,11 @@ func TestWebSocketMessage_ConcurrentParsing(t *testing.T) {
 					messageType = 99 // Invalid type
 					payload = []byte("invalid")
 				}
-				
+
 				msg := _ParseMessage(messageType, payload)
 				if msg != nil {
 					atomic.AddInt64(&successfulParses, 1)
-					
+
 					// Verify parsed message consistency
 					assert.NotNil(t, msg.Encoded(), "Parsed message should have encoded data")
 					assert.True(t, msg.Type() == TextMessageType || msg.Type() == BinaryMessageType,
@@ -590,14 +595,14 @@ func TestWebSocketMessage_ConcurrentParsing(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify parsing results
 	totalParses := atomic.LoadInt64(&successfulParses) + atomic.LoadInt64(&nilParses)
 	expectedTotal := int64(numGoroutines * parseOperationsPerGoroutine)
 	assert.Equal(t, expectedTotal, totalParses, "All parse attempts should be counted")
-	
+
 	t.Logf("Parse results: %d successful, %d nil out of %d total",
 		successfulParses, nilParses, totalParses)
 }
@@ -606,26 +611,26 @@ func TestWebSocketMessage_ConcurrentParsing(t *testing.T) {
 func TestWebSocketChannel_ConcurrentWrite(t *testing.T) {
 	const numGoroutines = 100
 	const writeOperationsPerGoroutine = 30
-	
+
 	var successfulWrites int64
 	var failedWrites int64
 	var wg sync.WaitGroup
-	
+
 	// Test concurrent write operations
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			// Create WebSocket channel for each goroutine
 			ch := &Channel{}
 			ch.BootstrapPreInit()
 			ch.Init()
-			
+
 			for j := 0; j < writeOperationsPerGoroutine; j++ {
 				// Create different types of messages
 				var msg Message
-				
+
 				switch j % 3 {
 				case 0:
 					msg = &DefaultMessage{
@@ -645,7 +650,7 @@ func TestWebSocketChannel_ConcurrentWrite(t *testing.T) {
 						},
 					}
 				}
-				
+
 				// Attempt write (will fail since channel is not connected, but tests thread safety)
 				err := ch.UnsafeWrite(msg)
 				if err != nil {
@@ -653,7 +658,7 @@ func TestWebSocketChannel_ConcurrentWrite(t *testing.T) {
 				} else {
 					atomic.AddInt64(&successfulWrites, 1)
 				}
-				
+
 				// Also test writing invalid objects
 				err = ch.UnsafeWrite("invalid object")
 				if err != nil {
@@ -664,26 +669,27 @@ func TestWebSocketChannel_ConcurrentWrite(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify write operation counts
 	totalWrites := atomic.LoadInt64(&successfulWrites) + atomic.LoadInt64(&failedWrites)
 	expectedTotal := int64(numGoroutines * writeOperationsPerGoroutine * 2) // 2 writes per iteration
 	assert.Equal(t, expectedTotal, totalWrites, "All write attempts should be counted")
-	
+
 	t.Logf("Write results: %d successful, %d failed out of %d total",
 		successfulWrites, failedWrites, totalWrites)
 }
+
 // Test concurrent close message encoding with different close codes
 func TestCloseMessage_ConcurrentEncoding(t *testing.T) {
 	const numGoroutines = 200
 	const encodingsPerGoroutine = 25
-	
+
 	var encodingOperations int64
 	var validEncodings int64
 	var wg sync.WaitGroup
-	
+
 	closeCodes := []CloseCode{
 		CloseNormalClosure,
 		CloseGoingAway,
@@ -700,17 +706,17 @@ func TestCloseMessage_ConcurrentEncoding(t *testing.T) {
 		CloseTryAgainLater,
 		CloseTLSHandshake,
 	}
-	
+
 	// Test concurrent close message encoding
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < encodingsPerGoroutine; j++ {
 				closeCode := closeCodes[j%len(closeCodes)]
 				message := []byte("close reason")
-				
+
 				closeMsg := &CloseMessage{
 					DefaultMessage: DefaultMessage{
 						MessageType: CloseMessageType,
@@ -718,10 +724,10 @@ func TestCloseMessage_ConcurrentEncoding(t *testing.T) {
 					},
 					CloseCode: closeCode,
 				}
-				
+
 				encoded := closeMsg.Encoded()
 				atomic.AddInt64(&encodingOperations, 1)
-				
+
 				// Verify encoding consistency
 				if closeCode == CloseNoStatusReceived {
 					assert.Empty(t, encoded, "CloseNoStatusReceived should produce empty encoding")
@@ -729,20 +735,20 @@ func TestCloseMessage_ConcurrentEncoding(t *testing.T) {
 					assert.GreaterOrEqual(t, len(encoded), 2, "Close message should include close code")
 					atomic.AddInt64(&validEncodings, 1)
 				}
-				
+
 				// Test message properties
 				assert.Equal(t, CloseMessageType, closeMsg.Type(), "Close message type should be correct")
 				assert.NotNil(t, closeMsg.Encoded(), "Close message should encode successfully")
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify encoding operations
 	expectedOperations := int64(numGoroutines * encodingsPerGoroutine)
 	assert.Equal(t, expectedOperations, atomic.LoadInt64(&encodingOperations), "All encoding operations should be counted")
-	
+
 	t.Logf("Close message encoding: %d operations, %d valid encodings",
 		encodingOperations, validEncodings)
 }
@@ -751,20 +757,20 @@ func TestCloseMessage_ConcurrentEncoding(t *testing.T) {
 func TestWebSocketChannel_StateConsistency(t *testing.T) {
 	const numGoroutines = 150
 	const operationsPerGoroutine = 40
-	
+
 	var initOperations int64
 	var writeAttempts int64
 	var stateChecks int64
 	var wg sync.WaitGroup
-	
+
 	// Test concurrent state operations
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			ch := &Channel{}
-			
+
 			for j := 0; j < operationsPerGoroutine; j++ {
 				switch j % 3 {
 				case 0:
@@ -772,12 +778,12 @@ func TestWebSocketChannel_StateConsistency(t *testing.T) {
 					ch.BootstrapPreInit()
 					ch.Init()
 					atomic.AddInt64(&initOperations, 1)
-					
+
 				case 1:
 					// Check if channel is active
 					ch.IsActive()
 					atomic.AddInt64(&stateChecks, 1)
-					
+
 				case 2:
 					// Attempt write operation
 					msg := &DefaultMessage{
@@ -790,14 +796,14 @@ func TestWebSocketChannel_StateConsistency(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify state operation counts
 	totalOperations := atomic.LoadInt64(&initOperations) + atomic.LoadInt64(&writeAttempts) + atomic.LoadInt64(&stateChecks)
 	expectedTotal := int64(numGoroutines * operationsPerGoroutine)
 	assert.Equal(t, expectedTotal, totalOperations, "All state operations should be counted")
-	
+
 	t.Logf("State operations: %d inits, %d writes, %d state checks out of %d total",
 		initOperations, writeAttempts, stateChecks, totalOperations)
 }
@@ -805,30 +811,30 @@ func TestWebSocketChannel_StateConsistency(t *testing.T) {
 // Benchmark concurrent WebSocket message operations
 func BenchmarkWebSocketMessage_ConcurrentOperations(b *testing.B) {
 	const numGoroutines = 100
-	
+
 	b.ResetTimer()
-	
+
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
-		
+
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
-				
+
 				// Create and encode messages
 				textMsg := &DefaultMessage{
 					MessageType: TextMessageType,
 					Message:     []byte("benchmark text"),
 				}
 				textMsg.Encoded()
-				
+
 				binaryMsg := &DefaultMessage{
 					MessageType: BinaryMessageType,
 					Message:     []byte{0x01, 0x02, 0x03},
 				}
 				binaryMsg.Encoded()
-				
+
 				closeMsg := &CloseMessage{
 					DefaultMessage: DefaultMessage{
 						MessageType: CloseMessageType,
@@ -839,7 +845,7 @@ func BenchmarkWebSocketMessage_ConcurrentOperations(b *testing.B) {
 				closeMsg.Encoded()
 			}(i)
 		}
-		
+
 		wg.Wait()
 	}
 }
@@ -847,31 +853,31 @@ func BenchmarkWebSocketMessage_ConcurrentOperations(b *testing.B) {
 // Benchmark concurrent WebSocket channel operations
 func BenchmarkWebSocketChannel_ConcurrentOperations(b *testing.B) {
 	const numGoroutines = 100
-	
+
 	b.ResetTimer()
-	
+
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
-		
+
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				
+
 				ch := &Channel{}
 				ch.BootstrapPreInit()
 				ch.Init()
-				
+
 				msg := &DefaultMessage{
 					MessageType: TextMessageType,
 					Message:     []byte("benchmark message"),
 				}
-				
+
 				ch.UnsafeWrite(msg)
 				ch.IsActive()
 			}()
 		}
-		
+
 		wg.Wait()
 	}
 }
@@ -880,24 +886,24 @@ func BenchmarkWebSocketChannel_ConcurrentOperations(b *testing.B) {
 func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 	const numGoroutines = 1000
 	const operationsPerGoroutine = 12 // Total: 12,000 operations
-	
+
 	var messageCreations int64
 	var channelOperations int64
 	var encodingOperations int64
 	var wg sync.WaitGroup
-	
+
 	startTime := time.Now()
-	
+
 	// High-load concurrent WebSocket operations
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			ch := &Channel{}
 			ch.BootstrapPreInit()
 			ch.Init()
-			
+
 			for j := 0; j < operationsPerGoroutine; j++ {
 				// Mix of WebSocket operations
 				switch j % 4 {
@@ -910,7 +916,7 @@ func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 					msg.Encoded()
 					atomic.AddInt64(&messageCreations, 1)
 					atomic.AddInt64(&encodingOperations, 1)
-					
+
 				case 1:
 					// Create and encode close message
 					closeMsg := &CloseMessage{
@@ -923,7 +929,7 @@ func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 					closeMsg.Encoded()
 					atomic.AddInt64(&messageCreations, 1)
 					atomic.AddInt64(&encodingOperations, 1)
-					
+
 				case 2:
 					// Channel write operation
 					msg := &PingMessage{
@@ -934,7 +940,7 @@ func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 					}
 					ch.UnsafeWrite(msg)
 					atomic.AddInt64(&channelOperations, 1)
-					
+
 				case 3:
 					// Channel state check
 					ch.IsActive()
@@ -943,23 +949,23 @@ func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	duration := time.Since(startTime)
 	totalOperations := atomic.LoadInt64(&messageCreations) + atomic.LoadInt64(&channelOperations) + atomic.LoadInt64(&encodingOperations)
-	
+
 	// Verify high-load performance
 	assert.Greater(t, totalOperations, int64(10000), "Should perform more than 10,000 operations")
 	assert.Less(t, duration, 30*time.Second, "High-load test should complete within 30 seconds")
-	
+
 	operationsPerSecond := float64(totalOperations) / duration.Seconds()
-	
+
 	t.Logf("WebSocket high-load stress test completed: %d operations in %v (%.2f ops/sec)",
 		totalOperations, duration, operationsPerSecond)
 	t.Logf("Results: %d message creations, %d channel operations, %d encoding operations",
 		messageCreations, channelOperations, encodingOperations)
-	
+
 	// Performance requirements
 	assert.Greater(t, operationsPerSecond, 1000.0, "Should achieve at least 1000 operations per second")
 }
@@ -968,35 +974,35 @@ func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 func TestWebSocketChannel_MemoryConsistencyAndResourceManagement(t *testing.T) {
 	const numGoroutines = 250
 	const operationsPerGoroutine = 20
-	
+
 	var createdChannels int64
 	var createdMessages int64
 	var processedOperations int64
 	var wg sync.WaitGroup
-	
+
 	// Test memory consistency with rapid WebSocket operations
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			channels := make([]*Channel, operationsPerGoroutine)
 			messages := make([]Message, operationsPerGoroutine)
-			
+
 			// Create channels and messages
 			for j := 0; j < operationsPerGoroutine; j++ {
 				channels[j] = &Channel{}
 				channels[j].BootstrapPreInit()
 				channels[j].Init()
 				atomic.AddInt64(&createdChannels, 1)
-				
+
 				messages[j] = &DefaultMessage{
 					MessageType: TextMessageType,
 					Message:     []byte("memory test message"),
 				}
 				atomic.AddInt64(&createdMessages, 1)
 			}
-			
+
 			// Process operations
 			for j := 0; j < operationsPerGoroutine; j++ {
 				channels[j].UnsafeWrite(messages[j])
@@ -1006,18 +1012,18 @@ func TestWebSocketChannel_MemoryConsistencyAndResourceManagement(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify memory consistency
 	expectedChannels := int64(numGoroutines * operationsPerGoroutine)
 	expectedMessages := int64(numGoroutines * operationsPerGoroutine)
 	expectedOperations := int64(numGoroutines * operationsPerGoroutine)
-	
+
 	assert.Equal(t, expectedChannels, atomic.LoadInt64(&createdChannels), "All channels should be created")
 	assert.Equal(t, expectedMessages, atomic.LoadInt64(&createdMessages), "All messages should be created")
 	assert.Equal(t, expectedOperations, atomic.LoadInt64(&processedOperations), "All operations should be processed")
-	
+
 	t.Logf("Memory consistency test: %d channels, %d messages, %d operations processed",
 		createdChannels, createdMessages, processedOperations)
 }
@@ -1038,7 +1044,7 @@ func TestUpgradeProcessor_ComprehensiveOperations(t *testing.T) {
 				processor := &UpgradeProcessor{}
 				mockCtx := channel.NewMockHandlerContext()
 				mockChannel := channel.NewMockChannel()
-				
+
 				// Test with CheckOrigin parameter set to false
 				mockChannel.On("Param", ParamCheckOrigin, mock.Anything).Return(false, true)
 				mockCtx.On("Channel").Return(mockChannel)
@@ -1056,7 +1062,7 @@ func TestUpgradeProcessor_ComprehensiveOperations(t *testing.T) {
 				processor := &UpgradeProcessor{}
 				mockCtx := channel.NewMockHandlerContext()
 				mockChannel := channel.NewMockChannel()
-				
+
 				// Test with CheckOrigin parameter set to true
 				mockChannel.On("Param", ParamCheckOrigin, mock.Anything).Return(true, true)
 				mockCtx.On("Channel").Return(mockChannel)
@@ -1120,7 +1126,7 @@ func TestUpgradeProcessor_ComprehensiveOperations(t *testing.T) {
 				processor := &UpgradeProcessor{}
 				mockCtx := channel.NewMockHandlerContext()
 				mockCtx.On("FireRead", mock.Anything).Return(mockCtx)
-				
+
 				mockRouteNode := ghttp.NewMockRouteNode()
 				mockHandler := ghttp.NewMockHttpHandlerTask() // Not a ServerHandlerTask
 				mockRouteNode.On("HandlerTask").Return(mockHandler)
@@ -1151,7 +1157,7 @@ func TestUpgradeProcessor_NewWSLog(t *testing.T) {
 	t.Parallel()
 
 	processor := &UpgradeProcessor{}
-	
+
 	tests := []struct {
 		name     string
 		testFunc func(t *testing.T)
@@ -1182,7 +1188,7 @@ func TestUpgradeProcessor_NewWSLog(t *testing.T) {
 				cID := "test-channel-789"
 				tID := "test-track-012"
 				uri := "/test/websocket/path"
-				
+
 				// Create mock WebSocket connection (we can't easily mock websocket.Conn)
 				// So we test the case where wsConn is nil, which is more realistic for unit tests
 				log := processor._NewWSLog(cID, tID, uri, nil, nil)
@@ -1297,14 +1303,14 @@ func TestUpgradeProcessor_UpgradeCheckFunc(t *testing.T) {
 
 				// This test verifies that UpgradeCheckFunc can be set
 				assert.NotNil(t, processor.UpgradeCheckFunc)
-				
+
 				// Call the function to verify it works
 				var mockReq *ghttp.Request = nil
 				var mockResp *ghttp.Response = nil
 				params := map[string]any{}
-				
+
 				result := processor.UpgradeCheckFunc(mockReq, mockResp, params)
-				
+
 				assert.True(t, called)
 				assert.False(t, result)
 			},

@@ -8,12 +8,23 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/yetiz-org/gone/utils"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	concurrent "github.com/yetiz-org/goth-concurrent"
 	kklogger "github.com/yetiz-org/goth-kklogger"
 
 	errors2 "github.com/pkg/errors"
 )
+
+// Get buffer from pool with specified size - uses appropriate pool based on size
+func getNetBuffer(size int) []byte {
+	return utils.GetBufferForSize(size)
+}
+
+// Put buffer back to appropriate pool based on size
+func putNetBuffer(buffer []byte) {
+	utils.PutBufferForSize(buffer)
+}
 
 type NetChannel interface {
 	Channel
@@ -117,7 +128,10 @@ func (c *DefaultNetChannel) UnsafeRead() (any, error) {
 		return nil, net.ErrClosed
 	}
 
-	bs := make([]byte, c.BufferSize)
+	// Get buffer from pool to reduce memory allocations
+	bs := getNetBuffer(c.BufferSize)
+	defer putNetBuffer(bs) // Return buffer to pool when done
+
 	if c.ReadTimeout > 0 {
 		if err := c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout)); err != nil {
 			return nil, err
@@ -141,7 +155,10 @@ func (c *DefaultNetChannel) UnsafeRead() (any, error) {
 	} else if rc == 0 {
 		return nil, ErrSkip
 	} else {
-		return buf.NewByteBuf(bs[:rc]), nil
+		// Create a copy of the data since we're returning the buffer to pool
+		data := make([]byte, rc)
+		copy(data, bs[:rc])
+		return buf.NewByteBuf(data), nil
 	}
 }
 

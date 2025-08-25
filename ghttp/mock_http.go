@@ -112,7 +112,7 @@ func (m *MockResponse) WriteHeader(statusCode int) {
 
 // Interface compliance checks for ghttp mocks
 var (
-	_ channel.Channel = (*MockHTTPServerChannel)(nil)
+	_ channel.Channel     = (*MockHTTPServerChannel)(nil)
 	_ http.ResponseWriter = (*MockResponse)(nil)
 	// Note: Request interface compliance depends on actual interface definition
 )

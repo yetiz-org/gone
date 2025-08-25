@@ -26,12 +26,12 @@ func (q *Queue) Push(obj any) {
 func (q *Queue) Pop() any {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	
+
 	if v := q.l.Back(); v != nil {
 		q.l.Remove(v)
 		return v.Value
 	}
-	
+
 	return nil
 }
 

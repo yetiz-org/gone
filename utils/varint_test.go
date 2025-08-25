@@ -183,8 +183,9 @@ func BenchmarkVarIntDecode(b *testing.B) {
 
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			byteBuf := buf.NewByteBuf(tc.data)
 			for i := 0; i < b.N; i++ {
+				// CRITICAL FIX: Create fresh ByteBuf for each iteration to avoid "insufficient size" panic
+				byteBuf := buf.NewByteBuf(tc.data)
 				_ = VarIntDecode(tc.flag, byteBuf)
 			}
 		})

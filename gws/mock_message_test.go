@@ -220,11 +220,11 @@ func TestMockMessageBuilder_ComplexScenarios(t *testing.T) {
 
 func TestMockMessage_TimestampBehavior(t *testing.T) {
 	mockMessage := NewMockMessage()
-	
+
 	// Test different timestamp scenarios
 	pastTime := time.Now().Add(-time.Hour)
 	futureTime := time.Now().Add(time.Hour)
-	
+
 	// Test past deadline
 	mockMessage.On("Deadline").Return(&pastTime).Once()
 	result := mockMessage.Deadline()
