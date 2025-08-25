@@ -2,6 +2,7 @@ package utils
 
 import (
 	"sync"
+	"unsafe"
 )
 
 // BufferPool provides a thread-safe pool for byte buffers of different sizes
@@ -35,10 +36,13 @@ func NewBufferPool(size int) *BufferPool {
 	}
 }
 
-// Get retrieves a buffer from the pool
-// Returns a byte slice of the pool's configured size
+// Get retrieves a buffer from the pool and clears it to prevent dirty data
+// Returns a clean byte slice of the pool's configured size
 func (bp *BufferPool) Get() []byte {
-	return bp.pool.Get().([]byte)
+	buf := bp.pool.Get().([]byte)
+	// Clear the buffer to prevent dirty data leakage
+	bp.clearBuffer(buf)
+	return buf
 }
 
 // Put returns a buffer to the pool for reuse
@@ -50,11 +54,37 @@ func (bp *BufferPool) Put(buf []byte) {
 	}
 }
 
+// clearBuffer efficiently clears the buffer using unsafe operations for performance
+// This prevents dirty data from being exposed to new users of the buffer
+func (bp *BufferPool) clearBuffer(buf []byte) {
+	if len(buf) == 0 {
+		return
+	}
+	// Use unsafe to clear memory efficiently - equivalent to memset(buf, 0, len(buf))
+	// This is much faster than a loop for large buffers
+	ptr := unsafe.Pointer(&buf[0])
+	size := uintptr(len(buf))
+
+	// Clear in 8-byte chunks for better performance
+	for size >= 8 {
+		*(*uint64)(ptr) = 0
+		ptr = unsafe.Pointer(uintptr(ptr) + 8)
+		size -= 8
+	}
+
+	// Clear remaining bytes
+	for size > 0 {
+		*(*byte)(ptr) = 0
+		ptr = unsafe.Pointer(uintptr(ptr) + 1)
+		size--
+	}
+}
+
 // GetWithSize retrieves a buffer and resizes it if needed
 // If the requested size is larger than the pool buffer, it creates a new buffer
 // This provides flexibility while still benefiting from pooling for common sizes
 func (bp *BufferPool) GetWithSize(size int) []byte {
-	buf := bp.Get()
+	buf := bp.Get() // This already clears the buffer
 	if len(buf) < size {
 		// If requested size is larger, create a new buffer
 		// Don't return the pool buffer since we can't use it
@@ -71,7 +101,7 @@ func (bp *BufferPool) Size() int {
 
 // Convenience functions for global pools
 
-// GetSmallBuffer gets a 4KB buffer from the small buffer pool
+// GetSmallBuffer gets a clean 4KB buffer from the small buffer pool
 func GetSmallBuffer() []byte {
 	return SmallBufferPool.Get()
 }
@@ -81,7 +111,7 @@ func PutSmallBuffer(buf []byte) {
 	SmallBufferPool.Put(buf)
 }
 
-// GetMediumBuffer gets a 16KB buffer from the medium buffer pool
+// GetMediumBuffer gets a clean 16KB buffer from the medium buffer pool
 func GetMediumBuffer() []byte {
 	return MediumBufferPool.Get()
 }
@@ -91,7 +121,7 @@ func PutMediumBuffer(buf []byte) {
 	MediumBufferPool.Put(buf)
 }
 
-// GetLargeBuffer gets a 64KB buffer from the large buffer pool
+// GetLargeBuffer gets a clean 64KB buffer from the large buffer pool
 func GetLargeBuffer() []byte {
 	return LargeBufferPool.Get()
 }
@@ -101,7 +131,7 @@ func PutLargeBuffer(buf []byte) {
 	LargeBufferPool.Put(buf)
 }
 
-// GetBufferForSize returns the most appropriate buffer for the given size
+// GetBufferForSize returns the most appropriate clean buffer for the given size
 // This helps choose the right pool automatically based on size requirements
 func GetBufferForSize(size int) []byte {
 	switch {
