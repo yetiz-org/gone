@@ -141,8 +141,13 @@ func TestWebSocketMocks(t *testing.T) {
 		mockCtx := NewMockHandlerContext()
 		params := make(map[string]any)
 		
-		// Test basic WebSocket handler functionality with properly typed nil
-		var pingMsg *gws.PingMessage = nil
+		// Test basic WebSocket handler functionality with proper message
+		pingMsg := &gws.PingMessage{
+			DefaultMessage: gws.DefaultMessage{
+				MessageType: gws.PingMessageType,
+				Message:     []byte("test-ping"),
+			},
+		}
 		mock.On("WSPing", mockCtx, pingMsg, params).Once()
 		mock.WSPing(mockCtx, pingMsg, params)
 		mock.AssertExpectations(t)
