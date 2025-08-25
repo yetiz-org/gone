@@ -190,13 +190,9 @@ func TestDefaultFuture_ConcurrentListeners(t *testing.T) {
 								listenerCalled = true
 								atomic.AddInt64(&totalListenerCalls, 1)
 								
-								// Verify completion state
-								if future.Error() == nil {
-									// Handle success
-								} else {
-									// Handle failure
-									_ = future.Error()
-								}
+								// Verify completion state after ensuring completion
+								future.Await()
+								_ = future.Error()
 							}
 							return
 						}
@@ -277,8 +273,10 @@ func TestDefaultFuture_ConcurrentCancellation(t *testing.T) {
 						}
 						
 					case 3: // Check status
-						_ = future.IsDone()
-						_ = future.Error()
+						if future.IsDone() {
+							future.Await()
+							_ = future.Error()
+						}
 					}
 				}(j)
 			}

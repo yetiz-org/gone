@@ -1,15 +1,25 @@
 package gudp
 
+// This consolidated test file merges:
+// - gudp_test.go
+// - udpserverchannel_comprehensive_test.go
+// Original files will be archived to avoid duplicate execution.
+
 import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/yetiz-org/gone/channel"
 )
+
+// =============================================================================
+// Real UDP Connection Tests (from gudp_test.go)
+// =============================================================================
 
 // Test real UDP client-server communication
 func TestUDPChannel_RealConnection(t *testing.T) {
@@ -271,6 +281,314 @@ func TestUDPServerChannel_Lifecycle(t *testing.T) {
 	assert.NoError(t, err, "Multiple close calls should be safe")
 	assert.False(t, server.IsActive(), "Server should remain inactive")
 }
+
+// =============================================================================
+// Concurrent Testing (from gudp_test.go)
+// =============================================================================
+
+// Test UDP Channel interface compliance
+func TestUDPChannel_InterfaceCompliance(t *testing.T) {
+	ch := &Channel{}
+	
+	// Verify interface implementations
+	assert.Implements(t, (*channel.Channel)(nil), ch)
+	assert.NotNil(t, ch)
+}
+
+// Test concurrent UDP connection attempts
+func TestUDPChannel_ConcurrentConnections(t *testing.T) {
+	const numGoroutines = 100
+	const connectionsPerGoroutine = 20
+	
+	var successfulConnections int64
+	var failedConnections int64
+	var wg sync.WaitGroup
+	
+	// Test concurrent connection attempts
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(routineID int) {
+			defer wg.Done()
+			
+			for j := 0; j < connectionsPerGoroutine; j++ {
+				ch := &Channel{}
+				ch.Init()
+				
+				// Try to connect to a non-existent address (will fail, but tests thread safety)
+				localAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+				remoteAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:99999") // Non-existent port
+				
+				err := ch.UnsafeConnect(localAddr, remoteAddr)
+				if err != nil {
+					atomic.AddInt64(&failedConnections, 1)
+				} else {
+					atomic.AddInt64(&successfulConnections, 1)
+					// Connection would be closed here
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	// Verify that all connections were attempted
+	totalConnections := atomic.LoadInt64(&successfulConnections) + atomic.LoadInt64(&failedConnections)
+	expectedTotal := int64(numGoroutines * connectionsPerGoroutine)
+	assert.Equal(t, expectedTotal, totalConnections, "All connection attempts should be counted")
+	
+	t.Logf("Connection attempts: %d successful, %d failed out of %d total", 
+		successfulConnections, failedConnections, totalConnections)
+}
+
+// Test concurrent server channel operations
+func TestUDPServerChannel_ConcurrentOperations(t *testing.T) {
+	const numServers = 50
+	const operationsPerServer = 30
+	
+	var successfulBinds int64
+	var failedBinds int64
+	var wg sync.WaitGroup
+	
+	// Test concurrent server creation and binding
+	for i := 0; i < numServers; i++ {
+		wg.Add(1)
+		go func(serverID int) {
+			defer wg.Done()
+			
+			for j := 0; j < operationsPerServer; j++ {
+				server := &ServerChannel{}
+				server.Init()
+				
+				// Try to bind to different ports to avoid conflicts
+				port := 20000 + (serverID*operationsPerServer + j)
+				localAddr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", port))
+				
+				err := server.UnsafeBind(localAddr)
+				if err != nil {
+					atomic.AddInt64(&failedBinds, 1)
+				} else {
+					atomic.AddInt64(&successfulBinds, 1)
+					// Ensure proper cleanup
+					server.UnsafeClose()
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	// Verify that all operations were attempted
+	totalOperations := atomic.LoadInt64(&successfulBinds) + atomic.LoadInt64(&failedBinds)
+	expectedTotal := int64(numServers * operationsPerServer)
+	assert.Equal(t, expectedTotal, totalOperations, "All bind attempts should be counted")
+	
+	t.Logf("Server bind attempts: %d successful, %d failed out of %d total", 
+		successfulBinds, failedBinds, totalOperations)
+}
+
+// =============================================================================
+// UDPClientConn Tests (from udpserverchannel_comprehensive_test.go)
+// =============================================================================
+
+// TestUDPConnWrapper wraps a real UDP connection for testing
+type TestUDPConnWrapper struct {
+	conn       *net.UDPConn
+	clientAddr *net.UDPAddr
+	testData   []byte
+	writeData  []byte
+	mu         sync.Mutex
+	closed     bool
+}
+
+// getTestUDPConnection creates a real UDP connection for testing
+func getTestUDPConnection(t *testing.T) (*net.UDPConn, *net.UDPAddr) {
+	// Create a UDP connection listening on a random port
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	assert.NoError(t, err)
+	
+	conn, err := net.ListenUDP("udp", addr)
+	assert.NoError(t, err)
+	
+	clientAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 12345}
+	return conn, clientAddr
+}
+
+// TestUDPClientConn_Read tests the Read functionality
+func TestUDPClientConn_Read(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Read_FirstReadWithCachedData", func(t *testing.T) {
+		t.Parallel()
+		
+		server, clientAddr := getTestUDPConnection(t)
+		defer server.Close()
+		
+		cachedData := []byte("cached data")
+		
+		clientConn := &UDPClientConn{
+			server:     server,
+			clientAddr: clientAddr,
+			lastData:   cachedData,
+			firstRead:  false,
+		}
+		
+		buffer := make([]byte, 100)
+		n, err := clientConn.Read(buffer)
+		
+		// Should succeed with cached data
+		assert.NoError(t, err)
+		assert.Equal(t, len(cachedData), n)
+		assert.Equal(t, cachedData, buffer[:n])
+		
+		// Should mark firstRead as true
+		assert.True(t, clientConn.firstRead)
+	})
+
+	t.Run("Read_FirstReadWithSmallBuffer", func(t *testing.T) {
+		t.Parallel()
+		
+		server, clientAddr := getTestUDPConnection(t)
+		defer server.Close()
+		
+		cachedData := []byte("very long cached data that exceeds buffer")
+		
+		clientConn := &UDPClientConn{
+			server:     server,
+			clientAddr: clientAddr,
+			lastData:   cachedData,
+			firstRead:  false,
+		}
+		
+		buffer := make([]byte, 10) // Small buffer
+		n, err := clientConn.Read(buffer)
+		
+		// Should succeed but truncate data
+		assert.NoError(t, err)
+		assert.Equal(t, 10, n)
+		assert.Equal(t, cachedData[:10], buffer)
+		
+		// Should mark firstRead as true
+		assert.True(t, clientConn.firstRead)
+	})
+
+	t.Run("Read_WithTimeout", func(t *testing.T) {
+		t.Parallel()
+		
+		server, clientAddr := getTestUDPConnection(t)
+		defer server.Close()
+		
+		clientConn := &UDPClientConn{
+			server:     server,
+			clientAddr: clientAddr,
+			firstRead:  true, // Skip cached data
+		}
+		
+		// Set short read deadline to cause timeout
+		err := server.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		assert.NoError(t, err)
+		
+		buffer := make([]byte, 100)
+		_, err = clientConn.Read(buffer)
+		
+		// Should timeout
+		assert.Error(t, err)
+		
+		// Reset deadline
+		server.SetReadDeadline(time.Time{})
+	})
+}
+
+// TestUDPClientConn_Write tests the Write functionality
+func TestUDPClientConn_Write(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Write_SuccessfulWrite", func(t *testing.T) {
+		t.Parallel()
+		
+		server, clientAddr := getTestUDPConnection(t)
+		defer server.Close()
+		
+		testData := []byte("test message")
+		
+		clientConn := &UDPClientConn{
+			server:     server,
+			clientAddr: clientAddr,
+		}
+		
+		n, err := clientConn.Write(testData)
+		
+		// Should succeed
+		assert.NoError(t, err)
+		assert.Equal(t, len(testData), n)
+	})
+
+	t.Run("Write_EmptyData", func(t *testing.T) {
+		t.Parallel()
+		
+		server, clientAddr := getTestUDPConnection(t)
+		defer server.Close()
+		
+		emptyData := []byte{}
+		
+		clientConn := &UDPClientConn{
+			server:     server,
+			clientAddr: clientAddr,
+		}
+		
+		n, err := clientConn.Write(emptyData)
+		
+		// Should succeed with empty data
+		assert.NoError(t, err)
+		assert.Equal(t, 0, n)
+	})
+}
+
+// TestUDPClientConn_Close tests the Close functionality
+func TestUDPClientConn_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Close_AlwaysSucceeds", func(t *testing.T) {
+		t.Parallel()
+		
+		server, clientAddr := getTestUDPConnection(t)
+		defer server.Close()
+		
+		clientConn := &UDPClientConn{
+			server:     server,
+			clientAddr: clientAddr,
+		}
+		
+		err := clientConn.Close()
+		
+		// Should always succeed for UDP client connections
+		assert.NoError(t, err)
+	})
+
+	t.Run("Close_MultipleCloses", func(t *testing.T) {
+		t.Parallel()
+		
+		server, clientAddr := getTestUDPConnection(t)
+		defer server.Close()
+		
+		clientConn := &UDPClientConn{
+			server:     server,
+			clientAddr: clientAddr,
+		}
+		
+		// Multiple closes should all succeed
+		err1 := clientConn.Close()
+		err2 := clientConn.Close()
+		err3 := clientConn.Close()
+		
+		assert.NoError(t, err1)
+		assert.NoError(t, err2)
+		assert.NoError(t, err3)
+	})
+}
+
+// =============================================================================
+// Benchmark Tests
+// =============================================================================
 
 // Benchmark UDP operations
 func BenchmarkUDPChannel_ConcurrentOperations(b *testing.B) {
