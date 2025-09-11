@@ -8,7 +8,7 @@ import (
 	kkerror "github.com/yetiz-org/goth-kkerror"
 )
 
-func InvalidTokenWithMessage(format string, params ...interface{}) ErrorResponse {
+func InvalidTokenWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.Unauthorized,
 		Name:        constant.ErrorInvalidToken,
@@ -17,7 +17,12 @@ func InvalidTokenWithMessage(format string, params ...interface{}) ErrorResponse
 			ErrorLevel:    kkerror.Normal,
 			ErrorCategory: kkerror.Client,
 			ErrorCode:     "401402",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// InvalidTokenWithFormat provides backward compatibility for dynamic format strings
+func InvalidTokenWithFormat(format string, args ...interface{}) ErrorResponse {
+	return InvalidTokenWithMessage(fmt.Sprintf(format, args...))
 }

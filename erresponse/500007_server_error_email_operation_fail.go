@@ -20,7 +20,7 @@ var ServerErrorEmailOperationFail = Collection.Register(&DefaultErrorResponse{
 	},
 })
 
-func ServerErrorEmailOperationWithMessage(format string, params ...interface{}) ErrorResponse {
+func ServerErrorEmailOperationWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.InternalServerError,
 		Name:        constant.ErrorServerError,
@@ -29,7 +29,12 @@ func ServerErrorEmailOperationWithMessage(format string, params ...interface{}) 
 			ErrorLevel:    kkerror.Urgent,
 			ErrorCategory: kkerror.Internal,
 			ErrorCode:     "500007",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// ServerErrorEmailOperationWithFormat provides backward compatibility for dynamic format strings
+func ServerErrorEmailOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+	return ServerErrorEmailOperationWithMessage(fmt.Sprintf(format, args...))
 }

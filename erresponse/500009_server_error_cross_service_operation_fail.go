@@ -20,7 +20,7 @@ var ServerErrorCrossServiceOperationFail = Collection.Register(&DefaultErrorResp
 	},
 })
 
-func ServerErrorCrossServiceOperationWithMessage(format string, params ...interface{}) ErrorResponse {
+func ServerErrorCrossServiceOperationWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.InternalServerError,
 		Name:        constant.ErrorServerError,
@@ -29,7 +29,12 @@ func ServerErrorCrossServiceOperationWithMessage(format string, params ...interf
 			ErrorLevel:    kkerror.Critical,
 			ErrorCategory: kkerror.Internal,
 			ErrorCode:     "500009",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// ServerErrorCrossServiceOperationWithFormat provides backward compatibility for dynamic format strings
+func ServerErrorCrossServiceOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+	return ServerErrorCrossServiceOperationWithMessage(fmt.Sprintf(format, args...))
 }

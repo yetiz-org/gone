@@ -20,7 +20,7 @@ var _NotFoundWithMessage = Collection.Register(&DefaultErrorResponse{
 	},
 })
 
-func NotFoundWithMessage(format string, params ...interface{}) ErrorResponse {
+func NotFoundWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.BadRequest,
 		Name:        constant.ErrorNotFound,
@@ -29,7 +29,12 @@ func NotFoundWithMessage(format string, params ...interface{}) ErrorResponse {
 			ErrorLevel:    kkerror.Normal,
 			ErrorCategory: kkerror.Client,
 			ErrorCode:     "404101",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// NotFoundWithFormat provides backward compatibility for dynamic format strings
+func NotFoundWithFormat(format string, args ...interface{}) ErrorResponse {
+	return NotFoundWithMessage(fmt.Sprintf(format, args...))
 }

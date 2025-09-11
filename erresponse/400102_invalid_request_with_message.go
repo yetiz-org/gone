@@ -21,6 +21,13 @@ var _InvalidRequestWithMessage = Collection.Register(&DefaultErrorResponse{
 })
 
 func InvalidRequestWithMessage(format string, params ...interface{}) ErrorResponse {
+	var message string
+	if len(params) == 0 {
+		message = format
+	} else {
+		message = fmt.Sprintf(format, params...)
+	}
+	
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.BadRequest,
 		Name:        constant.ErrorInvalidRequest,
@@ -29,7 +36,7 @@ func InvalidRequestWithMessage(format string, params ...interface{}) ErrorRespon
 			ErrorLevel:    kkerror.Normal,
 			ErrorCategory: kkerror.Client,
 			ErrorCode:     "400102",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
 }

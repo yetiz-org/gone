@@ -8,7 +8,7 @@ import (
 	kkerror "github.com/yetiz-org/goth-kkerror"
 )
 
-func InvalidGrantWithMessage(format string, params ...any) ErrorResponse {
+func InvalidGrantWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.Forbidden,
 		Name:        constant.ErrorInvalidGrant,
@@ -17,7 +17,12 @@ func InvalidGrantWithMessage(format string, params ...any) ErrorResponse {
 			ErrorLevel:    kkerror.Normal,
 			ErrorCategory: kkerror.Client,
 			ErrorCode:     "403401",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// InvalidGrantWithFormat provides backward compatibility for dynamic format strings
+func InvalidGrantWithFormat(format string, args ...interface{}) ErrorResponse {
+	return InvalidGrantWithMessage(fmt.Sprintf(format, args...))
 }

@@ -20,7 +20,7 @@ var ServerErrorCacheOperationFail = Collection.Register(&DefaultErrorResponse{
 	},
 })
 
-func ServerErrorCacheOperationWithMessage(format string, params ...interface{}) ErrorResponse {
+func ServerErrorCacheOperationWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.InternalServerError,
 		Name:        constant.ErrorServerError,
@@ -29,7 +29,12 @@ func ServerErrorCacheOperationWithMessage(format string, params ...interface{}) 
 			ErrorLevel:    kkerror.Critical,
 			ErrorCategory: kkerror.Cache,
 			ErrorCode:     "500006",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// ServerErrorCacheOperationWithFormat provides backward compatibility for dynamic format strings
+func ServerErrorCacheOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+	return ServerErrorCacheOperationWithMessage(fmt.Sprintf(format, args...))
 }

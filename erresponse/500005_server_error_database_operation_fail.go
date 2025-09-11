@@ -20,7 +20,7 @@ var ServerErrorDatabaseOperationFail = Collection.Register(&DefaultErrorResponse
 	},
 })
 
-func ServerErrorDatabaseOperationWithMessage(format string, params ...interface{}) ErrorResponse {
+func ServerErrorDatabaseOperationWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.InternalServerError,
 		Name:        constant.ErrorServerError,
@@ -29,7 +29,12 @@ func ServerErrorDatabaseOperationWithMessage(format string, params ...interface{
 			ErrorLevel:    kkerror.Critical,
 			ErrorCategory: kkerror.Database,
 			ErrorCode:     "500005",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// ServerErrorDatabaseOperationWithFormat provides backward compatibility for dynamic format strings
+func ServerErrorDatabaseOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+	return ServerErrorDatabaseOperationWithMessage(fmt.Sprintf(format, args...))
 }

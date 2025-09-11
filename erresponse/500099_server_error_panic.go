@@ -20,7 +20,7 @@ var ServerErrorPanic = Collection.Register(&DefaultErrorResponse{
 	},
 })
 
-func ServerErrorPanicWithMessage(format string, params ...interface{}) ErrorResponse {
+func ServerErrorPanicWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.InternalServerError,
 		Name:        constant.ErrorServerError,
@@ -29,7 +29,12 @@ func ServerErrorPanicWithMessage(format string, params ...interface{}) ErrorResp
 			ErrorLevel:    kkerror.Urgent,
 			ErrorCategory: kkerror.Server,
 			ErrorCode:     "500099",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// ServerErrorPanicWithFormat provides backward compatibility for dynamic format strings
+func ServerErrorPanicWithFormat(format string, args ...interface{}) ErrorResponse {
+	return ServerErrorPanicWithMessage(fmt.Sprintf(format, args...))
 }

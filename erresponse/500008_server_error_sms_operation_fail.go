@@ -20,7 +20,7 @@ var ServerErrorSMSOperationFail = Collection.Register(&DefaultErrorResponse{
 	},
 })
 
-func ServerErrorSMSOperationWithMessage(format string, params ...interface{}) ErrorResponse {
+func ServerErrorSMSOperationWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.InternalServerError,
 		Name:        constant.ErrorServerError,
@@ -29,7 +29,12 @@ func ServerErrorSMSOperationWithMessage(format string, params ...interface{}) Er
 			ErrorLevel:    kkerror.Critical,
 			ErrorCategory: kkerror.Internal,
 			ErrorCode:     "500008",
-			ErrorMessage:  fmt.Sprintf(format, params...),
+			ErrorMessage:  message,
 		},
 	}
+}
+
+// ServerErrorSMSOperationWithFormat provides backward compatibility for dynamic format strings
+func ServerErrorSMSOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+	return ServerErrorSMSOperationWithMessage(fmt.Sprintf(format, args...))
 }
