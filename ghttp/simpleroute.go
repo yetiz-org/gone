@@ -9,6 +9,7 @@ import (
 
 type _SimpleNode struct {
 	_Node
+	parentIDNames map[string]string
 }
 
 func (n *_SimpleNode) path() string {
@@ -139,10 +140,27 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	current := r.root
 	parts := strings.Split(path, "/")
 	partsLen := len(parts)
+	
+	// Collect custom ID name mappings in the path
+	customIDMap := make(map[string]string)
+	var nodePath []string // Track node path
+	
 	for idx, part := range parts {
 		if strings.Index(part, ":") == 0 {
+			// Record custom ID name: current node name -> custom ID name
+			if len(nodePath) > 0 {
+				customIDMap[nodePath[len(nodePath)-1]] = strings.TrimPrefix(part, ":")
+			}
+			
 			current.(*_SimpleNode).routeType = RouteTypeEndPoint
 			if idx+1 == partsLen {
+				// Store custom ID mapping to the endpoint node
+				if current.(*_SimpleNode).parentIDNames == nil {
+					current.(*_SimpleNode).parentIDNames = make(map[string]string)
+				}
+				for k, v := range customIDMap {
+					current.(*_SimpleNode).parentIDNames[k] = v
+				}
 				current.(*_SimpleNode).handler = handler
 				current.(*_SimpleNode).acceptances = acceptances
 			}
@@ -150,13 +168,8 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 			continue
 		}
 
-		if part == "*" {
-			current.(*_SimpleNode).routeType = RouteTypeRecursiveEndPoint
-			current.(*_SimpleNode).handler = handler
-			current.(*_SimpleNode).acceptances = acceptances
-			return r
-		}
-
+		nodePath = append(nodePath, part)
+		
 		if v, f := current.Resources()[part]; f {
 			current = v
 		} else {
@@ -170,9 +183,17 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 			}
 
 			if idx+1 == partsLen {
+				// Create an endpoint node and set its properties
 				node.routeType = RouteTypeEndPoint
 				node.handler = handler
 				node.acceptances = acceptances
+				// Store custom ID mapping to the endpoint node
+				if len(customIDMap) > 0 {
+					node.parentIDNames = make(map[string]string)
+					for k, v := range customIDMap {
+						node.parentIDNames[k] = v
+					}
+				}
 			}
 
 			current.Resources()[part] = node
@@ -203,6 +224,14 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 	nodeLens := len(parts)
 	current := r.root
 	next := r.root
+	
+	// Track nodes in the path and their corresponding part values
+	type pathItem struct {
+		node RouteNode
+		part string
+	}
+	var pathItems []pathItem
+	
 	for idx, part := range parts {
 		next = current.Resources()[part]
 		switch current.RouteType() {
@@ -212,7 +241,18 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 					if current == r.root && part != "" {
 						return nil, nil, false
 					} else {
-						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = part
+						pathItems = append(pathItems, pathItem{node: current, part: part})
+						// Use the current endpoint's parentIDNames mapping to extract parameter names
+						for _, item := range pathItems {
+							paramName := ""
+							if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentIDNames != nil {
+								paramName = currentNode.parentIDNames[item.node.Name()]
+							}
+							if paramName == "" {
+								paramName = fmt.Sprintf("%s_id", item.node.Name())
+							}
+							params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
+						}
 						return current, params, false
 					}
 				} else {
@@ -221,7 +261,7 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 			} else {
 				if next == nil {
 					if _, f := current.Resources()[parts[idx+1]]; f {
-						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = part
+						pathItems = append(pathItems, pathItem{node: current, part: part})
 						continue
 					} else {
 						return nil, nil, false
@@ -247,6 +287,18 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 
 	if current.RouteType() == RouteTypeGroup {
 		return nil, nil, false
+	}
+
+	// Use the current endpoint's parentIDNames mapping to extract parameter names
+	for _, item := range pathItems {
+		paramName := ""
+		if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentIDNames != nil {
+			paramName = currentNode.parentIDNames[item.node.Name()]
+		}
+		if paramName == "" {
+			paramName = fmt.Sprintf("%s_id", item.node.Name())
+		}
+		params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
 	}
 
 	return current, params, current == next
