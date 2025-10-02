@@ -12,6 +12,51 @@ type _SimpleNode struct {
 	parentCustomNames map[string]string // Custom node names for this endpoint (ID = name + "_id")
 }
 
+// _SimpleNodeView wraps a node with context-specific effective name
+type _SimpleNodeView struct {
+	RouteNode
+	effectiveName string
+	parentView    RouteNode // Pre-computed parent view (cached)
+}
+
+func (v *_SimpleNodeView) Name() string {
+	if v.effectiveName != "" {
+		return v.effectiveName
+	}
+	return v.RouteNode.Name()
+}
+
+func (v *_SimpleNodeView) Parent() RouteNode {
+	if v.parentView != nil {
+		return v.parentView
+	}
+	return v.RouteNode.Parent()
+}
+
+// Helper function to create a view with pre-computed parent chain
+func createNodeView(node RouteNode, customMap map[string]string) RouteNode {
+	if customMap == nil {
+		return node
+	}
+
+	customName, hasCustom := customMap[node.Name()]
+	if !hasCustom {
+		return node
+	}
+
+	// Create view with pre-computed parent
+	var parentView RouteNode
+	if parent := node.Parent(); parent != nil {
+		parentView = createNodeView(parent, customMap) // Recursive
+	}
+
+	return &_SimpleNodeView{
+		RouteNode:     node,
+		effectiveName: customName,
+		parentView:    parentView,
+	}
+}
+
 func (n *_SimpleNode) path() string {
 	rtn := ""
 	var current RouteNode = n
@@ -140,11 +185,11 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	current := r.root
 	parts := strings.Split(path, "/")
 	partsLen := len(parts)
-	
+
 	// Collect custom node name mappings in the path
 	customNameMap := make(map[string]string) // originalName -> customName
-	var nodePath []string // Track node path
-	
+	var nodePath []string                    // Track node path
+
 	for idx, part := range parts {
 		if strings.Index(part, ":") == 0 {
 			// Extract custom name from :custom_id format (remove : prefix and _id suffix)
@@ -153,7 +198,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 				originalName := nodePath[len(nodePath)-1]
 				customNameMap[originalName] = strings.TrimSuffix(customIDName, "_id")
 			}
-			
+
 			current.(*_SimpleNode).routeType = RouteTypeEndPoint
 			if idx+1 == partsLen {
 				// Store custom node name mapping to the endpoint node
@@ -171,7 +216,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 		}
 
 		nodePath = append(nodePath, part)
-		
+
 		if v, f := current.Resources()[part]; f {
 			current = v
 		} else {
@@ -226,14 +271,14 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 	nodeLens := len(parts)
 	current := r.root
 	next := r.root
-	
+
 	// Track nodes in the path and their corresponding part values
 	type pathItem struct {
 		node RouteNode
 		part string
 	}
 	var pathItems []pathItem
-	
+
 	for idx, part := range parts {
 		next = current.Resources()[part]
 		switch current.RouteType() {
@@ -253,12 +298,19 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 									nodeName = customName
 								}
 							}
-							
+
 							// Derive ID parameter name from node name
 							paramName := fmt.Sprintf("%s_id", nodeName)
 							params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
 						}
-						return current, params, false
+
+						// Return node wrapped with effective name if custom name exists
+						var customMap map[string]string
+						if currentNode, ok := current.(*_SimpleNode); ok {
+							customMap = currentNode.parentCustomNames
+						}
+						resultNode := createNodeView(current, customMap)
+						return resultNode, params, false
 					}
 				} else {
 					return next, params, true
@@ -303,11 +355,19 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 				nodeName = customName
 			}
 		}
-		
+
 		// Derive ID parameter name from node name
 		paramName := fmt.Sprintf("%s_id", nodeName)
 		params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
 	}
 
-	return current, params, current == next
+	// Return node wrapped with effective name if custom name exists
+	var customMap map[string]string
+	if currentNode, ok := current.(*_SimpleNode); ok {
+		customMap = currentNode.parentCustomNames
+	}
+	resultNode := createNodeView(current, customMap)
+	resultParent := createNodeView(current.Parent(), customMap)
+
+	return resultNode, params, resultParent == current.Parent()
 }

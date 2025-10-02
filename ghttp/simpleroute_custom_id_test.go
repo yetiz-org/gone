@@ -98,9 +98,9 @@ func TestRouteSingleCustomID(t *testing.T) {
 	if childNode == nil {
 		t.Fatal("Expected to find child node, but got nil")
 	}
-	// Note: child endpoint node name is still "permissions", but the ID parameter uses custom name
-	if childNode.Name() != "permissions" {
-		t.Errorf("Expected child node name to be 'permissions', got '%s'", childNode.Name())
+	// Node name should be "user" (derived from :user_id)
+	if childNode.Name() != "user" {
+		t.Errorf("Expected child node name to be 'user', got '%s'", childNode.Name())
 	}
 	userID, exists := childParams["[gone-http]user_id"]
 	if !exists {
@@ -152,15 +152,24 @@ func TestRouteMultipleCustomIDs(t *testing.T) {
 	}
 
 	// 3. Test child route with both custom IDs
+	// When matching /api/v1/organizations/:org_id/permissions/:perm_id:
+	// - organizations node's effective name is "org" (evidenced by org_id parameter)
+	// - permissions node's effective name is "perm" (evidenced by perm_id parameter)
 	childNode, childParams, _ := route.RouteNode("/api/v1/organizations/123/permissions/456")
 	if childNode == nil {
 		t.Fatal("Expected to find child node, but got nil")
 	}
-	if childNode.Name() != "permissions" {
-		t.Errorf("Expected child node name to be 'permissions', got '%s'", childNode.Name())
+	// Node name should be "perm" (derived from :perm_id)
+	if childNode.Name() != "perm" {
+		t.Errorf("Expected child node name to be 'perm', got '%s'", childNode.Name())
 	}
 
-	// Verify first custom ID: org_id
+	if childNode.Parent().Name() != "org" {
+		t.Errorf("Expected parent node name to be 'org', got '%s'", childNode.Parent().Name())
+	}
+
+	// Verify first custom ID: org_id (not organizations_id)
+	// This proves organizations node's effective name is "org"
 	orgID, exists := childParams["[gone-http]org_id"]
 	if !exists {
 		t.Errorf("Expected param '[gone-http]org_id', available params: %v", childParams)
@@ -169,7 +178,8 @@ func TestRouteMultipleCustomIDs(t *testing.T) {
 		t.Errorf("Expected org_id to be '123', got '%v'", orgID)
 	}
 
-	// Verify second custom ID: perm_id
+	// Verify second custom ID: perm_id (not permissions_id)
+	// This proves permissions node's effective name is "perm"
 	permID, exists := childParams["[gone-http]perm_id"]
 	if !exists {
 		t.Errorf("Expected param '[gone-http]perm_id', available params: %v", childParams)
@@ -178,12 +188,12 @@ func TestRouteMultipleCustomIDs(t *testing.T) {
 		t.Errorf("Expected perm_id to be '456', got '%v'", permID)
 	}
 
-	// Should NOT have default names
+	// Should NOT have default names - confirms custom names are used for all nodes
 	if _, exists := childParams["[gone-http]organizations_id"]; exists {
-		t.Error("Should not have '[gone-http]organizations_id' param in child route")
+		t.Error("Should not have '[gone-http]organizations_id' param in child route (should be org_id)")
 	}
 	if _, exists := childParams["[gone-http]permissions_id"]; exists {
-		t.Error("Should not have '[gone-http]permissions_id' param in child route")
+		t.Error("Should not have '[gone-http]permissions_id' param in child route (should be perm_id)")
 	}
 }
 
@@ -228,6 +238,7 @@ func TestRouteMixedCustomAndDefaultIDs(t *testing.T) {
 	if childNode == nil {
 		t.Fatal("Expected to find child node, but got nil")
 	}
+	// Node name should be "permissions" (default)
 	if childNode.Name() != "permissions" {
 		t.Errorf("Expected child node name to be 'permissions', got '%s'", childNode.Name())
 	}
