@@ -9,7 +9,7 @@ import (
 
 type _SimpleNode struct {
 	_Node
-	parentIDNames map[string]string
+	parentCustomNames map[string]string // Custom node names for this endpoint (ID = name + "_id")
 }
 
 func (n *_SimpleNode) path() string {
@@ -141,25 +141,27 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	parts := strings.Split(path, "/")
 	partsLen := len(parts)
 	
-	// Collect custom ID name mappings in the path
-	customIDMap := make(map[string]string)
+	// Collect custom node name mappings in the path
+	customNameMap := make(map[string]string) // originalName -> customName
 	var nodePath []string // Track node path
 	
 	for idx, part := range parts {
 		if strings.Index(part, ":") == 0 {
-			// Record custom ID name: current node name -> custom ID name
+			// Extract custom name from :custom_id format (remove : prefix and _id suffix)
 			if len(nodePath) > 0 {
-				customIDMap[nodePath[len(nodePath)-1]] = strings.TrimPrefix(part, ":")
+				customIDName := strings.TrimPrefix(part, ":")
+				originalName := nodePath[len(nodePath)-1]
+				customNameMap[originalName] = strings.TrimSuffix(customIDName, "_id")
 			}
 			
 			current.(*_SimpleNode).routeType = RouteTypeEndPoint
 			if idx+1 == partsLen {
-				// Store custom ID mapping to the endpoint node
-				if current.(*_SimpleNode).parentIDNames == nil {
-					current.(*_SimpleNode).parentIDNames = make(map[string]string)
-				}
-				for k, v := range customIDMap {
-					current.(*_SimpleNode).parentIDNames[k] = v
+				// Store custom node name mapping to the endpoint node
+				if len(customNameMap) > 0 {
+					current.(*_SimpleNode).parentCustomNames = make(map[string]string)
+					for k, v := range customNameMap {
+						current.(*_SimpleNode).parentCustomNames[k] = v
+					}
 				}
 				current.(*_SimpleNode).handler = handler
 				current.(*_SimpleNode).acceptances = acceptances
@@ -187,11 +189,11 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 				node.routeType = RouteTypeEndPoint
 				node.handler = handler
 				node.acceptances = acceptances
-				// Store custom ID mapping to the endpoint node
-				if len(customIDMap) > 0 {
-					node.parentIDNames = make(map[string]string)
-					for k, v := range customIDMap {
-						node.parentIDNames[k] = v
+				// Store custom node name mapping
+				if len(customNameMap) > 0 {
+					node.parentCustomNames = make(map[string]string)
+					for k, v := range customNameMap {
+						node.parentCustomNames[k] = v
 					}
 				}
 			}
@@ -242,15 +244,18 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 						return nil, nil, false
 					} else {
 						pathItems = append(pathItems, pathItem{node: current, part: part})
-						// Use the current endpoint's parentIDNames mapping to extract parameter names
+						// Use the current endpoint's parentCustomNames mapping
 						for _, item := range pathItems {
-							paramName := ""
-							if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentIDNames != nil {
-								paramName = currentNode.parentIDNames[item.node.Name()]
+							// Get custom node name if defined
+							nodeName := item.node.Name()
+							if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentCustomNames != nil {
+								if customName, exists := currentNode.parentCustomNames[nodeName]; exists {
+									nodeName = customName
+								}
 							}
-							if paramName == "" {
-								paramName = fmt.Sprintf("%s_id", item.node.Name())
-							}
+							
+							// Derive ID parameter name from node name
+							paramName := fmt.Sprintf("%s_id", nodeName)
 							params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
 						}
 						return current, params, false
@@ -289,15 +294,18 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 		return nil, nil, false
 	}
 
-	// Use the current endpoint's parentIDNames mapping to extract parameter names
+	// Use the current endpoint's parentCustomNames mapping
 	for _, item := range pathItems {
-		paramName := ""
-		if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentIDNames != nil {
-			paramName = currentNode.parentIDNames[item.node.Name()]
+		// Get custom node name if defined
+		nodeName := item.node.Name()
+		if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentCustomNames != nil {
+			if customName, exists := currentNode.parentCustomNames[nodeName]; exists {
+				nodeName = customName
+			}
 		}
-		if paramName == "" {
-			paramName = fmt.Sprintf("%s_id", item.node.Name())
-		}
+		
+		// Derive ID parameter name from node name
+		paramName := fmt.Sprintf("%s_id", nodeName)
 		params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
 	}
 
