@@ -9,52 +9,24 @@ import (
 
 type _SimpleNode struct {
 	_Node
-	parentCustomNames map[string]string // Custom node names for this endpoint (ID = name + "_id")
 }
 
-// _SimpleNodeView wraps a node with context-specific effective name
-type _SimpleNodeView struct {
+// _SimpleNodeWrapper wraps a node with custom parameter name for specific route context
+type _SimpleNodeWrapper struct {
 	RouteNode
-	effectiveName string
-	parentView    RouteNode // Pre-computed parent view (cached)
+	customName    string
+	wrappedParent RouteNode
 }
 
-func (v *_SimpleNodeView) Name() string {
-	if v.effectiveName != "" {
-		return v.effectiveName
-	}
-	return v.RouteNode.Name()
+func (w *_SimpleNodeWrapper) Name() string {
+	return w.customName
 }
 
-func (v *_SimpleNodeView) Parent() RouteNode {
-	if v.parentView != nil {
-		return v.parentView
+func (w *_SimpleNodeWrapper) Parent() RouteNode {
+	if w.wrappedParent != nil {
+		return w.wrappedParent
 	}
-	return v.RouteNode.Parent()
-}
-
-// Helper function to create a view with pre-computed parent chain
-func createNodeView(node RouteNode, customMap map[string]string) RouteNode {
-	if customMap == nil {
-		return node
-	}
-
-	customName, hasCustom := customMap[node.Name()]
-	if !hasCustom {
-		return node
-	}
-
-	// Create view with pre-computed parent
-	var parentView RouteNode
-	if parent := node.Parent(); parent != nil {
-		parentView = createNodeView(parent, customMap) // Recursive
-	}
-
-	return &_SimpleNodeView{
-		RouteNode:     node,
-		effectiveName: customName,
-		parentView:    parentView,
-	}
+	return w.RouteNode.Parent()
 }
 
 func (n *_SimpleNode) path() string {
@@ -86,19 +58,29 @@ func (n *_SimpleNode) path() string {
 	return strings.TrimRight(rtn, "/")
 }
 
+// endpointParamMapping stores custom parameter names for a specific endpoint path
+type endpointParamMapping struct {
+	// Map from node name to custom param name (e.g., "organizations" -> "org_id")
+	nodeToParamName map[string]string
+}
+
 type SimpleRoute struct {
-	root RouteNode
+	root             RouteNode
+	endpointMappings map[string]*endpointParamMapping // Key is the normalized endpoint path
 }
 
 func NewSimpleRoute() *SimpleRoute {
-	return &SimpleRoute{root: &_SimpleNode{
-		_Node: _Node{
-			parent:    nil,
-			name:      "",
-			resources: map[string]RouteNode{},
-			routeType: RouteTypeRootEndPoint,
+	return &SimpleRoute{
+		root: &_SimpleNode{
+			_Node: _Node{
+				parent:    nil,
+				name:      "",
+				resources: map[string]RouteNode{},
+				routeType: RouteTypeRootEndPoint,
+			},
 		},
-	}}
+		endpointMappings: make(map[string]*endpointParamMapping),
+	}
 }
 
 func (r *SimpleRoute) traverse(node RouteNode, result map[string]int) {
@@ -186,45 +168,19 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	parts := strings.Split(path, "/")
 	partsLen := len(parts)
 
-	// Collect custom node name mappings in the path
-	customNameMap := make(map[string]string) // originalName -> customName
-	var nodePath []string                    // Track node path
+	mapping := &endpointParamMapping{
+		nodeToParamName: make(map[string]string),
+	}
+	hasCustomParams := false
 
 	for idx, part := range parts {
-		// Handle wildcard route
-		if part == "*" {
-			// Create a wildcard node
-			wildcardNode := &_SimpleNode{
-				_Node: _Node{
-					parent:      current,
-					name:        part,
-					resources:   map[string]RouteNode{},
-					routeType:   RouteTypeRecursiveEndPoint,
-					handler:     handler,
-					acceptances: acceptances,
-				},
-			}
-			current.Resources()[part] = wildcardNode
-			break
-		}
-
 		if strings.Index(part, ":") == 0 {
-			// Extract custom name from :custom_id format (remove : prefix and _id suffix)
-			if len(nodePath) > 0 {
-				customIDName := strings.TrimPrefix(part, ":")
-				originalName := nodePath[len(nodePath)-1]
-				customNameMap[originalName] = strings.TrimSuffix(customIDName, "_id")
-			}
+			paramName := strings.TrimPrefix(part, ":")
+			mapping.nodeToParamName[current.(*_SimpleNode).name] = paramName
+			hasCustomParams = true
 
 			current.(*_SimpleNode).routeType = RouteTypeEndPoint
 			if idx+1 == partsLen {
-				// Store custom node name mapping to the endpoint node
-				if len(customNameMap) > 0 {
-					current.(*_SimpleNode).parentCustomNames = make(map[string]string)
-					for k, v := range customNameMap {
-						current.(*_SimpleNode).parentCustomNames[k] = v
-					}
-				}
 				current.(*_SimpleNode).handler = handler
 				current.(*_SimpleNode).acceptances = acceptances
 			}
@@ -232,7 +188,20 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 			continue
 		}
 
-		nodePath = append(nodePath, part)
+		if part == "*" {
+			wildcardNode := &_SimpleNode{
+				_Node: _Node{
+					parent:      current,
+					name:        "*",
+					resources:   map[string]RouteNode{},
+					routeType:   RouteTypeRecursiveEndPoint,
+					handler:     handler,
+					acceptances: acceptances,
+				},
+			}
+			current.Resources()["*"] = wildcardNode
+			return r
+		}
 
 		if v, f := current.Resources()[part]; f {
 			current = v
@@ -247,22 +216,18 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 			}
 
 			if idx+1 == partsLen {
-				// Create an endpoint node and set its properties
 				node.routeType = RouteTypeEndPoint
 				node.handler = handler
 				node.acceptances = acceptances
-				// Store custom node name mapping
-				if len(customNameMap) > 0 {
-					node.parentCustomNames = make(map[string]string)
-					for k, v := range customNameMap {
-						node.parentCustomNames[k] = v
-					}
-				}
 			}
 
 			current.Resources()[part] = node
 			current = node
 		}
+	}
+
+	if hasCustomParams {
+		r.endpointMappings[path] = mapping
 	}
 
 	if handler != nil {
@@ -288,20 +253,12 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 	nodeLens := len(parts)
 	current := r.root
 	next := r.root
-
-	// Track nodes in the path and their corresponding part values
-	type pathItem struct {
-		node RouteNode
-		part string
-	}
-	var pathItems []pathItem
+	var matchedNodes []RouteNode
 
 	for idx, part := range parts {
 		next = current.Resources()[part]
-		// If no exact match, check for wildcard
-		if next == nil {
-			next = current.Resources()["*"]
-		}
+		matchedNodes = append(matchedNodes, current)
+
 		switch current.RouteType() {
 		case RouteTypeRootEndPoint, RouteTypeEndPoint:
 			if idx+1 == nodeLens {
@@ -309,37 +266,20 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 					if current == r.root && part != "" {
 						return nil, nil, false
 					} else {
-						pathItems = append(pathItems, pathItem{node: current, part: part})
-						// Use the current endpoint's parentCustomNames mapping
-						for _, item := range pathItems {
-							// Get custom node name if defined
-							nodeName := item.node.Name()
-							if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentCustomNames != nil {
-								if customName, exists := currentNode.parentCustomNames[nodeName]; exists {
-									nodeName = customName
-								}
-							}
-
-							// Derive ID parameter name from node name
-							paramName := fmt.Sprintf("%s_id", nodeName)
-							params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
-						}
-
-						// Return node wrapped with effective name if custom name exists
-						var customMap map[string]string
-						if currentNode, ok := current.(*_SimpleNode); ok {
-							customMap = currentNode.parentCustomNames
-						}
-						resultNode := createNodeView(current, customMap)
-						return resultNode, params, false
+						paramKey := r.getParamKeyForPath(current, matchedNodes, parts)
+						params[paramKey] = part
+						returnNode := r.wrapNodeChainIfNeeded(current, matchedNodes, parts)
+						return returnNode, params, false
 					}
 				} else {
-					return next, params, true
+					returnNode := r.wrapNodeChainIfNeeded(next, append(matchedNodes, next), parts)
+					return returnNode, params, true
 				}
 			} else {
 				if next == nil {
 					if _, f := current.Resources()[parts[idx+1]]; f {
-						pathItems = append(pathItems, pathItem{node: current, part: part})
+						paramKey := r.getParamKeyForPath(current, matchedNodes, parts)
+						params[paramKey] = part
 						continue
 					} else {
 						return nil, nil, false
@@ -353,9 +293,15 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 				params[current.Name()] = part
 			}
 
-			return current, params, false
+			returnNode := r.wrapNodeChainIfNeeded(current, matchedNodes, parts)
+			return returnNode, params, false
 		case RouteTypeGroup:
 			if next == nil {
+				if wildcardNode, hasWildcard := current.Resources()["*"]; hasWildcard {
+					wildcardValue := strings.Join(parts[idx:], "/")
+					params["*"] = wildcardValue
+					return wildcardNode, params, false
+				}
 				return nil, nil, false
 			}
 
@@ -367,28 +313,85 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 		return nil, nil, false
 	}
 
-	// Use the current endpoint's parentCustomNames mapping
-	for _, item := range pathItems {
-		// Get custom node name if defined
-		nodeName := item.node.Name()
-		if currentNode, ok := current.(*_SimpleNode); ok && currentNode.parentCustomNames != nil {
-			if customName, exists := currentNode.parentCustomNames[nodeName]; exists {
-				nodeName = customName
-			}
+	finalNode := r.wrapNodeChainIfNeeded(current, matchedNodes, parts)
+	return finalNode, params, current == next
+}
+
+func (r *SimpleRoute) findBestMatchingMapping(matchedNodes []RouteNode, pathParts []string) *endpointParamMapping {
+	if len(r.endpointMappings) == 0 {
+		return nil
+	}
+
+	for endpointPath, mapping := range r.endpointMappings {
+		if r.pathMatchesEndpoint(matchedNodes, pathParts, endpointPath) {
+			return mapping
+		}
+	}
+
+	return nil
+}
+
+func (r *SimpleRoute) pathMatchesEndpoint(matchedNodes []RouteNode, pathParts []string, endpointPath string) bool {
+	patternParts := strings.Split(strings.TrimLeft(endpointPath, "/"), "/")
+
+	if len(patternParts) > len(pathParts) {
+		return false
+	}
+
+	for i, patternPart := range patternParts {
+		if strings.HasPrefix(patternPart, ":") {
+			continue
 		}
 
-		// Derive ID parameter name from node name
-		paramName := fmt.Sprintf("%s_id", nodeName)
-		params[fmt.Sprintf("[gone-http]%s", paramName)] = item.part
+		if i >= len(pathParts) || pathParts[i] != patternPart {
+			return false
+		}
 	}
 
-	// Return node wrapped with effective name if custom name exists
-	var customMap map[string]string
-	if currentNode, ok := current.(*_SimpleNode); ok {
-		customMap = currentNode.parentCustomNames
-	}
-	resultNode := createNodeView(current, customMap)
-	resultParent := createNodeView(current.Parent(), customMap)
+	return true
+}
 
-	return resultNode, params, resultParent == current.Parent()
+func (r *SimpleRoute) getParamKeyForPath(node RouteNode, matchedNodes []RouteNode, pathParts []string) string {
+	mapping := r.findBestMatchingMapping(matchedNodes, pathParts)
+	if mapping != nil {
+		if paramName, ok := mapping.nodeToParamName[node.Name()]; ok {
+			return fmt.Sprintf("[gone-http]%s", paramName)
+		}
+	}
+	return fmt.Sprintf("[gone-http]%s_id", node.Name())
+}
+
+func (r *SimpleRoute) wrapNodeChainIfNeeded(node RouteNode, matchedNodes []RouteNode, pathParts []string) RouteNode {
+	mapping := r.findBestMatchingMapping(matchedNodes, pathParts)
+	if mapping == nil || len(mapping.nodeToParamName) == 0 {
+		return node
+	}
+
+	var wrappedParent RouteNode
+	if node.Parent() != nil {
+		wrappedParent = r.wrapNodeChainIfNeeded(node.Parent(), matchedNodes, pathParts)
+	}
+
+	if paramName, ok := mapping.nodeToParamName[node.Name()]; ok {
+		customName := paramName
+		if strings.HasSuffix(paramName, "_id") {
+			customName = strings.TrimSuffix(paramName, "_id")
+		}
+
+		return &_SimpleNodeWrapper{
+			RouteNode:     node,
+			customName:    customName,
+			wrappedParent: wrappedParent,
+		}
+	}
+
+	if wrappedParent != node.Parent() {
+		return &_SimpleNodeWrapper{
+			RouteNode:     node,
+			customName:    node.Name(),
+			wrappedParent: wrappedParent,
+		}
+	}
+
+	return node
 }
