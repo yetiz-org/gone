@@ -1285,16 +1285,16 @@ func TestAllParameterFormats(t *testing.T) {
 		expectedName   string
 	}{
 		{
-			name:        "SimpleCustomID",
+			name:        "InvalidCustomID_NoSuffix",
 			endpoint:    "/users/:id",
 			requestPath: "/users/123",
 			expectedParams: map[string]string{
-				"[gone-http]id": "123",
+				"[gone-http]users_id": "123", // Falls back to default (no _id suffix)
 			},
-			expectedName: "id",
+			expectedName: "users", // Default node name
 		},
 		{
-			name:        "CustomIDWithSuffix",
+			name:        "ValidCustomID_WithSuffix",
 			endpoint:    "/users/:user_id",
 			requestPath: "/users/456",
 			expectedParams: map[string]string{
@@ -1303,13 +1303,13 @@ func TestAllParameterFormats(t *testing.T) {
 			expectedName: "user",
 		},
 		{
-			name:        "CustomIDNoSuffix",
+			name:        "InvalidCustomID_NoSuffix2",
 			endpoint:    "/items/:item",
 			requestPath: "/items/789",
 			expectedParams: map[string]string{
-				"[gone-http]item": "789",
+				"[gone-http]items_id": "789", // Falls back to default (no _id suffix)
 			},
-			expectedName: "item",
+			expectedName: "items", // Default node name
 		},
 		{
 			name:        "MultipleSegmentCustomID",
@@ -1759,4 +1759,90 @@ func TestDeepDefaultVsCustomComparison(t *testing.T) {
 			t.Errorf("Expected great-grandparent name 'alpha', got '%s'", node.Parent().Parent().Parent().Name())
 		}
 	})
+}
+
+// TestRouteInvalidCustomID verifies that custom IDs without "_id" suffix are ignored
+func TestRouteInvalidCustomID(t *testing.T) {
+	route := NewSimpleRoute()
+
+	// Set up endpoint with invalid custom ID (no "_id" suffix)
+	route.SetEndpoint("/api/v1/organizations", nil)
+	route.SetEndpoint("/api/v1/organizations/:org", nil) // :org without _id suffix
+
+	// 1. Test parent node itself (no ID)
+	parentNode, parentParams, _ := route.RouteNode("/api/v1/organizations")
+	if parentNode == nil {
+		t.Fatal("Expected to find parent node /api/v1/organizations, but got nil")
+	}
+	if parentNode.Name() != "organizations" {
+		t.Errorf("Expected parent node name to be 'organizations', got '%s'", parentNode.Name())
+	}
+	if len(parentParams) != 0 {
+		t.Errorf("Expected no params for parent node, got: %v", parentParams)
+	}
+
+	// 2. Test parent node with ID (should use default organizations_id, not custom "org")
+	parentIDNode, parentIDParams, _ := route.RouteNode("/api/v1/organizations/123")
+	if parentIDNode == nil {
+		t.Fatal("Expected to find parent node with ID, but got nil")
+	}
+	if parentIDNode.Name() != "organizations" {
+		t.Errorf("Expected node name to be 'organizations', got '%s'", parentIDNode.Name())
+	}
+
+	// Should use DEFAULT organizations_id (because :org doesn't end with _id)
+	orgID, exists := parentIDParams["[gone-http]organizations_id"]
+	if !exists {
+		t.Errorf("Expected param '[gone-http]organizations_id' (default), available params: %v", parentIDParams)
+	}
+	if orgID != "123" {
+		t.Errorf("Expected organizations_id to be '123', got '%v'", orgID)
+	}
+
+	// Should NOT have custom "org" param
+	if _, exists := parentIDParams["[gone-http]org"]; exists {
+		t.Error("Should not have '[gone-http]org' param (invalid custom ID without _id suffix)")
+	}
+}
+
+// TestRouteValidVsInvalidCustomID verifies both valid and invalid custom IDs in same route
+func TestRouteValidVsInvalidCustomID(t *testing.T) {
+	route := NewSimpleRoute()
+
+	// Set up endpoint with one valid and one invalid custom ID
+	route.SetEndpoint("/api/v1/organizations", nil)
+	// :org_id is valid (has _id suffix), :perm is invalid (no _id suffix)
+	route.SetEndpoint("/api/v1/organizations/:org_id/permissions/:perm", nil)
+
+	// Test the route
+	node, params, _ := route.RouteNode("/api/v1/organizations/123/permissions/456")
+	if node == nil {
+		t.Fatal("Expected to find node, but got nil")
+	}
+	if node.Name() != "permissions" {
+		t.Errorf("Expected node name to be 'permissions', got '%s'", node.Name())
+	}
+
+	// Verify valid custom ID: org_id
+	orgID, exists := params["[gone-http]org_id"]
+	if !exists {
+		t.Errorf("Expected param '[gone-http]org_id' (valid custom ID), available params: %v", params)
+	}
+	if orgID != "123" {
+		t.Errorf("Expected org_id to be '123', got '%v'", orgID)
+	}
+
+	// Verify invalid custom ID falls back to default: permissions_id
+	permID, exists := params["[gone-http]permissions_id"]
+	if !exists {
+		t.Errorf("Expected param '[gone-http]permissions_id' (default, :perm invalid), available params: %v", params)
+	}
+	if permID != "456" {
+		t.Errorf("Expected permissions_id to be '456', got '%v'", permID)
+	}
+
+	// Should NOT have invalid custom "perm" param
+	if _, exists := params["[gone-http]perm"]; exists {
+		t.Error("Should not have '[gone-http]perm' param (invalid custom ID without _id suffix)")
+	}
 }

@@ -176,8 +176,11 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	for idx, part := range parts {
 		if strings.Index(part, ":") == 0 {
 			paramName := strings.TrimPrefix(part, ":")
-			mapping.nodeToParamName[current.(*_SimpleNode).name] = paramName
-			hasCustomParams = true
+			// Only recognize custom ID if it ends with "_id"
+			if strings.HasSuffix(paramName, "_id") {
+				mapping.nodeToParamName[current.(*_SimpleNode).name] = paramName
+				hasCustomParams = true
+			}
 
 			current.(*_SimpleNode).routeType = RouteTypeEndPoint
 			if idx+1 == partsLen {
