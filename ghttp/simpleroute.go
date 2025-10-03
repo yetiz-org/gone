@@ -191,6 +191,23 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	var nodePath []string                    // Track node path
 
 	for idx, part := range parts {
+		// Handle wildcard route
+		if part == "*" {
+			// Create a wildcard node
+			wildcardNode := &_SimpleNode{
+				_Node: _Node{
+					parent:      current,
+					name:        part,
+					resources:   map[string]RouteNode{},
+					routeType:   RouteTypeRecursiveEndPoint,
+					handler:     handler,
+					acceptances: acceptances,
+				},
+			}
+			current.Resources()[part] = wildcardNode
+			break
+		}
+
 		if strings.Index(part, ":") == 0 {
 			// Extract custom name from :custom_id format (remove : prefix and _id suffix)
 			if len(nodePath) > 0 {
@@ -281,6 +298,10 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 
 	for idx, part := range parts {
 		next = current.Resources()[part]
+		// If no exact match, check for wildcard
+		if next == nil {
+			next = current.Resources()["*"]
+		}
 		switch current.RouteType() {
 		case RouteTypeRootEndPoint, RouteTypeEndPoint:
 			if idx+1 == nodeLens {
