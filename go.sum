@@ -41,8 +41,8 @@ github.com/yetiz-org/goth-concurrent v1.2.2 h1:25T4uhirQNIImbP4wv1D9q6NFkT+cw+ow
 github.com/yetiz-org/goth-concurrent v1.2.2/go.mod h1:JzlvrOl1DfASyf/OA5CIj7LZmgfTTUlSfkVjLr7YwIc=
 github.com/yetiz-org/goth-kkerror v1.0.0 h1:lYaBPBQiDFOToUWgPCnjSYxvy0Nbpq0+tV0DANHbPE0=
 github.com/yetiz-org/goth-kkerror v1.0.0/go.mod h1:NvTcdya53QVdHrLUQzojd8VGXVLW8reczCQzbseN6mw=
-github.com/yetiz-org/goth-kklogger v1.2.1 h1:gxXjMw2vXYqaF4l33xYl2OV7CT57QKqim4MFQRHtJsg=
-github.com/yetiz-org/goth-kklogger v1.2.1/go.mod h1:xOJb2U5Aj/JnBjXjgC+Q2eyE/9waFirMkVYYtyg9Gyc=
+github.com/yetiz-org/goth-kklogger v1.2.2 h1:g/nTq42PAKalNkRivjrKLCO0t3zffXzxuDbjhaUtAa0=
+github.com/yetiz-org/goth-kklogger v1.2.2/go.mod h1:xOJb2U5Aj/JnBjXjgC+Q2eyE/9waFirMkVYYtyg9Gyc=
 github.com/yetiz-org/goth-panic v1.1.1 h1:Tdp/1WowlKpILXxozECsKZDF0KypiZ4TMhy3/AJHlEA=
 github.com/yetiz-org/goth-panic v1.1.1/go.mod h1:ZxDU7Bnc69jZhSNyGn0g1tif4UlHyU5ga64KZ/pRKmg=
 github.com/yetiz-org/goth-util v1.4.0 h1:JAygmLEABjhd2HKJKcWOeohxdKSY83MawPibTKo5Tys=
