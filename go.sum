@@ -33,8 +33,8 @@ github.com/tdewolff/parse/v2 v2.8.3 h1:5VbvtJ83cfb289A1HzRA9sf02iT8YyUwN84ezjkdY
 github.com/tdewolff/parse/v2 v2.8.3/go.mod h1:Hwlni2tiVNKyzR1o6nUs4FOF07URA+JLBLd6dlIXYqo=
 github.com/tdewolff/test v1.0.11 h1:FdLbwQVHxqG16SlkGveC0JVyrJN62COWTRyUFzfbtBE=
 github.com/tdewolff/test v1.0.11/go.mod h1:XPuWBzvdUzhCuxWO1ojpXsyzsA5bFoS3tO/Q3kFuTG8=
-github.com/yetiz-org/goth-base62 v1.1.0 h1:PbAlMlSXcsM34i/ILjrZtNzvC+90vOHVYSoAB3l/oEc=
-github.com/yetiz-org/goth-base62 v1.1.0/go.mod h1:ZQ2JR61ySTzysTsqCyxysxHj/VOaYQ3ZoI13kWr6+YU=
+github.com/yetiz-org/goth-base62 v1.2.0 h1:OPjiYjjrwl4g3I5BHhhF1TcRmD0rMy0RvaOxvDCnIS4=
+github.com/yetiz-org/goth-base62 v1.2.0/go.mod h1:ZQ2JR61ySTzysTsqCyxysxHj/VOaYQ3ZoI13kWr6+YU=
 github.com/yetiz-org/goth-bytebuf v1.1.0 h1:YHvpr4RT0tqPsQz5c4hIFJ+3x1fTJQREPhtG/X6Gpao=
 github.com/yetiz-org/goth-bytebuf v1.1.0/go.mod h1:jRCqQB9z1LjzA7c1Jw6sV7OmMLXgZcfBO19y7VbCEGw=
 github.com/yetiz-org/goth-concurrent v1.2.2 h1:25T4uhirQNIImbP4wv1D9q6NFkT+cw+ownvY8XdWvTo=

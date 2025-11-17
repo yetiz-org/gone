@@ -10,7 +10,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tdewolff/minify/v2 v2.24.0
-	github.com/yetiz-org/goth-base62 v1.1.0
+	github.com/yetiz-org/goth-base62 v1.2.0
 	github.com/yetiz-org/goth-bytebuf v1.1.0
 	github.com/yetiz-org/goth-concurrent v1.2.2
 	github.com/yetiz-org/goth-kkerror v1.0.0
