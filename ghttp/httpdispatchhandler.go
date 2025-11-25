@@ -308,11 +308,46 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 		return invokeErr
 	}
 
+	h.handleAutoRange(task, request, response)
 	if err := task.After(request, response, params); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (h *DispatchHandler) handleAutoRange(task HttpHandlerTask, request *Request, response *Response) {
+	supporter, ok := task.(AutoRangeSupporter)
+	if !ok || !supporter.EnableAutoRangeSupport() {
+		return
+	}
+
+	if response.body == nil || response.body.ReadableBytes() == 0 {
+		return
+	}
+
+	response.SetHeader(httpheadername.AcceptRanges, "bytes")
+
+	rangeHeader := request.Header().Get(httpheadername.Range)
+	if rangeHeader == "" {
+		return
+	}
+
+	content := response.body.Bytes()
+	contentSize := int64(len(content))
+
+	if start, end, valid := ParseRange(rangeHeader, contentSize); valid {
+		rangeData := content[start : end+1]
+		response.SetStatusCode(httpstatus.PartialContent)
+		response.SetHeader(httpheadername.ContentRange, fmt.Sprintf("bytes %d-%d/%d", start, end, contentSize))
+		response.SetHeader(httpheadername.ContentLength, fmt.Sprintf("%d", len(rangeData)))
+		response.SetBody(buf.NewByteBuf(rangeData))
+		kklogger.DebugJ("ghttp:DispatchHandler.handleAutoRange#range_request", fmt.Sprintf("range=%d-%d/%d", start, end, contentSize))
+	} else {
+		response.SetStatusCode(httpstatus.RequestedRangeNotSatisfiable)
+		response.SetHeader(httpheadername.ContentRange, fmt.Sprintf("bytes */%d", contentSize))
+		kklogger.WarnJ("ghttp:DispatchHandler.handleAutoRange#range_request!invalid_range", fmt.Sprintf("range=%s", rangeHeader))
+	}
 }
 
 func (h *DispatchHandler) ErrorCaught(ctx channel.HandlerContext, err error) {

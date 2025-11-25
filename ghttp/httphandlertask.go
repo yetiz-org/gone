@@ -3,6 +3,8 @@ package ghttp
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/erresponse"
@@ -36,6 +38,11 @@ type HttpHandlerTask interface {
 	Before(req *Request, resp *Response, params map[string]any) ErrorResponse
 	After(req *Request, resp *Response, params map[string]any) ErrorResponse
 	ErrorCaught(req *Request, resp *Response, params map[string]any, err ErrorResponse) error
+}
+
+// AutoRangeSupporter enables automatic HTTP Range request handling by the dispatcher
+type AutoRangeSupporter interface {
+	EnableAutoRangeSupport() bool
 }
 
 type SSEOperation interface {
@@ -248,6 +255,69 @@ func (h *DefaultHTTPHandlerTask) After(req *Request, resp *Response, params map[
 func (h *DefaultHTTPHandlerTask) ErrorCaught(req *Request, resp *Response, params map[string]any, err ErrorResponse) error {
 	resp.ResponseError(err)
 	return nil
+}
+
+func (h *DefaultHTTPHandlerTask) EnableAutoRangeSupport() bool {
+	return true
+}
+
+// ParseRange parses HTTP Range header and returns start, end, valid
+func ParseRange(rangeHeader string, contentSize int64) (int64, int64, bool) {
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
+		return 0, 0, false
+	}
+
+	rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+
+	if strings.Contains(rangeSpec, ",") {
+		return 0, 0, false
+	}
+
+	parts := strings.Split(rangeSpec, "-")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+
+	var start, end int64
+	var err error
+
+	if parts[0] == "" {
+		if parts[1] == "" {
+			return 0, 0, false
+		}
+		suffixLength, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || suffixLength <= 0 {
+			return 0, 0, false
+		}
+		if suffixLength > contentSize {
+			suffixLength = contentSize
+		}
+		start = contentSize - suffixLength
+		end = contentSize - 1
+	} else if parts[1] == "" {
+		start, err = strconv.ParseInt(parts[0], 10, 64)
+		if err != nil || start < 0 {
+			return 0, 0, false
+		}
+		if start >= contentSize {
+			return 0, 0, false
+		}
+		end = contentSize - 1
+	} else {
+		start, err = strconv.ParseInt(parts[0], 10, 64)
+		if err != nil || start < 0 {
+			return 0, 0, false
+		}
+		end, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || end < start || start >= contentSize {
+			return 0, 0, false
+		}
+		if end >= contentSize {
+			end = contentSize - 1
+		}
+	}
+
+	return start, end, true
 }
 
 type DefaultHandlerTask struct {

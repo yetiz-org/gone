@@ -12,7 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
-	"github.com/yetiz-org/goth-kklogger"
+	buf "github.com/yetiz-org/goth-bytebuf"
+	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
 // TestParseRange_SpecifiedRange tests parsing of "bytes=start-end" format
@@ -414,6 +415,26 @@ func TestStaticFilesHandlerTask_FullHTTPServerClient_Integration(t *testing.T) {
 
 		// Call handler
 		handler.Get(nil, req, resp, nil)
+
+		// Simulate automatic Range handling (since we're bypassing DispatchHandler)
+		if resp.body != nil && resp.body.ReadableBytes() > 0 {
+			rangeHeader := r.Header.Get("Range")
+			if rangeHeader != "" {
+				content := resp.body.Bytes()
+				contentSize := int64(len(content))
+				if start, end, valid := ParseRange(rangeHeader, contentSize); valid {
+					rangeData := content[start : end+1]
+					resp.SetStatusCode(206)
+					resp.SetHeader("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, contentSize))
+					resp.SetHeader("Content-Length", fmt.Sprintf("%d", len(rangeData)))
+					resp.SetBody(buf.NewByteBuf(rangeData))
+				} else {
+					resp.SetStatusCode(416)
+					resp.SetHeader("Content-Range", fmt.Sprintf("bytes */%d", contentSize))
+				}
+			}
+			resp.SetHeader("Accept-Ranges", "bytes")
+		}
 
 		// Write response
 		respWrapper.WriteResponse()
