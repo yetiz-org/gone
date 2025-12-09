@@ -258,8 +258,17 @@ type ReturnCatch struct {
 }
 
 func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHandlerTask, request *Request, response *Response, params map[string]any, isLast bool) ErrorResponse {
-	if err := task.PreCheck(request, response, params); err != nil {
-		return err
+	// Check if we should skip PreCheck for OPTIONS method
+	// Default behavior: if task doesn't implement PreCheckSkipOptions, PreCheck will be executed
+	shouldSkipPreCheck := false
+	if skipper, ok := task.(PreCheckSkipOptions); ok {
+		shouldSkipPreCheck = skipper.SkipPreCheckForOptions() && request.Method() == OPTIONS
+	}
+	
+	if !shouldSkipPreCheck {
+		if err := task.PreCheck(request, response, params); err != nil {
+			return err
+		}
 	}
 
 	if err := task.Before(request, response, params); err != nil {

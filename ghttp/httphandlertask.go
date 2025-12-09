@@ -45,6 +45,11 @@ type AutoRangeSupporter interface {
 	EnableAutoRangeSupport() bool
 }
 
+// PreCheckSkipOptions allows skipping PreCheck for OPTIONS method
+type PreCheckSkipOptions interface {
+	SkipPreCheckForOptions() bool
+}
+
 type SSEOperation interface {
 	WriteHeader(ctx channel.HandlerContext, header http.Header, params map[string]any) channel.Future
 	WriteMessage(ctx channel.HandlerContext, message SSEMessage, params map[string]any) channel.Future
@@ -258,6 +263,10 @@ func (h *DefaultHTTPHandlerTask) ErrorCaught(req *Request, resp *Response, param
 }
 
 func (h *DefaultHTTPHandlerTask) EnableAutoRangeSupport() bool {
+	return true
+}
+
+func (h *DefaultHTTPHandlerTask) SkipPreCheckForOptions() bool {
 	return true
 }
 
