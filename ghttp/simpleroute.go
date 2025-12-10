@@ -128,7 +128,8 @@ func (r *SimpleRoute) SetGroup(path string, acceptances ...Acceptance) *SimpleRo
 	parts := strings.Split(path, "/")
 	partsLen := len(parts)
 	for idx, part := range parts {
-		if strings.Index(part, ":") == 0 {
+		// Skip parameter placeholders (both :param and {param} syntax)
+		if isParamPlaceholder(part) {
 			continue
 		}
 
@@ -174,8 +175,9 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	hasCustomParams := false
 
 	for idx, part := range parts {
-		if strings.Index(part, ":") == 0 {
-			paramName := strings.TrimPrefix(part, ":")
+		// Support both :param and {param} syntax
+		paramName := extractParamName(part)
+		if paramName != "" {
 			// Only recognize custom ID if it ends with "_id"
 			if strings.HasSuffix(paramName, "_id") {
 				mapping.nodeToParamName[current.(*_SimpleNode).name] = paramName
@@ -342,7 +344,8 @@ func (r *SimpleRoute) pathMatchesEndpoint(matchedNodes []RouteNode, pathParts []
 	}
 
 	for i, patternPart := range patternParts {
-		if strings.HasPrefix(patternPart, ":") {
+		// Support both :param and {param} syntax
+		if isParamPlaceholder(patternPart) {
 			continue
 		}
 
@@ -352,6 +355,23 @@ func (r *SimpleRoute) pathMatchesEndpoint(matchedNodes []RouteNode, pathParts []
 	}
 
 	return true
+}
+
+// extractParamName extracts parameter name from :param or {param} syntax
+// Returns empty string if not a parameter placeholder
+func extractParamName(part string) string {
+	if strings.HasPrefix(part, ":") {
+		return strings.TrimPrefix(part, ":")
+	}
+	if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+		return strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}")
+	}
+	return ""
+}
+
+// isParamPlaceholder checks if a path part is a parameter placeholder (:param or {param})
+func isParamPlaceholder(part string) bool {
+	return strings.HasPrefix(part, ":") || (strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}"))
 }
 
 func (r *SimpleRoute) getParamKeyForPath(node RouteNode, matchedNodes []RouteNode, pathParts []string) string {
