@@ -427,19 +427,21 @@ func (r *Response) JsonResponse(obj any) {
 	switch body := obj.(type) {
 	case *bytes.Buffer:
 		r.SetBody(buf.NewByteBuf(body.Bytes()))
+		return
 	case buf.ByteBuf:
 		r.SetBody(body)
+		return
 	case []byte:
 		r.SetBody(buf.NewByteBuf(body))
+		return
 	case string:
 		obj = struct{ Data string }{Data: body}
-	default:
-		if body, e := json.Marshal(obj); e == nil {
-			r.SetBody(buf.NewByteBuf(body))
-			return
-		} else {
-			kklogger.ErrorJ("ghttp:Response.JsonResponse#json_marshal!marshal_error", e.Error())
-		}
+	}
+
+	if body, e := json.Marshal(obj); e == nil {
+		r.SetBody(buf.NewByteBuf(body))
+	} else {
+		kklogger.ErrorJ("ghttp:Response.JsonResponse#json_marshal!marshal_error", e.Error())
 	}
 }
 

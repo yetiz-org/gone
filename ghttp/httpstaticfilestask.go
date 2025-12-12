@@ -1,13 +1,14 @@
 package ghttp
 
 import (
-	"fmt"
 	"io/ioutil"
 	"mime"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"
@@ -29,6 +30,7 @@ type StaticFilesHandlerTask struct {
 	DoMinify   bool
 	DoCache    bool
 	cacheMap   map[string]*staticFileCacheEntity
+	cacheMu    sync.RWMutex
 	m          *minify.M
 }
 
@@ -57,9 +59,27 @@ func NewStaticFilesHandlerTask(folderPath string) *StaticFilesHandlerTask {
 }
 
 func (h *StaticFilesHandlerTask) Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse {
-	path := fmt.Sprintf("%s/%s", h.FolderPath, strings.ReplaceAll(req.Url().Path, "../", "/"))
+	reqPath := req.Url().Path
+	if reqPath == "" {
+		reqPath = "/"
+	}
 
-	if entity, err := h._Load(path); entity != nil {
+	clean := path.Clean("/" + reqPath)
+	if strings.HasPrefix(clean, "/../") || clean == "/.." {
+		resp.SetStatusCode(httpstatus.NotFound)
+		return nil
+	}
+
+	root := filepath.Clean(h.FolderPath)
+	cleanRel := strings.TrimPrefix(clean, "/")
+	fsPath := filepath.Clean(filepath.Join(root, filepath.FromSlash(cleanRel)))
+	rootWithSep := root + string(filepath.Separator)
+	if fsPath != root && !strings.HasPrefix(fsPath, rootWithSep) {
+		resp.SetStatusCode(httpstatus.NotFound)
+		return nil
+	}
+
+	if entity, err := h._Load(fsPath); entity != nil {
 		resp.SetHeader(httpheadername.ContentType, entity.contentType)
 		resp.SetStatusCode(httpstatus.OK)
 		resp.SetBody(buf.NewByteBuf(entity.data))
@@ -74,7 +94,10 @@ func (h *StaticFilesHandlerTask) Get(ctx channel.HandlerContext, req *Request, r
 
 func (h *StaticFilesHandlerTask) _Load(path string) (*staticFileCacheEntity, error) {
 	if h.DoCache {
-		if entity, f := h.cacheMap[path]; f {
+		h.cacheMu.RLock()
+		entity, f := h.cacheMap[path]
+		h.cacheMu.RUnlock()
+		if f {
 			return entity, nil
 		}
 	}
@@ -96,7 +119,9 @@ func (h *StaticFilesHandlerTask) _Load(path string) (*staticFileCacheEntity, err
 			}
 
 			if h.DoCache {
+				h.cacheMu.Lock()
 				h.cacheMap[path] = &entity
+				h.cacheMu.Unlock()
 			}
 
 			return &entity, nil

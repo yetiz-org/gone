@@ -15,6 +15,7 @@ import (
 
 var defaultSessionProvider httpsession.SessionProvider = nil
 var mutex = sync.Mutex{}
+var sessionProviderOnce = sync.Once{}
 
 var DefaultSessionType = memory.SessionTypeMemory
 var SessionKey = "DEFAULT"
@@ -26,20 +27,29 @@ var SessionSecure = false
 var sessionProviders = make(map[httpsession.SessionType]httpsession.SessionProvider)
 
 func RegisterSessionProvider(provider httpsession.SessionProvider) {
+	if provider == nil {
+		return
+	}
+
+	mutex.Lock()
+	defer mutex.Unlock()
 	sessionProviders[provider.Type()] = provider
 }
 
 func SessionProvider() httpsession.SessionProvider {
-	if defaultSessionProvider == nil {
-		RegisterSessionProvider(memory.NewSessionProvider())
+	sessionProviderOnce.Do(func() {
+		provider := memory.NewSessionProvider()
 		mutex.Lock()
 		defer mutex.Unlock()
+		if provider != nil {
+			sessionProviders[provider.Type()] = provider
+		}
 		defaultSessionProvider = sessionProviders[DefaultSessionType]
 		if defaultSessionProvider == nil {
 			kklogger.WarnJ("ghttp:SessionProvider.init#init!default_provider", "default session provider not found, use memory session provider")
 			defaultSessionProvider = sessionProviders[memory.SessionTypeMemory]
 		}
-	}
+	})
 
 	return defaultSessionProvider
 }

@@ -34,8 +34,9 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cch := r.Context().Value(ConnChCtx).(*Channel)
-	if cch == nil {
+	v := r.Context().Value(ConnChCtx)
+	cch, ok := v.(*Channel)
+	if !ok || cch == nil {
 		kklogger.ErrorJ("ghttp:ServerChannel.ServeHTTP#serve_http!no_channel", "can't get Channel")
 		return
 	}
