@@ -10,7 +10,7 @@ import (
 )
 
 var _NotFoundWithMessage = Collection.Register(&DefaultErrorResponse{
-	StatusCode:  httpstatus.BadRequest,
+	StatusCode:  httpstatus.NotFound,
 	Name:        constant.ErrorNotFound,
 	Description: "",
 	DefaultKKError: kkerror.DefaultKKError{
@@ -22,7 +22,7 @@ var _NotFoundWithMessage = Collection.Register(&DefaultErrorResponse{
 
 func NotFoundWithMessage(message string) ErrorResponse {
 	return &DefaultErrorResponse{
-		StatusCode:  httpstatus.BadRequest,
+		StatusCode:  httpstatus.NotFound,
 		Name:        constant.ErrorNotFound,
 		Description: "",
 		DefaultKKError: kkerror.DefaultKKError{
