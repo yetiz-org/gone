@@ -13,12 +13,15 @@ import (
 )
 
 const LogHandlerDefaultMaxBodySize = 204800
+const LogHandlerDefaultMaxReqBodySize = 100000
+const LogHandlerDefaultMaxRespBodySize = 100000
 
 type LogHandler struct {
 	channel.DefaultHandler
-	printBody   bool
-	MaxBodySize int
-	FilterFunc  func(req *Request, resp *Response, params map[string]any) bool
+	printBody       bool
+	ReqMaxBodySize  int
+	RespMaxBodySize int
+	FilterFunc      func(req *Request, resp *Response, params map[string]any) bool
 }
 
 var defaultFilter = func(req *Request, resp *Response, params map[string]any) bool { return true }
@@ -26,7 +29,8 @@ var defaultFilter = func(req *Request, resp *Response, params map[string]any) bo
 func NewLogHandler(printBody bool) *LogHandler {
 	handler := LogHandler{}
 	handler.printBody = printBody
-	handler.MaxBodySize = LogHandlerDefaultMaxBodySize
+	handler.ReqMaxBodySize = LogHandlerDefaultMaxReqBodySize
+	handler.RespMaxBodySize = LogHandlerDefaultMaxRespBodySize
 	handler.FilterFunc = defaultFilter
 	return &handler
 }
@@ -89,8 +93,8 @@ func (h *LogHandler) constructReq(req *Request) *RequestLogStruct {
 
 	bodyLength := 0
 	if h.printBody {
-		if len(req.Body().Bytes()) > h.MaxBodySize {
-			logStruct.Body = string(req.Body().Bytes()[:h.MaxBodySize])
+		if len(req.Body().Bytes()) > h.ReqMaxBodySize {
+			logStruct.Body = string(req.Body().Bytes()[:h.ReqMaxBodySize])
 		} else {
 			logStruct.Body = string(req.Body().Bytes())
 		}
@@ -127,12 +131,13 @@ func (h *LogHandler) constructResp(resp *Response) *ResponseLogStruct {
 	}
 
 	if h.printBody {
+		maxBodySize := h.RespMaxBodySize
 		if resp.GetHeader(httpheadername.ContentEncoding) == "gzip" {
 			if reader, err := gzip.NewReader(buf.NewByteBuf(resp.body.Bytes())); err == nil {
 				defer reader.Close()
 				bus := buf.EmptyByteBuf().WriteReader(reader)
-				if len(bus.Bytes()) > h.MaxBodySize {
-					logStruct.Body = string(bus.Bytes()[:h.MaxBodySize])
+				if len(bus.Bytes()) > maxBodySize {
+					logStruct.Body = string(bus.Bytes()[:maxBodySize])
 				} else {
 					logStruct.Body = string(bus.Bytes())
 				}
@@ -140,8 +145,8 @@ func (h *LogHandler) constructResp(resp *Response) *ResponseLogStruct {
 				logStruct.PreCompressLength = len(logStruct.Body)
 			}
 		} else {
-			if len(resp.body.Bytes()) > h.MaxBodySize {
-				logStruct.Body = string(resp.body.Bytes()[:h.MaxBodySize])
+			if len(resp.body.Bytes()) > maxBodySize {
+				logStruct.Body = string(resp.body.Bytes()[:maxBodySize])
 			} else {
 				logStruct.Body = string(resp.body.Bytes())
 			}
