@@ -358,6 +358,9 @@ func (h *DefaultHandlerTask) GetNodeName(params map[string]any) string {
 }
 
 func (h *DefaultHandlerTask) GetID(name string, params map[string]any) string {
+	if rtn := params[fmt.Sprintf("[gone-http]p:%s", name)]; rtn != nil {
+		return rtn.(string)
+	}
 	if rtn := params[fmt.Sprintf("[gone-http]%s_id", name)]; rtn != nil {
 		return rtn.(string)
 	}

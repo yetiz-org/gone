@@ -975,7 +975,7 @@ func TestNodeParentChain(t *testing.T) {
 	t.Run("MixedDepthParentChain", func(t *testing.T) {
 		// Set up additional endpoint for intermediate level
 		route.SetEndpoint("/api/v1/organizations/:org_id/projects", nil)
-		
+
 		// Test path that stops at intermediate level
 		node, params, _ := route.RouteNode("/api/v1/organizations/org02/projects/proj02")
 		if node == nil {
@@ -987,12 +987,12 @@ func TestNodeParentChain(t *testing.T) {
 		if node.Name() != "projects" {
 			t.Errorf("Expected node name 'projects', got '%s'", node.Name())
 		}
-		
+
 		// Should have org_id from matching intermediate endpoint
 		if params["[gone-http]org_id"] != "org02" {
 			t.Errorf("Expected org_id='org02', got '%v'", params["[gone-http]org_id"])
 		}
-		
+
 		// Should have default projects_id
 		if params["[gone-http]projects_id"] != "proj02" {
 			t.Errorf("Expected projects_id='proj02', got '%v'", params["[gone-http]projects_id"])
@@ -1212,7 +1212,7 @@ func TestDeepNestedParameterExtraction(t *testing.T) {
 			if params["[gone-http]org_id"] != orgID {
 				t.Errorf("Expected org_id='%s', got '%v'", orgID, params["[gone-http]org_id"])
 			}
-			
+
 			// Verify other IDs also extracted
 			if params["[gone-http]proj_id"] != "proj01" {
 				t.Errorf("Expected proj_id='proj01', got '%v'", params["[gone-http]proj_id"])
@@ -1443,11 +1443,11 @@ func TestMixedCustomAndDefaultEndpoints(t *testing.T) {
 	// - Some with default IDs
 	// - In the same route tree
 	route.SetEndpoint("/api/v1/organizations", nil)
-	route.SetEndpoint("/api/v1/organizations/:org_id/teams", nil)                  // Custom org_id
-	route.SetEndpoint("/api/v1/organizations/projects", nil)                      // Default
-	route.SetEndpoint("/api/v1/organizations/projects/:proj_id/tasks/:task_id", nil)  // Mixed: default org, custom proj & task
-	route.SetEndpoint("/api/v1/users", nil)                                       // Default
-	route.SetEndpoint("/api/v1/users/:user_id/posts/:post_id", nil)              // Custom both
+	route.SetEndpoint("/api/v1/organizations/:org_id/teams", nil)                    // Custom org_id
+	route.SetEndpoint("/api/v1/organizations/projects", nil)                         // Default
+	route.SetEndpoint("/api/v1/organizations/projects/:proj_id/tasks/:task_id", nil) // Mixed: default org, custom proj & task
+	route.SetEndpoint("/api/v1/users", nil)                                          // Default
+	route.SetEndpoint("/api/v1/users/:user_id/posts/:post_id", nil)                  // Custom both
 
 	t.Run("CustomIDPath", func(t *testing.T) {
 		// Access path with custom IDs
@@ -1512,7 +1512,7 @@ func TestMixedCustomAndDefaultEndpoints(t *testing.T) {
 		// Path with custom task_id - need to access via task endpoint
 		// This tests that same base path can have different ID semantics
 		// depending on which endpoint is matched
-		
+
 		// Access via default projects endpoint
 		node1, params1, _ := route.RouteNode("/api/v1/organizations/org03/projects/proj03")
 		if node1 == nil {
@@ -1528,7 +1528,7 @@ func TestMixedCustomAndDefaultEndpoints(t *testing.T) {
 		if node1.Name() != "projects" {
 			t.Errorf("Expected node1 name 'projects', got '%s'", node1.Name())
 		}
-		
+
 		// Access via custom task_id endpoint
 		// NOTE: The endpoint is /api/v1/organizations/projects/:proj_id/tasks/:task_id
 		// So we don't include org_id in the path - it goes directly from organizations to projects
@@ -1661,7 +1661,7 @@ func TestIDExtractionRules(t *testing.T) {
 		if params["[gone-http]teams_id"] != "team01" {
 			t.Errorf("Expected teams_id='team01', got '%v'", params["[gone-http]teams_id"])
 		}
-		
+
 		// Verify all node names in parent chain
 		if node.Name() != "teams" {
 			t.Errorf("Expected node name 'teams', got '%s'", node.Name())
@@ -1891,9 +1891,9 @@ func TestBraceSyntaxSingleID(t *testing.T) {
 		t.Errorf("Expected child node name to be 'permissions', got '%s'", childNode.Name())
 	}
 
-	orgID, exists := childParams["[gone-http]org_id"]
+	orgID, exists := childParams["[gone-http]p:org_id"]
 	if !exists {
-		t.Errorf("Expected param '[gone-http]org_id', available params: %v", childParams)
+		t.Errorf("Expected param '[gone-http]p:org_id', available params: %v", childParams)
 	}
 	if orgID != "123" {
 		t.Errorf("Expected org_id to be '123', got '%v'", orgID)
@@ -1946,18 +1946,18 @@ func TestBraceSyntaxMultipleIDs(t *testing.T) {
 	}
 
 	// Verify first custom ID: organizations_id
-	orgID, exists := params["[gone-http]organizations_id"]
+	orgID, exists := params["[gone-http]p:organizations_id"]
 	if !exists {
-		t.Errorf("Expected param '[gone-http]organizations_id', available params: %v", params)
+		t.Errorf("Expected param '[gone-http]p:organizations_id', available params: %v", params)
 	}
 	if orgID != "org123" {
 		t.Errorf("Expected organizations_id to be 'org123', got '%v'", orgID)
 	}
 
 	// Verify second custom ID: member_id
-	memberID, exists := params["[gone-http]member_id"]
+	memberID, exists := params["[gone-http]p:member_id"]
 	if !exists {
-		t.Errorf("Expected param '[gone-http]member_id', available params: %v", params)
+		t.Errorf("Expected param '[gone-http]p:member_id', available params: %v", params)
 	}
 	if memberID != "mem456" {
 		t.Errorf("Expected member_id to be 'mem456', got '%v'", memberID)
@@ -1995,43 +1995,38 @@ func TestBraceSyntaxMixedWithColonSyntax(t *testing.T) {
 	}
 
 	// Verify {perm_id} works
-	permID, exists := params["[gone-http]perm_id"]
+	permID, exists := params["[gone-http]p:perm_id"]
 	if !exists {
-		t.Errorf("Expected param '[gone-http]perm_id', available params: %v", params)
+		t.Errorf("Expected param '[gone-http]p:perm_id', available params: %v", params)
 	}
 	if permID != "456" {
 		t.Errorf("Expected perm_id to be '456', got '%v'", permID)
 	}
 }
 
-// TestBraceSyntaxInvalidID tests {param} syntax without _id suffix (should use default)
-func TestBraceSyntaxInvalidID(t *testing.T) {
+// TestBraceSyntaxNonIdParam tests {param} syntax without _id suffix (should still be explicit)
+func TestBraceSyntaxNonIdParam(t *testing.T) {
 	route := NewSimpleRoute()
 
 	route.SetEndpoint("/api/v1/organizations", nil)
-	// {org} is invalid because it doesn't end with _id
+	// {org} should be treated as explicit param name
 	route.SetEndpoint("/api/v1/organizations/{org}", nil)
 
 	node, params, _ := route.RouteNode("/api/v1/organizations/123")
 	if node == nil {
 		t.Fatal("Expected to find node")
 	}
-	if node.Name() != "organizations" {
-		t.Errorf("Expected node name to be 'organizations', got '%s'", node.Name())
+	if node.Name() != "org" {
+		t.Errorf("Expected node name to be 'org', got '%s'", node.Name())
 	}
 
-	// Should fall back to default organizations_id
-	orgID, exists := params["[gone-http]organizations_id"]
+	// Should use explicit param name with p: prefix
+	orgID, exists := params["[gone-http]p:org"]
 	if !exists {
-		t.Errorf("Expected param '[gone-http]organizations_id' (default, {org} invalid), available params: %v", params)
+		t.Errorf("Expected param '[gone-http]p:org' (explicit), available params: %v", params)
 	}
 	if orgID != "123" {
-		t.Errorf("Expected organizations_id to be '123', got '%v'", orgID)
-	}
-
-	// Should NOT have invalid {org} param
-	if _, exists := params["[gone-http]org"]; exists {
-		t.Error("Should not have '[gone-http]org' param (invalid custom ID without _id suffix)")
+		t.Errorf("Expected org to be '123', got '%v'", orgID)
 	}
 }
 
@@ -2040,7 +2035,6 @@ func TestBraceSyntaxUserRequest(t *testing.T) {
 	route := NewSimpleRoute()
 
 	// User's exact request: "/mgmt/v1/organizations/{organizations_id}/members/{id}"
-	// Note: {id} doesn't end with _id, so it should fall back to default members_id
 	route.SetEndpoint("/mgmt/v1/organizations/{organizations_id}/members/{id}", nil)
 
 	node, params, _ := route.RouteNode("/mgmt/v1/organizations/org-abc/members/user-123")
@@ -2049,20 +2043,24 @@ func TestBraceSyntaxUserRequest(t *testing.T) {
 	}
 
 	// Verify organizations_id (valid custom ID)
-	orgID, exists := params["[gone-http]organizations_id"]
+	orgID, exists := params["[gone-http]p:organizations_id"]
 	if !exists {
-		t.Errorf("Expected param '[gone-http]organizations_id', available params: %v", params)
+		t.Errorf("Expected param '[gone-http]p:organizations_id', available params: %v", params)
 	}
 	if orgID != "org-abc" {
 		t.Errorf("Expected organizations_id to be 'org-abc', got '%v'", orgID)
 	}
 
-	// Verify members_id (default, because {id} doesn't end with _id)
-	memberID, exists := params["[gone-http]members_id"]
+	// Verify id (explicit brace param)
+	memberID, exists := params["[gone-http]p:id"]
 	if !exists {
-		t.Errorf("Expected param '[gone-http]members_id' (default, {id} invalid), available params: %v", params)
+		t.Errorf("Expected param '[gone-http]p:id' (explicit), available params: %v", params)
 	}
 	if memberID != "user-123" {
-		t.Errorf("Expected members_id to be 'user-123', got '%v'", memberID)
+		t.Errorf("Expected id to be 'user-123', got '%v'", memberID)
+	}
+
+	if _, exists := params["[gone-http]members_id"]; exists {
+		t.Error("Should not have '[gone-http]members_id' param (brace id is explicit)")
 	}
 }

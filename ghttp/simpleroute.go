@@ -61,7 +61,8 @@ func (n *_SimpleNode) path() string {
 // endpointParamMapping stores custom parameter names for a specific endpoint path
 type endpointParamMapping struct {
 	// Map from node name to custom param name (e.g., "organizations" -> "org_id")
-	nodeToParamName map[string]string
+	nodeToParamName           map[string]string
+	nodeToParamUsePrefixedKey map[string]bool
 }
 
 type SimpleRoute struct {
@@ -170,7 +171,8 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	partsLen := len(parts)
 
 	mapping := &endpointParamMapping{
-		nodeToParamName: make(map[string]string),
+		nodeToParamName:           make(map[string]string),
+		nodeToParamUsePrefixedKey: make(map[string]bool),
 	}
 	hasCustomParams := false
 
@@ -178,8 +180,13 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 		// Support both :param and {param} syntax
 		paramName := extractParamName(part)
 		if paramName != "" {
-			// Only recognize custom ID if it ends with "_id"
-			if strings.HasSuffix(paramName, "_id") {
+			isBraceParam := strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}")
+			// Brace syntax always uses explicit param name; colon syntax keeps _id requirement
+			if isBraceParam {
+				mapping.nodeToParamName[current.(*_SimpleNode).name] = paramName
+				mapping.nodeToParamUsePrefixedKey[current.(*_SimpleNode).name] = true
+				hasCustomParams = true
+			} else if strings.HasSuffix(paramName, "_id") {
 				mapping.nodeToParamName[current.(*_SimpleNode).name] = paramName
 				hasCustomParams = true
 			}
@@ -378,6 +385,9 @@ func (r *SimpleRoute) getParamKeyForPath(node RouteNode, matchedNodes []RouteNod
 	mapping := r.findBestMatchingMapping(matchedNodes, pathParts)
 	if mapping != nil {
 		if paramName, ok := mapping.nodeToParamName[node.Name()]; ok {
+			if mapping.nodeToParamUsePrefixedKey[node.Name()] {
+				return fmt.Sprintf("[gone-http]p:%s", paramName)
+			}
 			return fmt.Sprintf("[gone-http]%s", paramName)
 		}
 	}
