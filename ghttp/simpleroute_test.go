@@ -2064,3 +2064,289 @@ func TestBraceSyntaxUserRequest(t *testing.T) {
 		t.Error("Should not have '[gone-http]members_id' param (brace id is explicit)")
 	}
 }
+
+// =============================================================================
+// GetID Function Tests - Verify both colon syntax and brace syntax work with GetID
+// =============================================================================
+
+// TestGetID_ColonSyntax tests that GetID works correctly with colon syntax (:param_id)
+func TestGetID_ColonSyntax(t *testing.T) {
+	route := NewSimpleRoute()
+	handler := &DefaultHandlerTask{}
+
+	// Set up endpoint with colon syntax
+	route.SetEndpoint("/api/v1/organizations/:org_id/albums/:album_id/songs", nil)
+
+	t.Run("ColonSyntax_FullPath", func(t *testing.T) {
+		_, params, _ := route.RouteNode("/api/v1/organizations/org123/albums/album456/songs/song789")
+
+		// Test GetID with colon syntax params
+		if id := handler.GetID("org_id", params); id != "org123" {
+			t.Errorf("GetID(\"org_id\") = %q, want \"org123\"", id)
+		}
+		if id := handler.GetID("album_id", params); id != "album456" {
+			t.Errorf("GetID(\"album_id\") = %q, want \"album456\"", id)
+		}
+		// songs uses default format since no custom ID specified
+		if id := handler.GetID("songs_id", params); id != "song789" {
+			t.Errorf("GetID(\"songs_id\") = %q, want \"song789\"", id)
+		}
+		if id := handler.GetID("songs", params); id != "song789" {
+			t.Errorf("GetID(\"songs\") = %q, want \"song789\"", id)
+		}
+	})
+
+	t.Run("ColonSyntax_IntermediatePath", func(t *testing.T) {
+		_, params, _ := route.RouteNode("/api/v1/organizations/org123/albums/album456/songs")
+
+		if id := handler.GetID("org_id", params); id != "org123" {
+			t.Errorf("GetID(\"org_id\") = %q, want \"org123\"", id)
+		}
+		if id := handler.GetID("album_id", params); id != "album456" {
+			t.Errorf("GetID(\"album_id\") = %q, want \"album456\"", id)
+		}
+	})
+}
+
+// TestGetID_BraceSyntax tests that GetID works correctly with brace syntax ({param_id})
+func TestGetID_BraceSyntax(t *testing.T) {
+	route := NewSimpleRoute()
+	handler := &DefaultHandlerTask{}
+
+	// Set up endpoint with brace syntax
+	route.SetEndpoint("/api/v1/organizations/{organizations_id}/albums/{albums_id}/songs", nil)
+
+	t.Run("BraceSyntax_FullPath", func(t *testing.T) {
+		_, params, _ := route.RouteNode("/api/v1/organizations/org123/albums/album456/songs/song789")
+
+		// Test GetID with brace syntax params - must use exact param name
+		if id := handler.GetID("organizations_id", params); id != "org123" {
+			t.Errorf("GetID(\"organizations_id\") = %q, want \"org123\"", id)
+		}
+		if id := handler.GetID("albums_id", params); id != "album456" {
+			t.Errorf("GetID(\"albums_id\") = %q, want \"album456\"", id)
+		}
+		// songs uses default format
+		if id := handler.GetID("songs_id", params); id != "song789" {
+			t.Errorf("GetID(\"songs_id\") = %q, want \"song789\"", id)
+		}
+		if id := handler.GetID("songs", params); id != "song789" {
+			t.Errorf("GetID(\"songs\") = %q, want \"song789\"", id)
+		}
+	})
+
+	t.Run("BraceSyntax_IntermediatePath", func(t *testing.T) {
+		_, params, _ := route.RouteNode("/api/v1/organizations/org123/albums/album456/songs")
+
+		if id := handler.GetID("organizations_id", params); id != "org123" {
+			t.Errorf("GetID(\"organizations_id\") = %q, want \"org123\"", id)
+		}
+		if id := handler.GetID("albums_id", params); id != "album456" {
+			t.Errorf("GetID(\"albums_id\") = %q, want \"album456\"", id)
+		}
+	})
+}
+
+// TestGetID_MixedSyntax tests that GetID works with mixed colon and brace syntax
+func TestGetID_MixedSyntax(t *testing.T) {
+	route := NewSimpleRoute()
+	handler := &DefaultHandlerTask{}
+
+	// Mix both syntaxes in same endpoint
+	route.SetEndpoint("/api/v1/organizations/:org_id/albums/{albums_id}/songs", nil)
+
+	_, params, _ := route.RouteNode("/api/v1/organizations/org123/albums/album456/songs/song789")
+
+	// Colon syntax param
+	if id := handler.GetID("org_id", params); id != "org123" {
+		t.Errorf("GetID(\"org_id\") = %q, want \"org123\"", id)
+	}
+
+	// Brace syntax param
+	if id := handler.GetID("albums_id", params); id != "album456" {
+		t.Errorf("GetID(\"albums_id\") = %q, want \"album456\"", id)
+	}
+
+	// Default format for songs
+	if id := handler.GetID("songs_id", params); id != "song789" {
+		t.Errorf("GetID(\"songs_id\") = %q, want \"song789\"", id)
+	}
+}
+
+// TestGetID_DefaultFormat tests GetID with default parameter format (no custom ID)
+func TestGetID_DefaultFormat(t *testing.T) {
+	route := NewSimpleRoute()
+	handler := &DefaultHandlerTask{}
+
+	// Default format requires each endpoint level to be defined
+	route.SetEndpoint("/api/v1/organizations", nil)
+	route.SetEndpoint("/api/v1/organizations/albums", nil)
+	route.SetEndpoint("/api/v1/organizations/albums/songs", nil)
+
+	_, params, _ := route.RouteNode("/api/v1/organizations/org123/albums/album456/songs/song789")
+
+	// All use default format: [gone-http]node_id
+	if id := handler.GetID("organizations", params); id != "org123" {
+		t.Errorf("GetID(\"organizations\") = %q, want \"org123\"", id)
+	}
+	if id := handler.GetID("albums", params); id != "album456" {
+		t.Errorf("GetID(\"albums\") = %q, want \"album456\"", id)
+	}
+	if id := handler.GetID("songs", params); id != "song789" {
+		t.Errorf("GetID(\"songs\") = %q, want \"song789\"", id)
+	}
+}
+
+// TestGetID_BackwardCompatibility verifies backward compatibility with existing code
+func TestGetID_BackwardCompatibility(t *testing.T) {
+	handler := &DefaultHandlerTask{}
+
+	t.Run("LegacyDefaultFormat", func(t *testing.T) {
+		// Simulate legacy params format
+		params := map[string]any{
+			"[gone-http]users_id":   "user123",
+			"[gone-http]posts_id":   "post456",
+			"[gone-http]is_index":   false,
+			"[gone-http]node_name":  "posts",
+		}
+
+		if id := handler.GetID("users", params); id != "user123" {
+			t.Errorf("GetID(\"users\") = %q, want \"user123\"", id)
+		}
+		if id := handler.GetID("posts", params); id != "post456" {
+			t.Errorf("GetID(\"posts\") = %q, want \"post456\"", id)
+		}
+	})
+
+	t.Run("LegacyColonSyntaxFormat", func(t *testing.T) {
+		// Simulate colon syntax params format
+		params := map[string]any{
+			"[gone-http]user_id":   "user123",
+			"[gone-http]post_id":   "post456",
+		}
+
+		if id := handler.GetID("user", params); id != "user123" {
+			t.Errorf("GetID(\"user\") = %q, want \"user123\"", id)
+		}
+		if id := handler.GetID("post", params); id != "post456" {
+			t.Errorf("GetID(\"post\") = %q, want \"post456\"", id)
+		}
+	})
+
+	t.Run("NewBraceSyntaxFormat", func(t *testing.T) {
+		// Simulate brace syntax params format with p: prefix
+		params := map[string]any{
+			"[gone-http]p:user_id":   "user123",
+			"[gone-http]p:post_id":   "post456",
+		}
+
+		if id := handler.GetID("user_id", params); id != "user123" {
+			t.Errorf("GetID(\"user_id\") = %q, want \"user123\"", id)
+		}
+		if id := handler.GetID("post_id", params); id != "post456" {
+			t.Errorf("GetID(\"post_id\") = %q, want \"post456\"", id)
+		}
+	})
+}
+
+// TestGetID_ComplexNestedRoute tests GetID with deeply nested routes
+func TestGetID_ComplexNestedRoute(t *testing.T) {
+	route := NewSimpleRoute()
+	handler := &DefaultHandlerTask{}
+
+	// Complex nested route with brace syntax
+	route.SetEndpoint("/mgmt/v1/organizations/{org_id}/projects/{project_id}/tasks/{task_id}/comments", nil)
+
+	_, params, _ := route.RouteNode("/mgmt/v1/organizations/org1/projects/proj2/tasks/task3/comments/comment4")
+
+	// All brace syntax params
+	if id := handler.GetID("org_id", params); id != "org1" {
+		t.Errorf("GetID(\"org_id\") = %q, want \"org1\"", id)
+	}
+	if id := handler.GetID("project_id", params); id != "proj2" {
+		t.Errorf("GetID(\"project_id\") = %q, want \"proj2\"", id)
+	}
+	if id := handler.GetID("task_id", params); id != "task3" {
+		t.Errorf("GetID(\"task_id\") = %q, want \"task3\"", id)
+	}
+	// comments uses default format
+	if id := handler.GetID("comments_id", params); id != "comment4" {
+		t.Errorf("GetID(\"comments_id\") = %q, want \"comment4\"", id)
+	}
+	if id := handler.GetID("comments", params); id != "comment4" {
+		t.Errorf("GetID(\"comments\") = %q, want \"comment4\"", id)
+	}
+}
+
+// TestGetID_EmptyAndMissing tests GetID behavior with missing params
+func TestGetID_EmptyAndMissing(t *testing.T) {
+	handler := &DefaultHandlerTask{}
+
+	params := map[string]any{
+		"[gone-http]existing_id": "value123",
+	}
+
+	// Existing param
+	if id := handler.GetID("existing", params); id != "value123" {
+		t.Errorf("GetID(\"existing\") = %q, want \"value123\"", id)
+	}
+
+	// Missing param should return empty string
+	if id := handler.GetID("nonexistent", params); id != "" {
+		t.Errorf("GetID(\"nonexistent\") = %q, want \"\"", id)
+	}
+
+	// Empty params map
+	emptyParams := map[string]any{}
+	if id := handler.GetID("anything", emptyParams); id != "" {
+		t.Errorf("GetID(\"anything\") with empty params = %q, want \"\"", id)
+	}
+}
+
+// TestGetID_SpecialCharactersInValues tests GetID with special characters in ID values
+func TestGetID_SpecialCharactersInValues(t *testing.T) {
+	route := NewSimpleRoute()
+	handler := &DefaultHandlerTask{}
+
+	route.SetEndpoint("/api/v1/items/{item_id}", nil)
+
+	testCases := []struct {
+		name    string
+		idValue string
+	}{
+		{"UUID", "550e8400-e29b-41d4-a716-446655440000"},
+		{"WithUnderscore", "item_with_underscore"},
+		{"WithDash", "item-with-dash"},
+		{"Numeric", "12345"},
+		{"Mixed", "Item-123_ABC"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, params, _ := route.RouteNode("/api/v1/items/" + tc.idValue)
+
+			if id := handler.GetID("item_id", params); id != tc.idValue {
+				t.Errorf("GetID(\"item_id\") = %q, want %q", id, tc.idValue)
+			}
+		})
+	}
+}
+
+// TestTaskHelper_GetID tests TaskHelper.GetID maintains same behavior as DefaultHandlerTask.GetID
+func TestTaskHelper_GetID(t *testing.T) {
+	route := NewSimpleRoute()
+	taskHelper := &TaskHelper{}
+
+	// Set up with brace syntax
+	route.SetEndpoint("/api/v1/users/{user_id}/posts/{post_id}", nil)
+
+	_, params, _ := route.RouteNode("/api/v1/users/user123/posts/post456")
+
+	// Verify TaskHelper.GetID works same as DefaultHandlerTask.GetID
+	if id := taskHelper.GetID("user_id", params); id != "user123" {
+		t.Errorf("TaskHelper.GetID(\"user_id\") = %q, want \"user123\"", id)
+	}
+	if id := taskHelper.GetID("post_id", params); id != "post456" {
+		t.Errorf("TaskHelper.GetID(\"post_id\") = %q, want \"post456\"", id)
+	}
+}
