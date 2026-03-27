@@ -16,7 +16,7 @@ require (
 	github.com/yetiz-org/goth-kkerror v1.0.0
 	github.com/yetiz-org/goth-kklogger v1.2.8
 	github.com/yetiz-org/goth-panic v1.1.1
-	github.com/yetiz-org/goth-util v1.4.0
+	github.com/yetiz-org/goth-util v1.5.0
 	golang.org/x/text v0.27.0
 )
 

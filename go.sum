@@ -45,8 +45,8 @@ github.com/yetiz-org/goth-kklogger v1.2.8 h1:Q6G4kSDfXZ8TmkBoAW9jd6o8+XKOI0ElAo1
 github.com/yetiz-org/goth-kklogger v1.2.8/go.mod h1:xOJb2U5Aj/JnBjXjgC+Q2eyE/9waFirMkVYYtyg9Gyc=
 github.com/yetiz-org/goth-panic v1.1.1 h1:Tdp/1WowlKpILXxozECsKZDF0KypiZ4TMhy3/AJHlEA=
 github.com/yetiz-org/goth-panic v1.1.1/go.mod h1:ZxDU7Bnc69jZhSNyGn0g1tif4UlHyU5ga64KZ/pRKmg=
-github.com/yetiz-org/goth-util v1.4.0 h1:JAygmLEABjhd2HKJKcWOeohxdKSY83MawPibTKo5Tys=
-github.com/yetiz-org/goth-util v1.4.0/go.mod h1:OlFZhAmaSo1oqXeZNECfMu4i3EDaa0wwopAGdqZb1Os=
+github.com/yetiz-org/goth-util v1.5.0 h1:k9MmL/ALc2TRNasSKrUsbCm+i4fBzpp1iTeLfpovoEc=
+github.com/yetiz-org/goth-util v1.5.0/go.mod h1:KJFRieSw6BtOyqKbKzPxYpV8nILkJj/JxdICeISv4GU=
 golang.org/x/text v0.27.0 h1:4fGWRpyh641NLlecmyl4LOe6yDdfaYNrGb2zdfo4JV4=
 golang.org/x/text v0.27.0/go.mod h1:1D28KMCvyooCX9hBiosv5Tz/+YLxj0j7XhWjpSUF7CU=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
