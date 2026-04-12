@@ -125,7 +125,7 @@ func TestChannelRangeLoopDeregistration(t *testing.T) {
 	assert.Equal(t, int32(0), mockCh2.GetDeregisterCount(), "Channel 2 should have 0 deregister calls initially")
 
 	// Simulate the Range loop logic from UnsafeClose (when server.Shutdown fails)
-	serverChannel.chMap.Range(func(key, value interface{}) bool {
+	serverChannel.chMap.Range(func(key, value any) bool {
 		ch := value.(channel.NetChannel)
 		if ch.IsActive() {
 			ch.Deregister()
@@ -155,23 +155,19 @@ func TestLoadAndDeleteRaceCondition(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Simulate StateClosed callback doing LoadAndDelete
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if v, found := serverChannel.chMap.LoadAndDelete(conn); found {
 			ch := v.(channel.NetChannel)
 			if ch.IsActive() {
 				ch.Deregister()
 			}
 		}
-	}()
+	})
 
 	// Simulate Range loop trying to access the same connection
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(1 * time.Millisecond) // Small delay to create race condition
-		serverChannel.chMap.Range(func(key, value interface{}) bool {
+		serverChannel.chMap.Range(func(key, value any) bool {
 			if key == conn {
 				ch := value.(channel.NetChannel)
 				if ch.IsActive() {
@@ -181,7 +177,7 @@ func TestLoadAndDeleteRaceCondition(t *testing.T) {
 			}
 			return true
 		})
-	}()
+	})
 
 	wg.Wait()
 
@@ -202,12 +198,10 @@ func TestServerChannelMultipleDeregisterSafety(t *testing.T) {
 	var wg sync.WaitGroup
 	concurrentCalls := 10
 
-	for i := 0; i < concurrentCalls; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrentCalls {
+		wg.Go(func() {
 			mockCh.Deregister()
-		}()
+		})
 	}
 
 	wg.Wait()

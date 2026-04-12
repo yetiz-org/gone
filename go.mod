@@ -1,13 +1,10 @@
 module github.com/yetiz-org/gone
 
-go 1.24.0
-
-toolchain go1.24.4
+go 1.26.0
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tdewolff/minify/v2 v2.24.0
 	github.com/yetiz-org/goth-base62 v1.2.0

@@ -23,6 +23,6 @@ func InvalidTokenWithMessage(message string) ErrorResponse {
 }
 
 // InvalidTokenWithFormat provides backward compatibility for dynamic format strings
-func InvalidTokenWithFormat(format string, args ...interface{}) ErrorResponse {
+func InvalidTokenWithFormat(format string, args ...any) ErrorResponse {
 	return InvalidTokenWithMessage(fmt.Sprintf(format, args...))
 }

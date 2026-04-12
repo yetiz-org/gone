@@ -20,14 +20,14 @@ var _InvalidRequestWithMessage = Collection.Register(&DefaultErrorResponse{
 	},
 })
 
-func InvalidRequestWithMessage(format string, params ...interface{}) ErrorResponse {
+func InvalidRequestWithMessage(format string, params ...any) ErrorResponse {
 	var message string
 	if len(params) == 0 {
 		message = format
 	} else {
 		message = fmt.Sprintf(format, params...)
 	}
-	
+
 	return &DefaultErrorResponse{
 		StatusCode:  httpstatus.BadRequest,
 		Name:        constant.ErrorInvalidRequest,

@@ -272,11 +272,10 @@ func (h *DefaultHTTPHandlerTask) SkipPreCheckForOptions() bool {
 
 // ParseRange parses HTTP Range header and returns start, end, valid
 func ParseRange(rangeHeader string, contentSize int64) (int64, int64, bool) {
-	if !strings.HasPrefix(rangeHeader, "bytes=") {
+	rangeSpec, found := strings.CutPrefix(rangeHeader, "bytes=")
+	if !found {
 		return 0, 0, false
 	}
-
-	rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
 
 	if strings.Contains(rangeSpec, ",") {
 		return 0, 0, false

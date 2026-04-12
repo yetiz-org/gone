@@ -89,3 +89,4 @@ fabric.properties
 *.DS_Store
 /alloc/logs/
 /PLAN.md
+/.sessions/

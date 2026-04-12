@@ -77,7 +77,7 @@ func (h *LogHandler) constructReq(req *Request) *RequestLogStruct {
 	for name, value := range req.Header() {
 		valStr := ""
 		if len(value) > 1 {
-			for i := 0; i < len(value); i++ {
+			for i := range value {
 				if i == 0 {
 					valStr = value[0]
 				} else {
@@ -116,7 +116,7 @@ func (h *LogHandler) constructResp(resp *Response) *ResponseLogStruct {
 	for name, value := range resp.Header() {
 		valStr := ""
 		if len(value) > 1 {
-			for i := 0; i < len(value); i++ {
+			for i := range value {
 				if i == 0 {
 					valStr = value[0]
 				} else {

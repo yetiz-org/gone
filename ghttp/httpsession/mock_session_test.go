@@ -10,13 +10,13 @@ import (
 
 func TestMockSessionProvider_InterfaceCompliance(t *testing.T) {
 	// Test that MockSessionProvider implements SessionProvider interface
-	var mockProvider interface{} = NewMockSessionProvider()
+	var mockProvider any = NewMockSessionProvider()
 	assert.Implements(t, (*SessionProvider)(nil), mockProvider, "MockSessionProvider should implement SessionProvider interface")
 }
 
 func TestMockSession_InterfaceCompliance(t *testing.T) {
 	// Test that MockSession implements Session interface
-	var mockSession interface{} = NewMockSession()
+	var mockSession any = NewMockSession()
 	assert.Implements(t, (*Session)(nil), mockSession, "MockSession should implement Session interface")
 }
 

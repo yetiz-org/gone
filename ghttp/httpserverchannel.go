@@ -160,7 +160,7 @@ func (c *ServerChannel) UnsafeClose() error {
 		kklogger.WarnJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!shutdown_timeout", err.Error())
 
 		// Force close any remaining connections that didn't close gracefully
-		c.chMap.Range(func(key, value interface{}) bool {
+		c.chMap.Range(func(key, value any) bool {
 			ch := value.(channel.NetChannel)
 			if ch.IsActive() {
 				kklogger.TraceJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!force_close", fmt.Sprintf("force closing channel_id: %s", ch.ID()))

@@ -67,7 +67,7 @@ func NewMockHandler() *channel.MockHandler {
 	return channel.NewMockHandler()
 }
 
-func NewMockFuture(ch interface{}) *channel.MockFuture {
+func NewMockFuture(ch any) *channel.MockFuture {
 	return channel.NewMockFuture(ch)
 }
 

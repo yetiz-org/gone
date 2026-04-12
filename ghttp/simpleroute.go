@@ -3,7 +3,7 @@ package ghttp
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -107,7 +107,7 @@ func (r *SimpleRoute) String() string {
 		paths = append(paths, path)
 	}
 
-	sort.Strings(paths)
+	slices.Sort(paths)
 	marshal, _ := json.Marshal(paths)
 	return string(marshal)
 }
@@ -367,8 +367,8 @@ func (r *SimpleRoute) pathMatchesEndpoint(matchedNodes []RouteNode, pathParts []
 // extractParamName extracts parameter name from :param or {param} syntax
 // Returns empty string if not a parameter placeholder
 func extractParamName(part string) string {
-	if strings.HasPrefix(part, ":") {
-		return strings.TrimPrefix(part, ":")
+	if after, ok := strings.CutPrefix(part, ":"); ok {
+		return after
 	}
 	if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
 		return strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}")
@@ -407,8 +407,8 @@ func (r *SimpleRoute) wrapNodeChainIfNeeded(node RouteNode, matchedNodes []Route
 
 	if paramName, ok := mapping.nodeToParamName[node.Name()]; ok {
 		customName := paramName
-		if strings.HasSuffix(paramName, "_id") {
-			customName = strings.TrimSuffix(paramName, "_id")
+		if before, ok0 := strings.CutSuffix(paramName, "_id"); ok0 {
+			customName = before
 		}
 
 		return &_SimpleNodeWrapper{

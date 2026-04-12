@@ -83,8 +83,8 @@ func _NewSession(req *Request) httpsession.Session {
 
 	if hc := req.Header().Get(httpheadername.Cookie); hc != "" {
 		var rehc string
-		for _, cookie := range strings.Split(hc, ";") {
-			if strings.Split(strings.TrimSpace(cookie), "=")[0] == SessionKey {
+		for cookie := range strings.SplitSeq(hc, ";") {
+			if key, _, _ := strings.Cut(strings.TrimSpace(cookie), "="); key == SessionKey {
 				continue
 			}
 

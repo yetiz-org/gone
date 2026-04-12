@@ -88,7 +88,7 @@ func TestServer_Start(t *testing.T) {
 	})
 
 	bwg := concurrent.WaitGroup{}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		bwg.Add(1)
 		go func(i int) {
 			chs := bootstrap.Connect(nil, &websocket.WSCustomConnectConfig{Url: "ws://localhost:18081/echo", Header: nil}).Sync().Channel()

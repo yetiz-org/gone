@@ -214,7 +214,7 @@ func TestStaticFilesHandlerTask_RealFileRangeRequest_Integration(t *testing.T) {
 
 	// Create test content - 100 bytes of known data
 	testContent := make([]byte, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		testContent[i] = byte('A' + (i % 26))
 	}
 
@@ -370,7 +370,7 @@ func TestStaticFilesHandlerTask_FullHTTPServerClient_Integration(t *testing.T) {
 	// Create test file 1: 1000 bytes
 	testFile1 := tmpDir + "/test1.txt"
 	testContent1 := make([]byte, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		testContent1[i] = byte('A' + (i % 26))
 	}
 	err := os.WriteFile(testFile1, testContent1, 0644)
@@ -379,7 +379,7 @@ func TestStaticFilesHandlerTask_FullHTTPServerClient_Integration(t *testing.T) {
 	// Create test file 2: 5000 bytes (larger file)
 	testFile2 := tmpDir + "/test2.bin"
 	testContent2 := make([]byte, 5000)
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		testContent2[i] = byte(i % 256)
 	}
 	err = os.WriteFile(testFile2, testContent2, 0644)
@@ -765,7 +765,7 @@ func TestStaticFilesHandlerTask_GoneHTTPServerClient_Integration(t *testing.T) {
 	// Create test file 1: 1000 bytes
 	testFile1 := tmpDir + "/test1.txt"
 	testContent1 := make([]byte, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		testContent1[i] = byte('A' + (i % 26))
 	}
 	err := os.WriteFile(testFile1, testContent1, 0644)
@@ -774,7 +774,7 @@ func TestStaticFilesHandlerTask_GoneHTTPServerClient_Integration(t *testing.T) {
 	// Create test file 2: 5000 bytes
 	testFile2 := tmpDir + "/test2.bin"
 	testContent2 := make([]byte, 5000)
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		testContent2[i] = byte(i % 256)
 	}
 	err = os.WriteFile(testFile2, testContent2, 0644)

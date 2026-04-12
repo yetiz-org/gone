@@ -48,7 +48,7 @@ func TestUDPServer_Start(t *testing.T) {
 		}))
 
 		bwg := concurrent.WaitGroup{}
-		for i := 0; i < 5; i++ { // Reduced from 10 to 5 for UDP
+		for i := range 5 { // Reduced from 10 to 5 for UDP
 			bwg.Add(1)
 			go func(i int) {
 				ch := bootstrap.Connect(nil, &net.UDPAddr{IP: nil, Port: 18083}).Sync().Channel()

@@ -64,7 +64,7 @@ func TestServer_Start(t *testing.T) {
 
 	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel()
 	wg := concurrent.WaitGroup{}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(i int) {
 			wg.Add(1)
 			defer func() {
@@ -103,7 +103,7 @@ func TestServer_Start(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080"); err != nil {
@@ -116,7 +116,7 @@ func TestServer_Start(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/home"); err != nil {
@@ -130,7 +130,7 @@ func TestServer_Start(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/v1/home"); err != nil {
@@ -144,7 +144,7 @@ func TestServer_Start(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			wg.Add(1)
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/homes"); err != nil {
@@ -185,7 +185,7 @@ func TestServer_Start(t *testing.T) {
 
 	wg.Wait()
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		go func() {
 			wg.Add(1)
 			request, _ := http2.NewRequest("POST", "http://localhost:18080", nil)
@@ -221,7 +221,7 @@ func TestServer_Start(t *testing.T) {
 	time.Sleep(time.Millisecond * 500)
 
 	// Ensure all deregister events have been processed
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if clientCountHandler.regTrigCount == 0 && clientCountHandler.actTrigCount == 0 {
 			break
 		}

@@ -200,7 +200,7 @@ func TestSessionProvider_ConcurrentAccess(t *testing.T) {
 	sessionIds := make([]string, numGoroutines)
 
 	// Concurrently create sessions
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
@@ -208,7 +208,7 @@ func TestSessionProvider_ConcurrentAccess(t *testing.T) {
 			sessionIds[index] = session.Id()
 
 			// Perform multiple operations
-			for j := 0; j < numOperations; j++ {
+			for range numOperations {
 				session.PutString("key", "value")
 				provider.Save(session)
 				provider.Session(session.Id())
@@ -225,7 +225,7 @@ func TestSessionProvider_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrently delete sessions
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()

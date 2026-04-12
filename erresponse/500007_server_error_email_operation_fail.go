@@ -35,6 +35,6 @@ func ServerErrorEmailOperationWithMessage(message string) ErrorResponse {
 }
 
 // ServerErrorEmailOperationWithFormat provides backward compatibility for dynamic format strings
-func ServerErrorEmailOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+func ServerErrorEmailOperationWithFormat(format string, args ...any) ErrorResponse {
 	return ServerErrorEmailOperationWithMessage(fmt.Sprintf(format, args...))
 }

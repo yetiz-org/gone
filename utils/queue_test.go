@@ -57,13 +57,13 @@ func TestQueue_ConcurrentPushOperations(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent push operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < pushesPerGoroutine; j++ {
-				value := map[string]interface{}{
+			for j := range pushesPerGoroutine {
+				value := map[string]any{
 					"goroutine": goroutineID,
 					"iteration": j,
 					"timestamp": time.Now().UnixNano(),
@@ -94,8 +94,8 @@ func TestQueue_ConcurrentPopOperations(t *testing.T) {
 	const numPoppers = 50
 
 	// Pre-populate queue
-	for i := 0; i < numItems; i++ {
-		queue.Push(map[string]interface{}{
+	for i := range numItems {
+		queue.Push(map[string]any{
 			"id":   i,
 			"data": "test-data-" + string(rune(i)),
 		})
@@ -106,7 +106,7 @@ func TestQueue_ConcurrentPopOperations(t *testing.T) {
 	var successfulPops int64
 
 	// Concurrent pop operations
-	for i := 0; i < numPoppers; i++ {
+	for i := range numPoppers {
 		wg.Add(1)
 		go func(popperID int) {
 			defer wg.Done()
@@ -119,7 +119,7 @@ func TestQueue_ConcurrentPopOperations(t *testing.T) {
 				}
 
 				// Verify item structure
-				if itemMap, ok := item.(map[string]interface{}); ok {
+				if itemMap, ok := item.(map[string]any); ok {
 					if _, hasID := itemMap["id"]; hasID {
 						atomic.AddInt64(&successfulPops, 1)
 					}
@@ -156,15 +156,15 @@ func TestQueue_ConcurrentPushPopOperations(t *testing.T) {
 	startSignal := make(chan struct{})
 
 	// Start producers
-	for i := 0; i < numProducers; i++ {
+	for i := range numProducers {
 		wg.Add(1)
 		go func(producerID int) {
 			defer wg.Done()
 
 			<-startSignal // Wait for start signal
 
-			for j := 0; j < itemsPerProducer; j++ {
-				item := map[string]interface{}{
+			for j := range itemsPerProducer {
+				item := map[string]any{
 					"producer":  producerID,
 					"sequence":  j,
 					"timestamp": time.Now().UnixNano(),
@@ -177,7 +177,7 @@ func TestQueue_ConcurrentPushPopOperations(t *testing.T) {
 	}
 
 	// Start consumers
-	for i := 0; i < numConsumers; i++ {
+	for i := range numConsumers {
 		wg.Add(1)
 		go func(consumerID int) {
 			defer wg.Done()
@@ -191,7 +191,7 @@ func TestQueue_ConcurrentPushPopOperations(t *testing.T) {
 				item := queue.Pop()
 				if item != nil {
 					// Verify item structure
-					if itemMap, ok := item.(map[string]interface{}); ok {
+					if itemMap, ok := item.(map[string]any); ok {
 						if _, hasProducer := itemMap["producer"]; hasProducer {
 							consumedThisConsumer++
 						}
@@ -237,7 +237,7 @@ func TestQueue_ConcurrentMixedDataTypes(t *testing.T) {
 	const numGoroutines = 100
 
 	var wg sync.WaitGroup
-	dataTypes := []interface{}{
+	dataTypes := []any{
 		"string-value",
 		42,
 		3.14159,
@@ -248,7 +248,7 @@ func TestQueue_ConcurrentMixedDataTypes(t *testing.T) {
 	}
 
 	// Concurrent push with different data types
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
@@ -308,15 +308,15 @@ func TestQueue_MemoryConsistencyStress(t *testing.T) {
 	var pushCount, popCount int64
 
 	// Mixed concurrent operations with high stress
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				if j%2 == 0 {
 					// Push operation
-					item := map[string]interface{}{
+					item := map[string]any{
 						"id":    goroutineID*operationsPerGoroutine + j,
 						"value": "stress-test-data",
 					}
@@ -359,7 +359,7 @@ func BenchmarkQueue_ConcurrentOperations(b *testing.B) {
 		for pb.Next() {
 			if i%2 == 0 {
 				// Push operation
-				queue.Push(map[string]interface{}{
+				queue.Push(map[string]any{
 					"id":   i,
 					"data": "benchmark-data",
 				})
@@ -408,7 +408,7 @@ func TestQueue_RapidCycles(t *testing.T) {
 
 	const cycles = 10000
 
-	for i := 0; i < cycles; i++ {
+	for i := range cycles {
 		// Push and immediately pop
 		testValue := i
 		queue.Push(testValue)

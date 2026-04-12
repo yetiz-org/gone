@@ -10,7 +10,6 @@ import (
 	concurrent "github.com/yetiz-org/goth-concurrent"
 
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 )
 
 type Channel interface {
@@ -75,7 +74,7 @@ type UnsafeDisconnect interface {
 	UnsafeDisconnect() error
 }
 
-var ErrNotActive = errors.Errorf("channel not active")
+var ErrNotActive = fmt.Errorf("channel not active")
 var ErrNilObject = fmt.Errorf("nil object")
 var ErrUnknownObjectType = fmt.Errorf("unknown object type")
 var ErrReadError = fmt.Errorf("read error")

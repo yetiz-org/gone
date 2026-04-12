@@ -48,7 +48,7 @@ func TestServer_Start(t *testing.T) {
 		}))
 
 		bwg := concurrent.WaitGroup{}
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			bwg.Add(1)
 			go func(i int) {
 				ch := bootstrap.Connect(nil, &net.TCPAddr{IP: nil, Port: 18082}).Sync().Channel()

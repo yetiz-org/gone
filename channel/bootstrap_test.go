@@ -437,7 +437,7 @@ func TestBootstrap_IntegrationScenarios(t *testing.T) {
 		// Test concurrent parameter setting
 		done := make(chan bool, 10)
 
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			go func(index int) {
 				defer func() { done <- true }()
 
@@ -455,13 +455,13 @@ func TestBootstrap_IntegrationScenarios(t *testing.T) {
 		}
 
 		// Wait for all goroutines to complete
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			<-done
 		}
 
 		// Verify all parameters exist
 		params := bootstrap.Params()
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			key := ParamKey(fmt.Sprintf("key_%d", i))
 			value := fmt.Sprintf("value_%d", i)
 

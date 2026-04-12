@@ -1,7 +1,8 @@
 package ghttp
 
 import (
-	"io/ioutil"
+	"io"
+
 	"mime"
 	"os"
 	"path"
@@ -104,7 +105,7 @@ func (h *StaticFilesHandlerTask) _Load(path string) (*staticFileCacheEntity, err
 
 	if file, e := os.Open(path); e == nil {
 		defer file.Close()
-		if data, e := ioutil.ReadAll(file); e == nil {
+		if data, e := io.ReadAll(file); e == nil {
 			entity := staticFileCacheEntity{}
 			entity.contentType = mime.TypeByExtension(filepath.Ext(path))
 			if h.DoMinify {

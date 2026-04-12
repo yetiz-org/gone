@@ -442,7 +442,7 @@ func TestVarIntDecode(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 
 	// Test single byte values (< 0xfd)
-	for i := byte(0); i < 252; i++ {
+	for i := range byte(252) {
 		bbf := buf.NewByteBuf([]byte{})
 		result := utils.VarIntDecode(i, bbf)
 		if result != uint64(i) {

@@ -35,6 +35,6 @@ func ServerErrorCrossServiceOperationWithMessage(message string) ErrorResponse {
 }
 
 // ServerErrorCrossServiceOperationWithFormat provides backward compatibility for dynamic format strings
-func ServerErrorCrossServiceOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+func ServerErrorCrossServiceOperationWithFormat(format string, args ...any) ErrorResponse {
 	return ServerErrorCrossServiceOperationWithMessage(fmt.Sprintf(format, args...))
 }

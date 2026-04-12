@@ -35,6 +35,6 @@ func ServerErrorCacheOperationWithMessage(message string) ErrorResponse {
 }
 
 // ServerErrorCacheOperationWithFormat provides backward compatibility for dynamic format strings
-func ServerErrorCacheOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+func ServerErrorCacheOperationWithFormat(format string, args ...any) ErrorResponse {
 	return ServerErrorCacheOperationWithMessage(fmt.Sprintf(format, args...))
 }

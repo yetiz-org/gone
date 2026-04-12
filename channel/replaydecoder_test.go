@@ -122,7 +122,7 @@ func TestReplayDecoder_Read_WithDecoder(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 
 	// Track decoded values
-	var decodedValues []interface{}
+	var decodedValues []any
 
 	// Create decoder function that processes int32 values
 	decodeFunc := func(ctx HandlerContext, in buf.ByteBuf, out structs.Queue) {

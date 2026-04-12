@@ -475,12 +475,12 @@ func TestWebSocketMessage_ConcurrentOperations(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent message creation and encoding
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < messagesPerGoroutine; j++ {
+			for j := range messagesPerGoroutine {
 				messageType := j % 4
 				payload := []byte("test message data")
 
@@ -560,12 +560,12 @@ func TestWebSocketMessage_ConcurrentParsing(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent message parsing
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < parseOperationsPerGoroutine; j++ {
+			for j := range parseOperationsPerGoroutine {
 				// Mix of valid and invalid message types
 				var messageType int
 				var payload []byte
@@ -617,7 +617,7 @@ func TestWebSocketChannel_ConcurrentWrite(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent write operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
@@ -627,7 +627,7 @@ func TestWebSocketChannel_ConcurrentWrite(t *testing.T) {
 			ch.BootstrapPreInit()
 			ch.Init()
 
-			for j := 0; j < writeOperationsPerGoroutine; j++ {
+			for j := range writeOperationsPerGoroutine {
 				// Create different types of messages
 				var msg Message
 
@@ -708,12 +708,12 @@ func TestCloseMessage_ConcurrentEncoding(t *testing.T) {
 	}
 
 	// Test concurrent close message encoding
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < encodingsPerGoroutine; j++ {
+			for j := range encodingsPerGoroutine {
 				closeCode := closeCodes[j%len(closeCodes)]
 				message := []byte("close reason")
 
@@ -764,14 +764,14 @@ func TestWebSocketChannel_StateConsistency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent state operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
 			ch := &Channel{}
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				switch j % 3 {
 				case 0:
 					// Initialize channel
@@ -817,7 +817,7 @@ func BenchmarkWebSocketMessage_ConcurrentOperations(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
@@ -859,10 +859,8 @@ func BenchmarkWebSocketChannel_ConcurrentOperations(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range numGoroutines {
+			wg.Go(func() {
 
 				ch := &Channel{}
 				ch.BootstrapPreInit()
@@ -875,7 +873,7 @@ func BenchmarkWebSocketChannel_ConcurrentOperations(b *testing.B) {
 
 				ch.UnsafeWrite(msg)
 				ch.IsActive()
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -895,7 +893,7 @@ func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 	startTime := time.Now()
 
 	// High-load concurrent WebSocket operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
@@ -904,7 +902,7 @@ func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 			ch.BootstrapPreInit()
 			ch.Init()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				// Mix of WebSocket operations
 				switch j % 4 {
 				case 0:
@@ -981,7 +979,7 @@ func TestWebSocketChannel_MemoryConsistencyAndResourceManagement(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test memory consistency with rapid WebSocket operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
@@ -990,7 +988,7 @@ func TestWebSocketChannel_MemoryConsistencyAndResourceManagement(t *testing.T) {
 			messages := make([]Message, operationsPerGoroutine)
 
 			// Create channels and messages
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				channels[j] = &Channel{}
 				channels[j].BootstrapPreInit()
 				channels[j].Init()
@@ -1004,7 +1002,7 @@ func TestWebSocketChannel_MemoryConsistencyAndResourceManagement(t *testing.T) {
 			}
 
 			// Process operations
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				channels[j].UnsafeWrite(messages[j])
 				channels[j].IsActive()
 				messages[j].Encoded()

@@ -463,7 +463,7 @@ func TestDefaultSession_MarshalJSON(t *testing.T) {
 	}
 
 	// Parse the JSON to verify structure
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
 	if err != nil {
 		t.Fatalf("Failed to parse marshaled JSON: %v", err)
@@ -478,7 +478,7 @@ func TestDefaultSession_MarshalJSON(t *testing.T) {
 	}
 
 	// Verify data content
-	dataMap, ok := result["data"].(map[string]interface{})
+	dataMap, ok := result["data"].(map[string]any)
 	if !ok {
 		t.Error("JSON data field should be a map")
 	}
@@ -497,7 +497,7 @@ func TestDefaultSession_UnmarshalJSON(t *testing.T) {
 	session := NewDefaultSession(provider)
 
 	// Create test JSON data
-	testData := map[string]interface{}{
+	testData := map[string]any{
 		"id":      "test-id",
 		"created": int64(1640995200),
 		"updated": int64(1640995300),

@@ -3,6 +3,7 @@ package ghttp
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"time"
@@ -51,9 +52,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 		params["[gone-http]dispatcher"] = h
 		params["[gone-http]context_pack"] = obj
 		if nodeParams != nil {
-			for k, v := range nodeParams {
-				params[k] = v
-			}
+			maps.Copy(params, nodeParams)
 		}
 
 		task, ok := node.HandlerTask().(HttpHandlerTask)
@@ -264,7 +263,7 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 	if skipper, ok := task.(PreCheckSkipOptions); ok {
 		shouldSkipPreCheck = skipper.SkipPreCheckForOptions() && request.Method() == OPTIONS
 	}
-	
+
 	if !shouldSkipPreCheck {
 		if err := task.PreCheck(request, response, params); err != nil {
 			return err

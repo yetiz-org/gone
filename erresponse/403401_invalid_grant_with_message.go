@@ -23,6 +23,6 @@ func InvalidGrantWithMessage(message string) ErrorResponse {
 }
 
 // InvalidGrantWithFormat provides backward compatibility for dynamic format strings
-func InvalidGrantWithFormat(format string, args ...interface{}) ErrorResponse {
+func InvalidGrantWithFormat(format string, args ...any) ErrorResponse {
 	return InvalidGrantWithMessage(fmt.Sprintf(format, args...))
 }

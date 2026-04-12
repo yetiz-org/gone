@@ -11,16 +11,16 @@ type ErrorResponse interface {
 	ErrorStatusCode() int
 	ErrorName() string
 	ErrorDescription() string
-	ErrorData() map[string]interface{}
+	ErrorData() map[string]any
 	Clone() ErrorResponse
 }
 
 type DefaultErrorResponse struct {
 	kkerror.DefaultKKError
-	StatusCode  int                    `json:"status_code,omitempty"`
-	Name        string                 `json:"error,omitempty"`
-	Description string                 `json:"error_description,omitempty"`
-	Data        map[string]interface{} `json:"data,omitempty"`
+	StatusCode  int            `json:"status_code,omitempty"`
+	Name        string         `json:"error,omitempty"`
+	Description string         `json:"error_description,omitempty"`
+	Data        map[string]any `json:"data,omitempty"`
 }
 
 func (d *DefaultErrorResponse) Error() string {
@@ -43,9 +43,9 @@ func (d *DefaultErrorResponse) ErrorDescription() string {
 	return d.Description
 }
 
-func (d *DefaultErrorResponse) ErrorData() map[string]interface{} {
+func (d *DefaultErrorResponse) ErrorData() map[string]any {
 	if d.Data == nil {
-		d.Data = map[string]interface{}{}
+		d.Data = map[string]any{}
 	}
 
 	return d.Data

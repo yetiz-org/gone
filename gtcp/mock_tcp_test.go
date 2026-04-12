@@ -19,7 +19,7 @@ func TestMockTcpChannel_InterfaceCompliance(t *testing.T) {
 	var _ channel.NetChannel = mockTcp
 
 	assert.NotNil(t, mockTcp, "MockTcpChannel should not be nil")
-	assert.NotNil(t, mockTcp.MockNetChannel, "Embedded MockNetChannel should not be nil")
+	assert.NotNil(t, &mockTcp.MockNetChannel, "Embedded MockNetChannel should not be nil")
 }
 
 // TestMockTcpServerChannel_InterfaceCompliance verifies that MockTcpServerChannel implements all required interfaces
@@ -33,7 +33,7 @@ func TestMockTcpServerChannel_InterfaceCompliance(t *testing.T) {
 	var _ channel.ServerChannel = mockTcpServer
 
 	assert.NotNil(t, mockTcpServer, "MockTcpServerChannel should not be nil")
-	assert.NotNil(t, mockTcpServer.MockServerChannel, "Embedded MockServerChannel should not be nil")
+	assert.NotNil(t, &mockTcpServer.MockServerChannel, "Embedded MockServerChannel should not be nil")
 }
 
 // TestMockTcpChannel_BasicFunctionality tests basic mock functionality

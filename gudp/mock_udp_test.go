@@ -19,7 +19,7 @@ func TestMockUdpChannel_InterfaceCompliance(t *testing.T) {
 	var _ channel.NetChannel = mockUdp
 
 	assert.NotNil(t, mockUdp, "MockUdpChannel should not be nil")
-	assert.NotNil(t, mockUdp.MockNetChannel, "Embedded MockNetChannel should not be nil")
+	assert.NotNil(t, &mockUdp.MockNetChannel, "Embedded MockNetChannel should not be nil")
 }
 
 // TestMockUdpServerChannel_InterfaceCompliance verifies that MockUdpServerChannel implements all required interfaces
@@ -33,7 +33,7 @@ func TestMockUdpServerChannel_InterfaceCompliance(t *testing.T) {
 	var _ channel.ServerChannel = mockUdpServer
 
 	assert.NotNil(t, mockUdpServer, "MockUdpServerChannel should not be nil")
-	assert.NotNil(t, mockUdpServer.MockServerChannel, "Embedded MockServerChannel should not be nil")
+	assert.NotNil(t, &mockUdpServer.MockServerChannel, "Embedded MockServerChannel should not be nil")
 }
 
 // TestMockUdpChannel_BasicFunctionality tests basic mock functionality

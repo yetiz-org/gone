@@ -23,7 +23,7 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 		expectCode int
 		expectName string
 		expectDesc string
-		expectData map[string]interface{}
+		expectData map[string]any
 	}{
 		{
 			name: "Basic error response test",
@@ -32,7 +32,7 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 					StatusCode:  400,
 					Name:        "test_error",
 					Description: "Test error description",
-					Data:        map[string]interface{}{"key": "value"},
+					Data:        map[string]any{"key": "value"},
 					DefaultKKError: kkerror.DefaultKKError{
 						ErrorCode: "TEST001",
 					},
@@ -41,7 +41,7 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 			expectCode: 400,
 			expectName: "test_error",
 			expectDesc: "Test error description",
-			expectData: map[string]interface{}{"key": "value"},
+			expectData: map[string]any{"key": "value"},
 		},
 		{
 			name: "Empty data error response test",
@@ -59,12 +59,11 @@ func TestDefaultErrorResponse_CoreMethods(t *testing.T) {
 			expectCode: 500,
 			expectName: "server_error",
 			expectDesc: "Server error",
-			expectData: map[string]interface{}{},
+			expectData: map[string]any{},
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -105,7 +104,7 @@ func TestDefaultErrorResponse_Error_JSONSerialization(t *testing.T) {
 				StatusCode:  400,
 				Name:        "invalid_request",
 				Description: "Invalid request",
-				Data:        map[string]interface{}{"field": "email", "reason": "format"},
+				Data:        map[string]any{"field": "email", "reason": "format"},
 				DefaultKKError: kkerror.DefaultKKError{
 					ErrorCode: "400001",
 				},
@@ -128,7 +127,6 @@ func TestDefaultErrorResponse_Error_JSONSerialization(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -136,7 +134,7 @@ func TestDefaultErrorResponse_Error_JSONSerialization(t *testing.T) {
 
 			if tc.expectJSON {
 				// Verify it's valid JSON
-				var jsonData map[string]interface{}
+				var jsonData map[string]any
 				err := json.Unmarshal([]byte(result), &jsonData)
 				assert.NoError(t, err, "Error response should produce valid JSON")
 
@@ -157,7 +155,7 @@ func TestDefaultErrorResponse_Clone(t *testing.T) {
 		StatusCode:  403,
 		Name:        "forbidden",
 		Description: "Access denied",
-		Data:        map[string]interface{}{"user_id": 123, "permission": "read"},
+		Data:        map[string]any{"user_id": 123, "permission": "read"},
 		DefaultKKError: kkerror.DefaultKKError{
 			ErrorCode:     "403001",
 			ErrorLevel:    kkerror.Normal,
@@ -257,12 +255,12 @@ func TestCollect_ConcurrentAccess(t *testing.T) {
 	results := make([]ErrorResponse, 0, numGoroutines*numErrorsPerGoroutine)
 
 	// Concurrent error response registration
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < numErrorsPerGoroutine; j++ {
+			for j := range numErrorsPerGoroutine {
 				testError := &DefaultErrorResponse{
 					StatusCode:  400 + j,
 					Name:        fmt.Sprintf("concurrent_error_%d_%d", goroutineID, j),
@@ -323,7 +321,6 @@ func TestPredefinedErrorResponses_BasicValidation(t *testing.T) {
 	}
 
 	for _, test := range predefinedErrors {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -347,7 +344,7 @@ func TestPredefinedErrorResponses_BasicValidation(t *testing.T) {
 			errorMessage := test.error.Error()
 			assert.NotEmpty(t, errorMessage)
 
-			var jsonData map[string]interface{}
+			var jsonData map[string]any
 			err := json.Unmarshal([]byte(errorMessage), &jsonData)
 			assert.NoError(t, err, "Predefined error responses should produce valid JSON")
 
@@ -378,7 +375,7 @@ func TestErrorResponse_InterfaceCompliance(t *testing.T) {
 		StatusCode:  418,
 		Name:        "teapot_error",
 		Description: "I'm a teapot error",
-		Data:        map[string]interface{}{"brew_time": 300, "temperature": 85},
+		Data:        map[string]any{"brew_time": 300, "temperature": 85},
 		DefaultKKError: kkerror.DefaultKKError{
 			ErrorCode:     "418001",
 			ErrorLevel:    kkerror.Normal,
@@ -449,8 +446,8 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 		t.Parallel()
 
 		// Create error response containing large amount of data
-		largeData := make(map[string]interface{})
-		for i := 0; i < 1000; i++ {
+		largeData := make(map[string]any)
+		for i := range 1000 {
 			largeData[fmt.Sprintf("key_%d", i)] = fmt.Sprintf("value_%d", i)
 		}
 
@@ -484,7 +481,7 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 			StatusCode:  400,
 			Name:        "special_char_error",
 			Description: "Special character test: \n\t\"\\'/{}[]&<>",
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"unicode":  "Test Chinese🚀💥",
 				"symbols":  "!@#$%^&*()_+-=",
 				"quotes":   `"'`,
@@ -500,7 +497,7 @@ func TestErrorResponse_EdgeCases(t *testing.T) {
 		assert.NotEmpty(t, errorJson)
 
 		// Verify JSON validity
-		var jsonData map[string]interface{}
+		var jsonData map[string]any
 		err := json.Unmarshal([]byte(errorJson), &jsonData)
 		assert.NoError(t, err, "Error responses containing special characters should produce valid JSON")
 	})
@@ -551,7 +548,7 @@ func TestErrorResponse_PerformanceBaseline(t *testing.T) {
 		StatusCode:  500,
 		Name:        "performance_test_error",
 		Description: "Performance test error response",
-		Data:        map[string]interface{}{"request_id": "perf_123", "timestamp": time.Now().Unix()},
+		Data:        map[string]any{"request_id": "perf_123", "timestamp": time.Now().Unix()},
 		DefaultKKError: kkerror.DefaultKKError{
 			ErrorCode:     "PERF001",
 			ErrorLevel:    kkerror.Normal,
@@ -564,7 +561,7 @@ func TestErrorResponse_PerformanceBaseline(t *testing.T) {
 		iterations := 10000
 		start := time.Now()
 
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			_ = testError.Error()
 		}
 
@@ -582,7 +579,7 @@ func TestErrorResponse_PerformanceBaseline(t *testing.T) {
 		iterations := 10000
 		start := time.Now()
 
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			cloned := testError.Clone()
 			_ = cloned
 		}

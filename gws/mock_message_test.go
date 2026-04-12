@@ -10,13 +10,13 @@ import (
 
 func TestMockMessage_InterfaceCompliance(t *testing.T) {
 	// Test that MockMessage implements Message interface
-	var mockMessage interface{} = NewMockMessage()
+	var mockMessage any = NewMockMessage()
 	assert.Implements(t, (*Message)(nil), mockMessage, "MockMessage should implement Message interface")
 }
 
 func TestMockMessageBuilder_InterfaceCompliance(t *testing.T) {
 	// Test that MockMessageBuilder implements MessageBuilder interface
-	var mockBuilder interface{} = NewMockMessageBuilder()
+	var mockBuilder any = NewMockMessageBuilder()
 	assert.Implements(t, (*MessageBuilder)(nil), mockBuilder, "MockMessageBuilder should implement MessageBuilder interface")
 }
 

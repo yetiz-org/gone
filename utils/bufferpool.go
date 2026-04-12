@@ -28,7 +28,7 @@ var (
 func NewBufferPool(size int) *BufferPool {
 	return &BufferPool{
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return make([]byte, size)
 			},
 		},

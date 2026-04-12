@@ -131,11 +131,9 @@ func TestDefaultChannel_ConcurrentIDGeneration(t *testing.T) {
 	serialSet := sync.Map{}
 
 	// Create channels concurrently
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < channelsPerGoroutine; j++ {
+	for range numGoroutines {
+		wg.Go(func() {
+			for range channelsPerGoroutine {
 				channel := &DefaultChannel{}
 				channel.init(channel)
 
@@ -151,7 +149,7 @@ func TestDefaultChannel_ConcurrentIDGeneration(t *testing.T) {
 					t.Errorf("Duplicate channel serial found: %d", serial)
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -166,13 +164,13 @@ func TestDefaultChannel_ConcurrentParameterOperations(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			key := ParamKey(fmt.Sprintf("test-key-%d", id))
 			expectedValue := id * 1000
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				channel.SetParam(key, expectedValue+j)
 				value := channel.Param(key)
 				if value != nil {
@@ -188,7 +186,7 @@ func TestDefaultChannel_ConcurrentLifecycleOperations(t *testing.T) {
 	const numChannels = 100
 	var wg sync.WaitGroup
 	channels := make([]*DefaultChannel, numChannels)
-	for i := 0; i < numChannels; i++ {
+	for i := range numChannels {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -220,7 +218,7 @@ func TestDefaultChannel_ConcurrentActivationDeactivation(t *testing.T) {
 	var activationCount, deactivationCount int32
 	done := make(chan bool, 1)
 	go func() {
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(index int) {
 				defer wg.Done()
@@ -261,8 +259,8 @@ func TestDefaultChannel_ConcurrentReadOperations(t *testing.T) {
 	channel := &DefaultChannel{}
 	channel.init(channel)
 	const totalReads = 30
-	for i := 0; i < totalReads; i++ {
-		testData := map[string]interface{}{"index": i, "timestamp": time.Now().UnixNano()}
+	for i := range totalReads {
+		testData := map[string]any{"index": i, "timestamp": time.Now().UnixNano()}
 		channel.FireRead(testData)
 		time.Sleep(time.Millisecond)
 	}
@@ -277,12 +275,12 @@ func TestDefaultChannel_ConcurrentWriteOperations(t *testing.T) {
 	var wg sync.WaitGroup
 	futures := make([]Future, 0, numGoroutines*writesPerGoroutine)
 	var futuresMu sync.Mutex
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < writesPerGoroutine; j++ {
-				testData := map[string]interface{}{"goroutine": id, "iteration": j, "data": "test-data"}
+			for j := range writesPerGoroutine {
+				testData := map[string]any{"goroutine": id, "iteration": j, "data": "test-data"}
 				future := channel.Write(testData)
 				futuresMu.Lock()
 				futures = append(futures, future)
@@ -302,7 +300,7 @@ func TestDefaultChannel_ConcurrentLocalAddrOperations(t *testing.T) {
 	channel.init(channel)
 	const numGoroutines = 100
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -348,12 +346,12 @@ func TestDefaultChannel_MemoryConsistency(t *testing.T) {
 	var wg sync.WaitGroup
 	var successCount int64
 	startSignal := make(chan struct{})
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 			<-startSignal
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				key := ParamKey(fmt.Sprintf("consistency-key-%d", goroutineID))
 				value := goroutineID*iterations + j
 				channel.SetParam(key, value)

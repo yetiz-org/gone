@@ -36,12 +36,12 @@ func TestDefaultFuture_ConcurrentCompletion(t *testing.T) {
 	var successCount, failureCount int64
 
 	// Concurrent future completion
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < futuresPerGoroutine; j++ {
+			for j := range futuresPerGoroutine {
 				future := NewFuture(channel)
 
 				// Randomly complete with success or failure
@@ -88,7 +88,7 @@ func TestDefaultFuture_ConcurrentWaiting(t *testing.T) {
 	futures := make([]Future, numFutures)
 
 	// Create futures
-	for i := 0; i < numFutures; i++ {
+	for i := range numFutures {
 		futures[i] = NewFuture(channel)
 	}
 
@@ -96,8 +96,8 @@ func TestDefaultFuture_ConcurrentWaiting(t *testing.T) {
 	var totalWaits int64
 
 	// Start waiters
-	for i := 0; i < numFutures; i++ {
-		for j := 0; j < waitersPerFuture; j++ {
+	for i := range numFutures {
+		for j := range waitersPerFuture {
 			wg.Add(1)
 			go func(futureIndex, waiterID int) {
 				defer wg.Done()
@@ -158,7 +158,7 @@ func TestDefaultFuture_ConcurrentListeners(t *testing.T) {
 	futures := make([]Future, numFutures)
 
 	// Create futures
-	for i := 0; i < numFutures; i++ {
+	for i := range numFutures {
 		futures[i] = NewFuture(channel)
 	}
 
@@ -166,8 +166,8 @@ func TestDefaultFuture_ConcurrentListeners(t *testing.T) {
 	var totalListenerCalls int64
 
 	// Register listeners concurrently
-	for i := 0; i < numFutures; i++ {
-		for j := 0; j < listenersPerFuture; j++ {
+	for i := range numFutures {
+		for j := range listenersPerFuture {
 			wg.Add(1)
 			go func(futureIndex, listenerID int) {
 				defer wg.Done()
@@ -236,7 +236,7 @@ func TestDefaultFuture_ConcurrentCancellation(t *testing.T) {
 	var wg sync.WaitGroup
 	var cancelledCount, completedCount, totalOperations int64
 
-	for i := 0; i < numFutures; i++ {
+	for i := range numFutures {
 		wg.Add(1)
 		go func(futureID int) {
 			defer wg.Done()
@@ -246,7 +246,7 @@ func TestDefaultFuture_ConcurrentCancellation(t *testing.T) {
 			// Concurrent operations on the same future
 			var futureWg sync.WaitGroup
 
-			for j := 0; j < operationsPerFuture; j++ {
+			for j := range operationsPerFuture {
 				futureWg.Add(1)
 				go func(operationID int) {
 					defer futureWg.Done()
@@ -305,10 +305,10 @@ func TestDefaultFuture_ConcurrentResultRetrieval(t *testing.T) {
 	const retrieversPerFuture = 15
 
 	futures := make([]Future, numFutures)
-	expectedResults := make([]interface{}, numFutures)
+	expectedResults := make([]any, numFutures)
 
 	// Create and complete futures
-	for i := 0; i < numFutures; i++ {
+	for i := range numFutures {
 		futures[i] = NewFuture(channel)
 
 		if i%2 == 0 {
@@ -326,8 +326,8 @@ func TestDefaultFuture_ConcurrentResultRetrieval(t *testing.T) {
 	var successfulRetrievals int64
 
 	// Concurrent result retrieval
-	for i := 0; i < numFutures; i++ {
-		for j := 0; j < retrieversPerFuture; j++ {
+	for i := range numFutures {
+		for j := range retrieversPerFuture {
 			wg.Add(1)
 			go func(futureIndex, retrieverID int) {
 				defer wg.Done()
@@ -374,12 +374,12 @@ func TestDefaultFuture_MemoryConsistency(t *testing.T) {
 	var operationCount int64
 
 	// Mixed concurrent operations for memory consistency testing
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				future := NewFuture(channel)
 
 				opType := (goroutineID + j) % 6
@@ -468,7 +468,7 @@ func TestDefaultFuture_RapidCompletionCycles(t *testing.T) {
 
 	const cycles = 1000
 
-	for i := 0; i < cycles; i++ {
+	for i := range cycles {
 		future := NewFuture(channel)
 
 		// Rapid complete and check
@@ -495,7 +495,7 @@ func TestDefaultFuture_ErrorHandlingConsistency(t *testing.T) {
 	expectedErrors := make([]error, numErrors)
 
 	// Create futures with different error types
-	for i := 0; i < numErrors; i++ {
+	for i := range numErrors {
 		futures[i] = NewFuture(channel)
 		expectedErrors[i] = fmt.Errorf("error type %d: %s", i%5, "test error message")
 

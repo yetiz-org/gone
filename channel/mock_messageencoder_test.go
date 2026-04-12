@@ -11,7 +11,7 @@ import (
 
 func TestMockMessageEncoder_InterfaceCompliance(t *testing.T) {
 	// Test that MockMessageEncoder implements MessageEncoder interface
-	var mockEncoder interface{} = NewMockMessageEncoder()
+	var mockEncoder any = NewMockMessageEncoder()
 	assert.Implements(t, (*MessageEncoder)(nil), mockEncoder, "MockMessageEncoder should implement MessageEncoder interface")
 }
 
@@ -39,7 +39,7 @@ func TestMockMessageEncoder_EncodeWithDifferentTypes(t *testing.T) {
 	// Test encoding different message types
 	testCases := []struct {
 		name    string
-		message interface{}
+		message any
 	}{
 		{"string message", "hello world"},
 		{"integer message", 12345},
@@ -67,7 +67,7 @@ func TestMockMessageEncoder_EncodeWithMatchers(t *testing.T) {
 	// Test with custom matchers
 	mockEncoder.On("Encode",
 		mock.AnythingOfType("*channel.MockHandlerContext"),
-		mock.MatchedBy(func(msg interface{}) bool {
+		mock.MatchedBy(func(msg any) bool {
 			str, ok := msg.(string)
 			return ok && len(str) > 0
 		}),
@@ -113,7 +113,7 @@ func TestMockMessageEncoder_ConcurrentUsage(t *testing.T) {
 
 	// Simulate concurrent calls
 	done := make(chan bool, numCalls)
-	for i := 0; i < numCalls; i++ {
+	for i := range numCalls {
 		go func(id int) {
 			defer func() { done <- true }()
 			message := fmt.Sprintf("message-%d", id)
@@ -122,7 +122,7 @@ func TestMockMessageEncoder_ConcurrentUsage(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < numCalls; i++ {
+	for range numCalls {
 		<-done
 	}
 

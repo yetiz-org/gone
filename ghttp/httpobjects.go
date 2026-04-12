@@ -253,19 +253,18 @@ func _DecodeQualityValueField(text string) []QualityValue {
 		return qualities
 	}
 
-	for _, entity := range strings.Split(strings.TrimSpace(text), ",") {
+	for entity := range strings.SplitSeq(strings.TrimSpace(text), ",") {
 		qv := QualityValue{}
-		split := strings.Split(entity, ";")
-		if len(split) == 2 {
-			factor := strings.Split(split[1], "=")
-			if len(factor) == 2 {
-				if cf, err := strconv.ParseFloat(factor[1], 32); err == nil {
+		value, params, hasParams := strings.Cut(entity, ";")
+		if hasParams {
+			if _, factorVal, found := strings.Cut(params, "="); found {
+				if cf, err := strconv.ParseFloat(factorVal, 32); err == nil {
 					qv.Factor = float32(cf)
 				}
 			}
 		}
 
-		qv.Value = split[0]
+		qv.Value = value
 		qualities = append(qualities, qv)
 	}
 

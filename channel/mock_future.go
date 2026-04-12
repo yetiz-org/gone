@@ -15,7 +15,7 @@ type MockFuture struct {
 }
 
 // NewMockFuture creates a new MockFuture instance
-func NewMockFuture(ch interface{}) *MockFuture {
+func NewMockFuture(ch any) *MockFuture {
 	var channelRef Channel
 	if ch != nil {
 		if c, ok := ch.(Channel); ok {

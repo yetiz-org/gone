@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	http2 "net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,15 +129,15 @@ func (h *VerifyGetIDHandler) Get(ctx channel.HandlerContext, req *ghttp.Request,
 
 	// Use GetID to retrieve values
 	getIDResults := map[string]string{
-		"org_id":    h.GetID("org_id", params),
-		"album_id":  h.GetID("album_id", params),
-		"song_id":   h.GetID("song_id", params),
+		"org_id":   h.GetID("org_id", params),
+		"album_id": h.GetID("album_id", params),
+		"song_id":  h.GetID("song_id", params),
 	}
 
 	// Return both for verification
 	result := map[string]any{
-		"raw_params":     rawParams,
-		"getid_results":  getIDResults,
+		"raw_params":    rawParams,
+		"getid_results": getIDResults,
 	}
 	resp.JsonResponse(result)
 	return nil
@@ -382,12 +383,12 @@ func TestGetID_EdgeCases_Integration(t *testing.T) {
 	defer ch.Close()
 
 	t.Run("LongIDValue", func(t *testing.T) {
-		longID := ""
-		for i := 0; i < 100; i++ {
-			longID += "abcdefghij"
+		var longID strings.Builder
+		for range 100 {
+			longID.WriteString("abcdefghij")
 		}
-		result := getJSON(t, fmt.Sprintf("http://localhost:19007/debug/%s", longID))
-		assert.Equal(t, longID, result["[gone-http]p:debug_id"])
+		result := getJSON(t, fmt.Sprintf("http://localhost:19007/debug/%s", longID.String()))
+		assert.Equal(t, longID.String(), result["[gone-http]p:debug_id"])
 	})
 
 	t.Run("SpecialCharactersInID", func(t *testing.T) {
@@ -406,7 +407,7 @@ func TestGetID_ConcurrentRequests_Integration(t *testing.T) {
 	t.Run("ConcurrentBraceSyntax", func(t *testing.T) {
 		done := make(chan bool, 20)
 
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			go func(idx int) {
 				url := fmt.Sprintf("http://localhost:19008/api/v1/organizations/org-%d/albums/album-%d/songs/song-%d", idx, idx*2, idx*3)
 				result := getJSON(t, url)
@@ -419,7 +420,7 @@ func TestGetID_ConcurrentRequests_Integration(t *testing.T) {
 			}(i)
 		}
 
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			<-done
 		}
 	})

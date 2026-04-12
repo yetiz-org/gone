@@ -53,7 +53,7 @@ func (h *RangeDisabledTask) Get(ctx channel.HandlerContext, req *Request, resp *
 // TestAutoRangeSupporter_Integration tests the AutoRangeSupporter interface with gone server
 func TestAutoRangeSupporter_Integration(t *testing.T) {
 	testContent := make([]byte, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		testContent[i] = byte('A' + (i % 26))
 	}
 

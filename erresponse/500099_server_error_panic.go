@@ -35,6 +35,6 @@ func ServerErrorPanicWithMessage(message string) ErrorResponse {
 }
 
 // ServerErrorPanicWithFormat provides backward compatibility for dynamic format strings
-func ServerErrorPanicWithFormat(format string, args ...interface{}) ErrorResponse {
+func ServerErrorPanicWithFormat(format string, args ...any) ErrorResponse {
 	return ServerErrorPanicWithMessage(fmt.Sprintf(format, args...))
 }

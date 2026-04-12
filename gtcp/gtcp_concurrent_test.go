@@ -31,12 +31,12 @@ func TestTCPChannel_ConcurrentConnections(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent connection attempts
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < connectionsPerGoroutine; j++ {
+			for range connectionsPerGoroutine {
 				ch := &Channel{}
 				ch.Init()
 
@@ -76,12 +76,12 @@ func TestTCPServerChannel_ConcurrentOperations(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent server creation and binding
-	for i := 0; i < numServers; i++ {
+	for i := range numServers {
 		wg.Add(1)
 		go func(serverID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerServer; j++ {
+			for j := range operationsPerServer {
 				server := &ServerChannel{}
 				server.Init()
 
@@ -135,10 +135,8 @@ func TestTCPServerChannel_ConcurrentAccept(t *testing.T) {
 
 	// Start accept loop in background
 	acceptWg := sync.WaitGroup{}
-	acceptWg.Add(1)
-	go func() {
-		defer acceptWg.Done()
-		for i := 0; i < numClients*connectionsPerClient; i++ {
+	acceptWg.Go(func() {
+		for range numClients * connectionsPerClient {
 			if !server.IsActive() {
 				break
 			}
@@ -151,15 +149,15 @@ func TestTCPServerChannel_ConcurrentAccept(t *testing.T) {
 				atomic.AddInt64(&failedAccepts, 1)
 			}
 		}
-	}()
+	})
 
 	// Create concurrent client connections
-	for i := 0; i < numClients; i++ {
+	for i := range numClients {
 		wg.Add(1)
 		go func(clientID int) {
 			defer wg.Done()
 
-			for j := 0; j < connectionsPerClient; j++ {
+			for range connectionsPerClient {
 				conn, err := net.Dial("tcp", actualAddr)
 				if err == nil {
 					// Brief delay to allow accept
@@ -191,7 +189,7 @@ func TestTCPChannel_AddressValidationThreadSafety(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent address validation
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
@@ -199,7 +197,7 @@ func TestTCPChannel_AddressValidationThreadSafety(t *testing.T) {
 			ch := &Channel{}
 			ch.Init()
 
-			for j := 0; j < validationsPerGoroutine; j++ {
+			for j := range validationsPerGoroutine {
 				// Mix of valid and invalid addresses
 				var localAddr, remoteAddr net.Addr
 				var err error
@@ -255,12 +253,12 @@ func TestTCPServerChannel_StateConsistency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent state operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				switch j % 3 {
 				case 0:
 					// Try to bind (will fail after first success, but tests thread safety)
@@ -302,7 +300,7 @@ func BenchmarkTCPChannel_ConcurrentOperations(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
@@ -330,7 +328,7 @@ func BenchmarkTCPServerChannel_ConcurrentOperations(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
@@ -364,12 +362,12 @@ func TestTCPChannel_HighLoadStressTesting(t *testing.T) {
 	startTime := time.Now()
 
 	// High-load concurrent operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				// Mix of TCP channel and server operations
 				if j%2 == 0 {
 					// TCP Channel operations
@@ -437,7 +435,7 @@ func TestTCPChannel_MemoryConsistencyAndCleanup(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test memory consistency with rapid creation and cleanup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
@@ -446,7 +444,7 @@ func TestTCPChannel_MemoryConsistencyAndCleanup(t *testing.T) {
 			servers := make([]*ServerChannel, operationsPerGoroutine)
 
 			// Create channels and servers
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				channels[j] = &Channel{}
 				channels[j].Init()
 
@@ -457,7 +455,7 @@ func TestTCPChannel_MemoryConsistencyAndCleanup(t *testing.T) {
 			}
 
 			// Clean up all resources
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				if channels[j] != nil {
 					// Channel cleanup would happen here
 					atomic.AddInt64(&cleanedChannels, 1)

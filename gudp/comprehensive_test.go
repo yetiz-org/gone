@@ -66,9 +66,7 @@ func TestUDPChannel_MessageExchange(t *testing.T) {
 	var serverReceivedMessage []byte
 
 	// Start server receive loop
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 
 		// Read directly from UDP connection
 		buffer := make([]byte, 1024)
@@ -77,12 +75,10 @@ func TestUDPChannel_MessageExchange(t *testing.T) {
 			serverReceivedMessage = buffer[:n]
 			t.Logf("Server received message from %s: %s", clientAddr, string(serverReceivedMessage))
 		}
-	}()
+	})
 
 	// Client sends message
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(100 * time.Millisecond) // Let server start first
 
 		// Connect to server using standard UDP connection
@@ -95,7 +91,7 @@ func TestUDPChannel_MessageExchange(t *testing.T) {
 		assert.NoError(t, err, "Client should send message successfully")
 
 		t.Logf("Client sent message: %s", string(testMessage))
-	}()
+	})
 
 	// Wait for both operations to complete
 	done := make(chan struct{})
@@ -138,14 +134,12 @@ func TestUDPChannel_MultipleConcurrentClients(t *testing.T) {
 	var receivedMessages []string
 
 	// Start server receive loop
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 
 		expectedMessages := numClients * messagesPerClient
 		buffer := make([]byte, 1024)
 
-		for i := 0; i < expectedMessages; i++ {
+		for range expectedMessages {
 			n, clientAddr, err := server.conn.ReadFromUDP(buffer)
 			if err != nil {
 				t.Errorf("Server failed to read message: %v", err)
@@ -160,16 +154,16 @@ func TestUDPChannel_MultipleConcurrentClients(t *testing.T) {
 
 			t.Logf("Server received message from %s: %s", clientAddr, message)
 		}
-	}()
+	})
 
 	// Create multiple clients
-	for clientID := 0; clientID < numClients; clientID++ {
+	for clientID := range numClients {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			time.Sleep(time.Duration(id*10) * time.Millisecond) // Stagger client starts
 
-			for msgID := 0; msgID < messagesPerClient; msgID++ {
+			for msgID := range messagesPerClient {
 				conn, err := net.Dial("udp", actualServerAddr.String())
 				if err != nil {
 					t.Errorf("Client %d failed to connect: %v", id, err)
@@ -305,12 +299,12 @@ func TestUDPChannel_ConcurrentConnections(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent connection attempts
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < connectionsPerGoroutine; j++ {
+			for range connectionsPerGoroutine {
 				ch := &Channel{}
 				ch.Init()
 
@@ -350,12 +344,12 @@ func TestUDPServerChannel_ConcurrentOperations(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent server creation and binding
-	for i := 0; i < numServers; i++ {
+	for i := range numServers {
 		wg.Add(1)
 		go func(serverID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerServer; j++ {
+			for j := range operationsPerServer {
 				server := &ServerChannel{}
 				server.Init()
 
@@ -599,7 +593,7 @@ func BenchmarkUDPChannel_ConcurrentOperations(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
@@ -627,7 +621,7 @@ func BenchmarkUDPServerChannel_ConcurrentOperations(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()

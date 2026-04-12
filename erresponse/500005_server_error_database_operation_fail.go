@@ -35,6 +35,6 @@ func ServerErrorDatabaseOperationWithMessage(message string) ErrorResponse {
 }
 
 // ServerErrorDatabaseOperationWithFormat provides backward compatibility for dynamic format strings
-func ServerErrorDatabaseOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+func ServerErrorDatabaseOperationWithFormat(format string, args ...any) ErrorResponse {
 	return ServerErrorDatabaseOperationWithMessage(fmt.Sprintf(format, args...))
 }

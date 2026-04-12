@@ -19,7 +19,7 @@ func TestMockWebSocketChannel_InterfaceCompliance(t *testing.T) {
 	var _ channel.NetChannel = mockWS
 
 	assert.NotNil(t, mockWS, "MockWebSocketChannel should not be nil")
-	assert.NotNil(t, mockWS.MockNetChannel, "Embedded MockNetChannel should not be nil")
+	assert.NotNil(t, &mockWS.MockNetChannel, "Embedded MockNetChannel should not be nil")
 }
 
 // TestMockWebSocketChannel_BasicFunctionality tests basic mock functionality

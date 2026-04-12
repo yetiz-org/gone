@@ -55,14 +55,14 @@ func TestSimpleCodec_ConcurrentDecoding(t *testing.T) {
 	var errorCount int64
 
 	// Test concurrent decode operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				// Create test data with length prefix
-				testData := []byte(fmt.Sprintf("test data %d-%d", goroutineID, j))
+				testData := fmt.Appendf(nil, "test data %d-%d", goroutineID, j)
 				lengthPrefixedData := make([]byte, 4+len(testData))
 				// Write length in big-endian format
 				lengthPrefixedData[0] = byte((len(testData) >> 24) & 0xFF)
@@ -116,13 +116,13 @@ func TestSimpleCodec_ConcurrentWriting(t *testing.T) {
 	var errorCount int64
 
 	// Test concurrent write operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
-				testData := []byte(fmt.Sprintf("write test %d-%d", goroutineID, j))
+			for j := range operationsPerGoroutine {
+				testData := fmt.Appendf(nil, "write test %d-%d", goroutineID, j)
 
 				ctx := goneMock.NewMockHandlerContext()
 				mockFuture := goneMock.NewMockFuture(nil)
@@ -169,16 +169,16 @@ func TestSimpleCodec_StateConsistency(t *testing.T) {
 	var stateErrors int64
 
 	// Test that codec maintains consistent state under concurrent access
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				// Alternate between encode and decode operations
 				if j%2 == 0 {
 					// Test encode
-					testData := []byte(fmt.Sprintf("state test %d-%d", goroutineID, j))
+					testData := fmt.Appendf(nil, "state test %d-%d", goroutineID, j)
 					ctx := goneMock.NewMockHandlerContext()
 					mockFuture := goneMock.NewMockFuture(nil)
 					ctx.On("Write", mock.Anything, mockFuture).Return(mockFuture).Maybe()
@@ -195,7 +195,7 @@ func TestSimpleCodec_StateConsistency(t *testing.T) {
 					}()
 				} else {
 					// Test decode
-					testData := []byte(fmt.Sprintf("decode test %d-%d", goroutineID, j))
+					testData := fmt.Appendf(nil, "decode test %d-%d", goroutineID, j)
 					lengthPrefixedData := make([]byte, 4+len(testData))
 					lengthPrefixedData[0] = byte((len(testData) >> 24) & 0xFF)
 					lengthPrefixedData[1] = byte((len(testData) >> 16) & 0xFF)
@@ -311,7 +311,7 @@ func TestSimpleCodec_HighFrequencyOperations(t *testing.T) {
 	stopChan := make(chan struct{})
 
 	// Start stress test goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
@@ -324,7 +324,7 @@ func TestSimpleCodec_HighFrequencyOperations(t *testing.T) {
 					return
 				default:
 					// Perform high frequency encode/decode operations
-					testData := []byte(fmt.Sprintf("stress %d-%d", goroutineID, localCount))
+					testData := fmt.Appendf(nil, "stress %d-%d", goroutineID, localCount)
 
 					// Write (instead of Encode)
 					ctx := goneMock.NewMockHandlerContext()
@@ -482,12 +482,12 @@ func TestClient_ConcurrentOperations(t *testing.T) {
 	var clientCount int64
 
 	// Test concurrent client creation and operation
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for range operationsPerGoroutine {
 				handler := &mockHandler{}
 				client := NewClient(handler)
 
@@ -591,7 +591,7 @@ func TestServer_Start(t *testing.T) {
 	sch := server.Start(&net.TCPAddr{IP: nil, Port: 18083})
 	assert.NotNil(t, sch)
 	count := 10
-	for i := 0; i < count; i++ {
+	for range count {
 		go func(t *testing.T) {
 			tcHandler := &testClientHandler{}
 			tcHandler.wg.Add(count)

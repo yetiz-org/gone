@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/pkg/errors"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/goth-kklogger"
 )
@@ -23,7 +22,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 	}
 
 	if c.IsActive() {
-		err := errors.Wrap(ErrBindTwice, c.Name)
+		err := fmt.Errorf("%s: %w", c.Name, ErrBindTwice)
 		kklogger.ErrorJ("gtcp:ServerChannel.UnsafeBind#unsafe_bind!bind_twice", err.Error())
 		return err
 	}

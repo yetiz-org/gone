@@ -431,12 +431,12 @@ func TestDefaultPipeline_ConcurrentHandlerAddition(t *testing.T) {
 	var mu sync.Mutex
 
 	// Concurrent handler addition
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < handlersPerGoroutine; j++ {
+			for j := range handlersPerGoroutine {
 				handlerName := fmt.Sprintf("handler-%d-%d", goroutineID, j)
 				handler := &SimpleTestHandler{name: handlerName}
 
@@ -484,7 +484,7 @@ func TestDefaultPipeline_ConcurrentHandlerRemoval(t *testing.T) {
 	handlerNames := make([]string, numHandlers)
 
 	// Pre-populate pipeline with handlers
-	for i := 0; i < numHandlers; i++ {
+	for i := range numHandlers {
 		handlerName := fmt.Sprintf("handler-%d", i)
 		handlerNames[i] = handlerName
 		handler := &SimpleTestHandler{name: handlerName}
@@ -498,17 +498,14 @@ func TestDefaultPipeline_ConcurrentHandlerRemoval(t *testing.T) {
 	var mu sync.Mutex
 
 	// Concurrent handler removal
-	for i := 0; i < numRemovers; i++ {
+	for i := range numRemovers {
 		wg.Add(1)
 		go func(removerID int) {
 			defer wg.Done()
 
 			// Each remover tries to remove a subset of handlers
 			startIndex := removerID * (numHandlers / numRemovers)
-			endIndex := (removerID + 1) * (numHandlers / numRemovers)
-			if endIndex > numHandlers {
-				endIndex = numHandlers
-			}
+			endIndex := min((removerID+1)*(numHandlers/numRemovers), numHandlers)
 
 			for j := startIndex; j < endIndex; j++ {
 				handlerName := handlerNames[j]
@@ -540,7 +537,7 @@ func TestDefaultPipeline_ConcurrentEventFiring(t *testing.T) {
 	handlers := make([]*SimpleTestHandler, numHandlers)
 
 	// Add handlers to pipeline
-	for i := 0; i < numHandlers; i++ {
+	for i := range numHandlers {
 		handlerName := fmt.Sprintf("event-handler-%d", i)
 		handler := &SimpleTestHandler{name: handlerName}
 		handlers[i] = handler
@@ -554,15 +551,15 @@ func TestDefaultPipeline_ConcurrentEventFiring(t *testing.T) {
 	startSignal := make(chan struct{})
 
 	// Concurrent event firing
-	for i := 0; i < numFirers; i++ {
+	for i := range numFirers {
 		wg.Add(1)
 		go func(firerID int) {
 			defer wg.Done()
 
 			<-startSignal // Wait for start signal
 
-			for j := 0; j < eventsPerFirer; j++ {
-				eventData := map[string]interface{}{
+			for j := range eventsPerFirer {
+				eventData := map[string]any{
 					"firer":     firerID,
 					"sequence":  j,
 					"timestamp": time.Now().UnixNano(),
@@ -621,14 +618,14 @@ func TestDefaultPipeline_ConcurrentModificationDuringEvents(t *testing.T) {
 	startSignal := make(chan struct{})
 
 	// Concurrent pipeline modifiers
-	for i := 0; i < numModifiers; i++ {
+	for i := range numModifiers {
 		wg.Add(1)
 		go func(modifierID int) {
 			defer wg.Done()
 
 			<-startSignal
 
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				handlerName := fmt.Sprintf("modifier-%d-handler-%d", modifierID, j)
 				handler := &SimpleTestHandler{name: handlerName}
 
@@ -651,15 +648,15 @@ func TestDefaultPipeline_ConcurrentModificationDuringEvents(t *testing.T) {
 	}
 
 	// Concurrent event firers
-	for i := 0; i < numEventFirers; i++ {
+	for i := range numEventFirers {
 		wg.Add(1)
 		go func(firerID int) {
 			defer wg.Done()
 
 			<-startSignal
 
-			for j := 0; j < eventsPerFirer; j++ {
-				eventData := map[string]interface{}{
+			for j := range eventsPerFirer {
+				eventData := map[string]any{
 					"firer":   firerID,
 					"seq":     j,
 					"payload": "concurrent-test",
@@ -699,7 +696,7 @@ func TestDefaultPipeline_ContextChainIntegrity(t *testing.T) {
 	const numAccessors = 100
 
 	// Add handlers to establish chain
-	for i := 0; i < numHandlers; i++ {
+	for i := range numHandlers {
 		handlerName := fmt.Sprintf("chain-handler-%d", i)
 		handler := &SimpleTestHandler{name: handlerName}
 
@@ -710,12 +707,12 @@ func TestDefaultPipeline_ContextChainIntegrity(t *testing.T) {
 	var validTraversals int64
 
 	// Concurrent context chain traversals
-	for i := 0; i < numAccessors; i++ {
+	for i := range numAccessors {
 		wg.Add(1)
 		go func(accessorID int) {
 			defer wg.Done()
 
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				// Access pipeline head context for traversal
 				context := pipeline.(*DefaultPipeline).head.next()
 				chainLength := 0
@@ -773,12 +770,12 @@ func TestDefaultPipeline_MemoryConsistency(t *testing.T) {
 	var mu sync.Mutex
 
 	// Mixed concurrent operations for memory consistency testing
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < numOperations/numGoroutines; j++ {
+			for j := range numOperations / numGoroutines {
 				opType := (goroutineID + j) % 4
 
 				switch opType {
@@ -790,7 +787,7 @@ func TestDefaultPipeline_MemoryConsistency(t *testing.T) {
 					mu.Unlock()
 
 				case 1: // Fire event
-					eventData := map[string]interface{}{
+					eventData := map[string]any{
 						"goroutine": goroutineID,
 						"operation": j,
 					}
@@ -829,7 +826,7 @@ func BenchmarkDefaultPipeline_ConcurrentOperations(b *testing.B) {
 	pipeline := channel.Pipeline()
 
 	// Pre-populate pipeline
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		handlerName := fmt.Sprintf("bench-handler-%d", i)
 		handler := &SimpleTestHandler{name: handlerName}
 		pipeline.AddLast(handlerName, handler)
@@ -838,7 +835,7 @@ func BenchmarkDefaultPipeline_ConcurrentOperations(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			eventData := map[string]interface{}{
+			eventData := map[string]any{
 				"benchmark": true,
 				"iteration": i,
 			}
@@ -868,12 +865,12 @@ func TestDefaultPipeline_ConcurrentHandlerReplacement(t *testing.T) {
 	var mu sync.Mutex
 
 	// Concurrent handler replacement
-	for i := 0; i < numReplacers; i++ {
+	for i := range numReplacers {
 		wg.Add(1)
 		go func(replacerID int) {
 			defer wg.Done()
 
-			for j := 0; j < replacementsPerReplacer; j++ {
+			for j := range replacementsPerReplacer {
 				newHandler := &SimpleTestHandler{name: fmt.Sprintf("%s-replacement-%d-%d", handlerName, replacerID, j)}
 
 				// Replace handler (remove and add)

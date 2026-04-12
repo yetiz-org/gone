@@ -22,7 +22,7 @@ import (
 
 func TestMockSSEOperation_InterfaceCompliance(t *testing.T) {
 	// Test that MockSSEOperation implements SSEOperation interface
-	var mockSSE interface{} = NewMockSSEOperation()
+	var mockSSE any = NewMockSSEOperation()
 	assert.Implements(t, (*SSEOperation)(nil), mockSSE, "MockSSEOperation should implement SSEOperation interface")
 }
 
@@ -261,13 +261,13 @@ func TestSSEMessage_Validation(t *testing.T) {
 
 func TestMockRoute_InterfaceCompliance(t *testing.T) {
 	// Test that MockRoute implements Route interface
-	var mockRoute interface{} = NewMockRoute()
+	var mockRoute any = NewMockRoute()
 	assert.Implements(t, (*Route)(nil), mockRoute, "MockRoute should implement Route interface")
 }
 
 func TestMockRouteNode_InterfaceCompliance(t *testing.T) {
 	// Test that MockRouteNode implements RouteNode interface
-	var mockNode interface{} = NewMockRouteNode()
+	var mockNode any = NewMockRouteNode()
 	assert.Implements(t, (*RouteNode)(nil), mockNode, "MockRouteNode should implement RouteNode interface")
 }
 
@@ -485,7 +485,7 @@ func TestMockRouteNode_ChainedCalls(t *testing.T) {
 
 func TestMockHttpHandlerTask_InterfaceCompliance(t *testing.T) {
 	// Test that MockHttpHandlerTask implements all required interfaces
-	var mockTask interface{} = NewMockHttpHandlerTask()
+	var mockTask any = NewMockHttpHandlerTask()
 
 	// Verify interface compliance
 	assert.Implements(t, (*HttpHandlerTask)(nil), mockTask, "MockHttpHandlerTask should implement HttpHandlerTask")
@@ -627,7 +627,7 @@ func TestMockHttpHandlerTask_MockBehaviorCustomization(t *testing.T) {
 	})).Return(nil).Times(3)
 
 	// Make multiple calls
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		result := mockTask.Get(mockCtx, mockReq, mockResp, params)
 		assert.Nil(t, result, "Get should return nil for custom matcher")
 	}

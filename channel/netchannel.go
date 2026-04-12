@@ -2,6 +2,7 @@ package channel
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -12,8 +13,6 @@ import (
 	buf "github.com/yetiz-org/goth-bytebuf"
 	concurrent "github.com/yetiz-org/goth-concurrent"
 	kklogger "github.com/yetiz-org/goth-kklogger"
-
-	errors2 "github.com/pkg/errors"
 )
 
 // Get buffer from pool with specified size - uses appropriate pool based on size
@@ -101,7 +100,7 @@ func (c *DefaultNetChannel) UnsafeWrite(obj any) error {
 	case []byte:
 		bs = v
 	default:
-		kklogger.ErrorJ("channel:DefaultNetChannel.UnsafeWrite#unsafe_write!type_error", errors2.Wrap(ErrUnknownObjectType, reflect.TypeOf(v).String()))
+		kklogger.ErrorJ("channel:DefaultNetChannel.UnsafeWrite#unsafe_write!type_error", fmt.Errorf("%s: %w", reflect.TypeOf(v).String(), ErrUnknownObjectType))
 		return ErrUnknownObjectType
 	}
 

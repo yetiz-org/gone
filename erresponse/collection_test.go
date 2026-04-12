@@ -1,8 +1,9 @@
 package erresponse
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"testing"
 )
 
@@ -12,8 +13,8 @@ func Test_Collect(t *testing.T) {
 		ers = append(ers, er)
 	}
 
-	sort.Slice(ers, func(i, j int) bool {
-		return ers[i].(*DefaultErrorResponse).ErrorCode < ers[j].(*DefaultErrorResponse).ErrorCode
+	slices.SortFunc(ers, func(a, b ErrorResponse) int {
+		return cmp.Compare(a.(*DefaultErrorResponse).ErrorCode, b.(*DefaultErrorResponse).ErrorCode)
 	})
 
 	println("|error code|sample|")

@@ -35,6 +35,6 @@ func NotFoundWithMessage(message string) ErrorResponse {
 }
 
 // NotFoundWithFormat provides backward compatibility for dynamic format strings
-func NotFoundWithFormat(format string, args ...interface{}) ErrorResponse {
+func NotFoundWithFormat(format string, args ...any) ErrorResponse {
 	return NotFoundWithMessage(fmt.Sprintf(format, args...))
 }

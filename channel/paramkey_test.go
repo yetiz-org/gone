@@ -14,7 +14,7 @@ func TestGetParamIntDefault(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		value    interface{}
+		value    any
 		expected int
 	}{
 		{"nil value", nil, defaultValue},
@@ -56,7 +56,7 @@ func TestGetParamInt64Default(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		value    interface{}
+		value    any
 		expected int64
 	}{
 		{"nil value", nil, defaultValue},
@@ -91,7 +91,7 @@ func TestGetParamStringDefault(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		value    interface{}
+		value    any
 		expected string
 	}{
 		{"nil value", nil, defaultValue},
@@ -124,7 +124,7 @@ func TestGetParamBoolDefault(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		value    interface{}
+		value    any
 		expected bool
 	}{
 		{"nil value", nil, defaultValue},

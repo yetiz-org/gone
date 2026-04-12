@@ -683,7 +683,7 @@ func TestDefaultConn_IntegrationScenarios(t *testing.T) {
 		done := make(chan bool, 20)
 
 		// Concurrent writes
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			go func() {
 				defer func() { done <- true }()
 				n, err := conn.Write(testData)
@@ -693,7 +693,7 @@ func TestDefaultConn_IntegrationScenarios(t *testing.T) {
 		}
 
 		// Concurrent reads
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			go func() {
 				defer func() { done <- true }()
 				buffer := make([]byte, 100)
@@ -704,7 +704,7 @@ func TestDefaultConn_IntegrationScenarios(t *testing.T) {
 		}
 
 		// Wait for all operations to complete
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			<-done
 		}
 

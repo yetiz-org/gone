@@ -35,6 +35,6 @@ func ServerErrorSMSOperationWithMessage(message string) ErrorResponse {
 }
 
 // ServerErrorSMSOperationWithFormat provides backward compatibility for dynamic format strings
-func ServerErrorSMSOperationWithFormat(format string, args ...interface{}) ErrorResponse {
+func ServerErrorSMSOperationWithFormat(format string, args ...any) ErrorResponse {
 	return ServerErrorSMSOperationWithMessage(fmt.Sprintf(format, args...))
 }

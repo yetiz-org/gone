@@ -45,12 +45,12 @@ func TestDeadlockPrevention_ChannelOperations(t *testing.T) {
 		}()
 
 		// Test concurrent channel operations that could potentially deadlock
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
 
-				for j := 0; j < operationsPerGoroutine; j++ {
+				for range operationsPerGoroutine {
 					// Create multiple channels
 					ch1 := &channel.DefaultChannel{}
 					ch1.Init()
@@ -114,12 +114,12 @@ func TestDeadlockPrevention_TCPServerOperations(t *testing.T) {
 		}()
 
 		// Test concurrent TCP server operations that could potentially deadlock
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
 
-				for j := 0; j < operationsPerGoroutine; j++ {
+				for range operationsPerGoroutine {
 					server := &gtcp.ServerChannel{}
 					server.Init()
 
@@ -181,12 +181,12 @@ func TestDeadlockPrevention_WebSocketOperations(t *testing.T) {
 		}()
 
 		// Test concurrent WebSocket operations that could potentially deadlock
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
 
-				for j := 0; j < operationsPerGoroutine; j++ {
+				for range operationsPerGoroutine {
 					wsCh := &gws.Channel{}
 					wsCh.BootstrapPreInit()
 					wsCh.Init()
@@ -259,12 +259,12 @@ func TestDeadlockPrevention_CrossPackageInteractions(t *testing.T) {
 		}()
 
 		// Test complex cross-package interactions that could potentially deadlock
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
 
-				for j := 0; j < operationsPerGoroutine; j++ {
+				for range operationsPerGoroutine {
 					// Create instances from different packages
 					ch := &channel.DefaultChannel{}
 					ch.Init()
@@ -469,11 +469,11 @@ func TestResourceLeakDetection_ChannelCleanup(t *testing.T) {
 		m1.Alloc/1024, m1.Sys/1024, m1.NumGC)
 
 	// Test multiple cleanup cycles
-	for cycle := 0; cycle < cleanupCycles; cycle++ {
+	for range cleanupCycles {
 		var wg sync.WaitGroup
 
 		// Allocate many channels concurrently
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
@@ -481,7 +481,7 @@ func TestResourceLeakDetection_ChannelCleanup(t *testing.T) {
 				channels := make([]*channel.DefaultChannel, channelsPerGoroutine)
 
 				// Create channels
-				for j := 0; j < channelsPerGoroutine; j++ {
+				for j := range channelsPerGoroutine {
 					ch := &channel.DefaultChannel{}
 					ch.Init()
 					channels[j] = ch
@@ -567,11 +567,11 @@ func TestResourceLeakDetection_TCPCleanup(t *testing.T) {
 	runtime.ReadMemStats(&m1)
 
 	// Test multiple cleanup cycles
-	for cycle := 0; cycle < cleanupCycles; cycle++ {
+	for range cleanupCycles {
 		var wg sync.WaitGroup
 
 		// Allocate many TCP resources concurrently
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(routineID int) {
 				defer wg.Done()
@@ -580,7 +580,7 @@ func TestResourceLeakDetection_TCPCleanup(t *testing.T) {
 				serverChannels := make([]*gtcp.ServerChannel, resourcesPerGoroutine/2)
 
 				// Create TCP channels
-				for j := 0; j < resourcesPerGoroutine/2; j++ {
+				for j := range resourcesPerGoroutine / 2 {
 					ch := &gtcp.Channel{}
 					ch.Init()
 					tcpChannels[j] = ch
@@ -591,7 +591,7 @@ func TestResourceLeakDetection_TCPCleanup(t *testing.T) {
 				}
 
 				// Create server channels
-				for j := 0; j < resourcesPerGoroutine/2; j++ {
+				for j := range resourcesPerGoroutine / 2 {
 					server := &gtcp.ServerChannel{}
 					server.Init()
 					serverChannels[j] = server
@@ -664,7 +664,7 @@ func TestResourceLeakDetection_GoroutineLeaks(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Perform operations that could potentially create goroutine leaks
-	for i := 0; i < numOperations; i++ {
+	for i := range numOperations {
 		wg.Add(1)
 		go func(operationID int) {
 			defer wg.Done()
@@ -731,12 +731,12 @@ func TestThreadSafety_SharedDataStructures(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent operations across all shared data structures
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				switch j % 4 {
 				case 0:
 					// Channel operations
@@ -802,12 +802,12 @@ func TestThreadSafety_FutureOperations(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent future operations with timeout and proper completion
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < futuresPerGoroutine; j++ {
+			for j := range futuresPerGoroutine {
 				ch := &channel.DefaultChannel{}
 				ch.Init()
 				future := ch.Pipeline().NewFuture()
@@ -870,12 +870,12 @@ func TestThreadSafety_WebSocketMessageProcessing(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent WebSocket message processing
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := 0; j < messagesPerGoroutine; j++ {
+			for j := range messagesPerGoroutine {
 				switch j % 4 {
 				case 0:
 					// Text message
@@ -952,10 +952,8 @@ func BenchmarkDeadlockPrevention_Performance(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range numGoroutines {
+			wg.Go(func() {
 
 				// Simulate deadlock prevention scenarios
 				ch := &channel.DefaultChannel{}
@@ -973,7 +971,7 @@ func BenchmarkDeadlockPrevention_Performance(b *testing.B) {
 					future.Await()
 				}
 				ch.IsActive()
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -990,13 +988,11 @@ func BenchmarkResourceCleanup_ConcurrentLoad(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range numGoroutines {
+			wg.Go(func() {
 
 				// Create and cleanup resources
-				for j := 0; j < resourcesPerIteration; j++ {
+				for j := range resourcesPerIteration {
 					switch j % 3 {
 					case 0:
 						ch := &channel.DefaultChannel{}
@@ -1016,7 +1012,7 @@ func BenchmarkResourceCleanup_ConcurrentLoad(b *testing.B) {
 						ws = nil
 					}
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -1032,10 +1028,8 @@ func BenchmarkThreadSafety_ConcurrentOperations(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range numGoroutines {
+			wg.Go(func() {
 
 				// Channel operations
 				ch := &channel.DefaultChannel{}
@@ -1054,7 +1048,7 @@ func BenchmarkThreadSafety_ConcurrentOperations(b *testing.B) {
 				}
 				msg.Encoded()
 				msg.Type()
-			}()
+			})
 		}
 
 		wg.Wait()
