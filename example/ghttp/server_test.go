@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	http2 "net/http"
 	"testing"
@@ -71,7 +71,7 @@ func TestServer_Start(t *testing.T) {
 				wg.Done()
 			}()
 
-			v := fmt.Sprintf("%d", rand.Int())
+			v := fmt.Sprintf("%d", rand.Uint64())
 			req, _ := http2.NewRequest("GET", fmt.Sprintf("http://localhost:18080/long?v=%s", v), nil)
 			req.Header = http2.Header{}
 			if i%2 == 0 {

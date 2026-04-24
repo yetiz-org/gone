@@ -2,7 +2,6 @@ package utils
 
 import (
 	"sync"
-	"unsafe"
 )
 
 // BufferPool provides a thread-safe pool for byte buffers of different sizes
@@ -54,30 +53,10 @@ func (bp *BufferPool) Put(buf []byte) {
 	}
 }
 
-// clearBuffer efficiently clears the buffer using unsafe operations for performance
-// This prevents dirty data from being exposed to new users of the buffer
+// clearBuffer zeroes the buffer so pooled reuse cannot leak prior contents.
+// The builtin clear is lowered to memclr by the compiler.
 func (bp *BufferPool) clearBuffer(buf []byte) {
-	if len(buf) == 0 {
-		return
-	}
-	// Use unsafe to clear memory efficiently - equivalent to memset(buf, 0, len(buf))
-	// This is much faster than a loop for large buffers
-	ptr := unsafe.Pointer(&buf[0])
-	size := uintptr(len(buf))
-
-	// Clear in 8-byte chunks for better performance
-	for size >= 8 {
-		*(*uint64)(ptr) = 0
-		ptr = unsafe.Pointer(uintptr(ptr) + 8)
-		size -= 8
-	}
-
-	// Clear remaining bytes
-	for size > 0 {
-		*(*byte)(ptr) = 0
-		ptr = unsafe.Pointer(uintptr(ptr) + 1)
-		size--
-	}
+	clear(buf)
 }
 
 // GetWithSize retrieves a buffer and resizes it if needed

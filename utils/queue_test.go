@@ -390,7 +390,7 @@ func BenchmarkQueue_PopOnly(b *testing.B) {
 	queue := &Queue{}
 
 	// Pre-populate queue
-	for i := 0; i < b.N*2; i++ {
+	for range b.N * 2 {
 		queue.Push("benchmark-data")
 	}
 

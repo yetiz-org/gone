@@ -99,7 +99,7 @@ func BenchmarkBufferPool_GetPut(b *testing.B) {
 	pool := NewBufferPool(4096)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := pool.Get()
 		pool.Put(buf)
 	}
@@ -107,14 +107,14 @@ func BenchmarkBufferPool_GetPut(b *testing.B) {
 
 func BenchmarkBufferPool_DirectAllocation(b *testing.B) {
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = make([]byte, 4096)
 	}
 }
 
 func BenchmarkGlobalPools_Small(b *testing.B) {
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := GetSmallBuffer()
 		PutSmallBuffer(buf)
 	}
@@ -122,7 +122,7 @@ func BenchmarkGlobalPools_Small(b *testing.B) {
 
 func BenchmarkGlobalPools_Large(b *testing.B) {
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := GetLargeBuffer()
 		PutLargeBuffer(buf)
 	}

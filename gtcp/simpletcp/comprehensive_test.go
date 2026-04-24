@@ -639,7 +639,7 @@ func BenchmarkSimpleCodec_Operations(b *testing.B) {
 	b.ResetTimer()
 
 	b.Run("Write", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			ctx := goneMock.NewMockHandlerContext()
 			mockFuture := goneMock.NewMockFuture(nil)
 			ctx.On("Write", mock.Anything, mockFuture).Return(mockFuture).Maybe()
@@ -658,7 +658,7 @@ func BenchmarkClient_Operations(b *testing.B) {
 	b.ResetTimer()
 
 	b.Run("ClientCreation", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			handler := &mockHandler{}
 			client := NewClient(handler)
 			_ = client
@@ -671,7 +671,7 @@ func BenchmarkClient_Operations(b *testing.B) {
 		mockCtx := goneMock.NewMockHandlerContext()
 		mockCtx.On("Channel").Return(goneMock.NewMockChannel()).Maybe()
 
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			client.Handler.Active(mockCtx)
 			client.Handler.Inactive(mockCtx)
 		}

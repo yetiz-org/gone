@@ -949,7 +949,7 @@ func BenchmarkDeadlockPrevention_Performance(b *testing.B) {
 
 	b.ResetTimer()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 
 		for range numGoroutines {
@@ -985,7 +985,7 @@ func BenchmarkResourceCleanup_ConcurrentLoad(b *testing.B) {
 
 	b.ResetTimer()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 
 		for range numGoroutines {
@@ -1025,7 +1025,7 @@ func BenchmarkThreadSafety_ConcurrentOperations(b *testing.B) {
 
 	b.ResetTimer()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 
 		for range numGoroutines {

@@ -814,7 +814,7 @@ func BenchmarkWebSocketMessage_ConcurrentOperations(b *testing.B) {
 
 	b.ResetTimer()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 
 		for i := range numGoroutines {
@@ -856,7 +856,7 @@ func BenchmarkWebSocketChannel_ConcurrentOperations(b *testing.B) {
 
 	b.ResetTimer()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 
 		for range numGoroutines {

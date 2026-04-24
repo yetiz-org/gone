@@ -2,6 +2,7 @@ package ghttp
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/yetiz-org/goth-kklogger"
@@ -9,6 +10,17 @@ import (
 
 type Route interface {
 	RouteNode(path string) (node RouteNode, nodeParams map[string]any, isLast bool)
+}
+
+// RouteEntry describes one concrete route node in a route tree.
+type RouteEntry struct {
+	Path string
+	Node RouteNode
+}
+
+// RouteEntriesProvider reports whether a route can enumerate its registered nodes.
+type RouteEntriesProvider interface {
+	RouteEntries() []RouteEntry
 }
 
 type DefaultRoute struct {
@@ -77,6 +89,11 @@ func (r *DefaultRoute) RouteNode(path string) (node RouteNode, nodeParams map[st
 	}
 
 	return current, params, current == next
+}
+
+// RouteEntries returns the endpoint nodes registered in the route tree.
+func (r *DefaultRoute) RouteEntries() []RouteEntry {
+	return collectRouteEntries(r.root)
 }
 
 func (r *DefaultRoute) SetRoot(point *_EndPoint) *DefaultRoute {
@@ -205,6 +222,65 @@ const (
 	RouteTypeRecursiveEndPoint
 	RouteTypeRootEndPoint
 )
+
+func collectRouteEntries(root RouteNode) []RouteEntry {
+	if root == nil {
+		return nil
+	}
+
+	var entries []RouteEntry
+	var walk func(node RouteNode)
+	walk = func(node RouteNode) {
+		switch node.RouteType() {
+		case RouteTypeRootEndPoint, RouteTypeEndPoint, RouteTypeRecursiveEndPoint:
+			entries = append(entries, RouteEntry{
+				Path: routeNodePath(node),
+				Node: node,
+			})
+		}
+
+		names := make([]string, 0, len(node.Resources()))
+		for name := range node.Resources() {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		for _, name := range names {
+			walk(node.Resources()[name])
+		}
+	}
+
+	walk(root)
+	slices.SortFunc(entries, func(a RouteEntry, b RouteEntry) int {
+		return strings.Compare(a.Path, b.Path)
+	})
+	return entries
+}
+
+func routeNodePath(node RouteNode) string {
+	if node == nil || node.RouteType() == RouteTypeRootEndPoint {
+		return "/"
+	}
+
+	var parts []string
+	for current := node; current != nil && current.RouteType() != RouteTypeRootEndPoint; current = current.Parent() {
+		if current.Name() == "" {
+			continue
+		}
+		if current.RouteType() == RouteTypeRecursiveEndPoint || current.Name() == "*" {
+			parts = append([]string{"*"}, parts...)
+			if current.Name() != "*" {
+				parts = append([]string{current.Name()}, parts...)
+			}
+			continue
+		}
+		parts = append([]string{current.Name()}, parts...)
+	}
+
+	if len(parts) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(parts, "/")
+}
 
 type _EndPoint struct {
 	_Node

@@ -68,6 +68,7 @@ type endpointParamMapping struct {
 type SimpleRoute struct {
 	root             RouteNode
 	endpointMappings map[string]*endpointParamMapping // Key is the normalized endpoint path
+	endpointPaths    map[RouteNode]string
 }
 
 func NewSimpleRoute() *SimpleRoute {
@@ -81,6 +82,7 @@ func NewSimpleRoute() *SimpleRoute {
 			},
 		},
 		endpointMappings: make(map[string]*endpointParamMapping),
+		endpointPaths:    make(map[RouteNode]string),
 	}
 }
 
@@ -112,9 +114,45 @@ func (r *SimpleRoute) String() string {
 	return string(marshal)
 }
 
+// RouteEntries returns the endpoint nodes registered in the route tree.
+func (r *SimpleRoute) RouteEntries() []RouteEntry {
+	if r.root == nil {
+		return nil
+	}
+
+	var entries []RouteEntry
+	var walk func(node RouteNode)
+	walk = func(node RouteNode) {
+		switch node.RouteType() {
+		case RouteTypeRootEndPoint, RouteTypeEndPoint, RouteTypeRecursiveEndPoint:
+			path := routeNodePath(node)
+			if stored, ok := r.endpointPaths[node]; ok {
+				path = stored
+			}
+			entries = append(entries, RouteEntry{Path: path, Node: node})
+		}
+
+		names := make([]string, 0, len(node.Resources()))
+		for name := range node.Resources() {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		for _, name := range names {
+			walk(node.Resources()[name])
+		}
+	}
+
+	walk(r.root)
+	slices.SortFunc(entries, func(a RouteEntry, b RouteEntry) int {
+		return strings.Compare(a.Path, b.Path)
+	})
+	return entries
+}
+
 func (r *SimpleRoute) SetRoot(handler HandlerTask, acceptances ...Acceptance) *SimpleRoute {
 	r.root.(*_SimpleNode).handler = handler
 	r.root.(*_SimpleNode).acceptances = acceptances
+	r.endpointPaths[r.root] = "/"
 	return r
 }
 
@@ -163,6 +201,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	if path == "" {
 		r.root.(*_SimpleNode).handler = handler
 		r.root.(*_SimpleNode).acceptances = acceptances
+		r.endpointPaths[r.root] = "/"
 		return r
 	}
 
@@ -195,6 +234,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 			if idx+1 == partsLen {
 				current.(*_SimpleNode).handler = handler
 				current.(*_SimpleNode).acceptances = acceptances
+				r.endpointPaths[current] = "/" + path
 			}
 
 			continue
@@ -212,6 +252,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 				},
 			}
 			current.Resources()["*"] = wildcardNode
+			r.endpointPaths[wildcardNode] = "/" + path
 			return r
 		}
 
@@ -231,15 +272,23 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 				node.routeType = RouteTypeEndPoint
 				node.handler = handler
 				node.acceptances = acceptances
+				r.endpointPaths[node] = "/" + path
 			}
 
 			current.Resources()[part] = node
 			current = node
+			if idx+1 == partsLen {
+				r.endpointPaths[current] = "/" + path
+			}
 		}
 	}
 
 	if hasCustomParams {
 		r.endpointMappings[path] = mapping
+	}
+
+	if current.RouteType() != RouteTypeGroup {
+		r.endpointPaths[current] = "/" + path
 	}
 
 	if handler != nil {
