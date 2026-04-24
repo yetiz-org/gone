@@ -51,7 +51,14 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj any, future channel.
 }
 
 func (h *GZipHandler) gzipWrite(buffer buf.ByteBuf) buf.ByteBuf {
-	gzBuffer := buf.EmptyByteBuf()
+	// Pre-size the gzip destination to ~1/3 of the input size (typical text
+	// compression ratio) with a 128-byte floor. This skips the first few
+	// doublings the buffer would perform during the gzip writer's appends.
+	est := buffer.ReadableBytes() / 3
+	if est < 128 {
+		est = 128
+	}
+	gzBuffer := buf.NewByteBuf(make([]byte, 0, est))
 	writer, _ := gzip.NewWriterLevel(gzBuffer, gzip.BestSpeed)
 	defer writer.Close()
 	writer.Write(buffer.Bytes())

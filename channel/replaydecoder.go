@@ -14,7 +14,7 @@ type ReplayState int
 
 type ReplayDecoder struct {
 	ByteToMessageDecoder
-	in    buf.ByteBuf
+	in    buf.CompositeByteBuf
 	state ReplayState
 	op    sync.Mutex
 }
@@ -41,27 +41,24 @@ func (h *ReplayDecoder) State() ReplayState {
 func (h *ReplayDecoder) Checkpoint(state ReplayState) {
 	h.state = state
 
-	// Prevent nil pointer dereference - initialize h.in if not already initialized
 	if h.in == nil {
-		h.in = buf.EmptyByteBuf()
+		h.in = buf.NewCompositeByteBuf()
 	}
 
 	if h.in.Cap()-h.in.ReadableBytes() > replayDecoderTruncateLen {
 		h.op.Lock()
 		defer h.op.Unlock()
-		bs := h.in.Bytes()
-		h.in.Reset()
-		h.in.WriteBytes(bs)
+		h.in.Compact()
 	}
 }
 
 func (h *ReplayDecoder) Added(ctx HandlerContext) {
-	h.in = buf.EmptyByteBuf()
+	h.in = buf.NewCompositeByteBuf()
 }
 
 func (h *ReplayDecoder) Read(ctx HandlerContext, obj any) {
 	if h.Decode != nil {
-		h.in.Write(obj.(buf.ByteBuf).Bytes())
+		h.in.AddComponent(obj.(buf.ByteBuf))
 		out := &utils.Queue{}
 		kkpanic.CatchExcept(func() {
 			h.Decode(ctx, h.in, out)

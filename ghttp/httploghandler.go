@@ -93,13 +93,15 @@ func (h *LogHandler) constructReq(req *Request) *RequestLogStruct {
 
 	bodyLength := 0
 	if h.printBody {
-		if len(req.Body().Bytes()) > h.ReqMaxBodySize {
-			logStruct.Body = string(req.Body().Bytes()[:h.ReqMaxBodySize])
+		body := req.Body()
+		bs := body.Bytes()
+		if len(bs) > h.ReqMaxBodySize {
+			logStruct.Body = string(bs[:h.ReqMaxBodySize])
 		} else {
-			logStruct.Body = string(req.Body().Bytes())
+			logStruct.Body = string(bs)
 		}
 
-		bodyLength = req.Body().ReadableBytes()
+		bodyLength = body.ReadableBytes()
 	}
 
 	logStruct.BodyLength = bodyLength
@@ -133,22 +135,24 @@ func (h *LogHandler) constructResp(resp *Response) *ResponseLogStruct {
 	if h.printBody {
 		maxBodySize := h.RespMaxBodySize
 		if resp.GetHeader(httpheadername.ContentEncoding) == "gzip" {
-			if reader, err := gzip.NewReader(buf.NewByteBuf(resp.body.Bytes())); err == nil {
+			if reader, err := gzip.NewReader(buf.NewSharedByteBuf(resp.body.Bytes())); err == nil {
 				defer reader.Close()
 				bus := buf.EmptyByteBuf().WriteReader(reader)
-				if len(bus.Bytes()) > maxBodySize {
-					logStruct.Body = string(bus.Bytes()[:maxBodySize])
+				decoded := bus.Bytes()
+				if len(decoded) > maxBodySize {
+					logStruct.Body = string(decoded[:maxBodySize])
 				} else {
-					logStruct.Body = string(bus.Bytes())
+					logStruct.Body = string(decoded)
 				}
 
 				logStruct.PreCompressLength = len(logStruct.Body)
 			}
 		} else {
-			if len(resp.body.Bytes()) > maxBodySize {
-				logStruct.Body = string(resp.body.Bytes()[:maxBodySize])
+			bs := resp.body.Bytes()
+			if len(bs) > maxBodySize {
+				logStruct.Body = string(bs[:maxBodySize])
 			} else {
-				logStruct.Body = string(resp.body.Bytes())
+				logStruct.Body = string(bs)
 			}
 		}
 	}

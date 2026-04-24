@@ -5,10 +5,10 @@ go 1.26.0
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/tdewolff/minify/v2 v2.24.0
 	github.com/yetiz-org/goth-base62 v1.2.0
-	github.com/yetiz-org/goth-bytebuf v1.1.0
+	github.com/yetiz-org/goth-bytebuf v1.2.1
 	github.com/yetiz-org/goth-concurrent v1.2.2
 	github.com/yetiz-org/goth-kkerror v1.0.0
 	github.com/yetiz-org/goth-kklogger v1.2.8

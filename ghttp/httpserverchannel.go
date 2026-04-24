@@ -132,8 +132,15 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		},
 	}
 
+	// Open the listener synchronously so Bind().Sync() only returns once the
+	// port is actually accepting connections; Serve is run in a goroutine.
+	listener, err := net.Listen("tcp", c.server.Addr)
+	if err != nil {
+		return err
+	}
+
 	c.active.Store(true)
-	go c.server.ListenAndServe()
+	go c.server.Serve(listener)
 	return nil
 }
 

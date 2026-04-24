@@ -6,20 +6,30 @@ import (
 	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
-// VarIntEncode encodes a uint64 value using variable-length encoding
-func VarIntEncode(val uint64) buf.ByteBuf {
-	if val < 0xfd {
-		return buf.EmptyByteBuf().AppendByte(byte(val))
-	} else if val <= math.MaxUint16 {
-		return buf.NewByteBuf([]byte{0xfd}).WriteUInt16(uint16(val))
-	} else if val <= math.MaxUint32 {
-		return buf.NewByteBuf([]byte{0xfe}).WriteUInt32(uint32(val))
-	} else {
-		return buf.NewByteBuf([]byte{0xff}).WriteUInt64(val)
+// VarIntEncodeTo writes the variable-length encoding of val into dst and
+// returns dst for chaining. The encoded form occupies 1, 3, 5, or 9 bytes
+// depending on the magnitude of val.
+func VarIntEncodeTo(dst buf.ByteBuf, val uint64) buf.ByteBuf {
+	switch {
+	case val < 0xfd:
+		return dst.AppendByte(byte(val))
+	case val <= math.MaxUint16:
+		return dst.AppendByte(0xfd).WriteUInt16(uint16(val))
+	case val <= math.MaxUint32:
+		return dst.AppendByte(0xfe).WriteUInt32(uint32(val))
+	default:
+		return dst.AppendByte(0xff).WriteUInt64(val)
 	}
 }
 
-// VarIntDecode decodes a variable-length encoded value from a ByteBuf
+// VarIntEncode returns a newly allocated ByteBuf carrying the variable-length
+// encoding of val.
+func VarIntEncode(val uint64) buf.ByteBuf {
+	return VarIntEncodeTo(buf.EmptyByteBuf(), val)
+}
+
+// VarIntDecode reads a variable-length encoded value from bbf using flag as
+// the length-class selector previously read from the stream.
 func VarIntDecode(flag byte, bbf buf.ByteBuf) uint64 {
 	switch flag {
 	case 0xfd:

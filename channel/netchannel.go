@@ -15,6 +15,21 @@ import (
 	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
+// markConnInactiveOnError mirrors DefaultConn.Write's error tracking for
+// write paths that bypass DefaultConn.Write. Non-deadline errors flip the
+// connection into the inactive state.
+func markConnInactiveOnError(c Conn, err error) {
+	if err == nil || c == nil {
+		return
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return
+	}
+	if dc, ok := c.(*DefaultConn); ok {
+		dc.MarkInactive()
+	}
+}
+
 // Get buffer from pool with specified size - uses appropriate pool based on size.
 // Returned slice is uncleared; callers only read bytes they themselves wrote
 // via the subsequent net.Conn.Read (i.e. bs[:rc]).
@@ -95,24 +110,34 @@ func (c *DefaultNetChannel) UnsafeWrite(obj any) error {
 		return net.ErrClosed
 	}
 
-	var bs []byte
-	switch v := obj.(type) {
-	case buf.ByteBuf:
-		bs = v.Bytes()
-	case []byte:
-		bs = v
-	default:
-		kklogger.ErrorJ("channel:DefaultNetChannel.UnsafeWrite#unsafe_write!type_error", fmt.Errorf("%s: %w", reflect.TypeOf(v).String(), ErrUnknownObjectType))
-		return ErrUnknownObjectType
-	}
-
 	if c.WriteTimeout > 0 {
 		if err := c.Conn().SetWriteDeadline(time.Now().Add(c.WriteTimeout)); err != nil {
 			return err
 		}
 	}
 
-	if _, err := c.Conn().Write(bs); err != nil {
+	var err error
+	switch v := obj.(type) {
+	case buf.ByteBuf:
+		// Buffers that expose io.WriterTo (CompositeByteBuf) go through the
+		// underlying net.Conn so net.Buffers.WriteTo can coalesce components
+		// into a writev(2) syscall for *net.TCPConn / *net.UnixConn targets.
+		if wt, ok := v.(io.WriterTo); ok {
+			_, err = wt.WriteTo(c.Conn().Conn())
+			if err != nil {
+				markConnInactiveOnError(c.Conn(), err)
+			}
+		} else {
+			_, err = c.Conn().Write(v.Bytes())
+		}
+	case []byte:
+		_, err = c.Conn().Write(v)
+	default:
+		kklogger.ErrorJ("channel:DefaultNetChannel.UnsafeWrite#unsafe_write!type_error", fmt.Errorf("%s: %w", reflect.TypeOf(v).String(), ErrUnknownObjectType))
+		return ErrUnknownObjectType
+	}
+
+	if err != nil {
 		kklogger.WarnJ("channel:DefaultNetChannel.UnsafeWrite#unsafe_write!write_error", err.Error())
 		return err
 	}

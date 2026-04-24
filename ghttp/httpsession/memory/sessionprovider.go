@@ -11,11 +11,12 @@ const SessionTypeMemory httpsession.SessionType = "MEMORY"
 
 type SessionProvider struct {
 	sessions  sync.Map
+	cleanMu   sync.Mutex
 	lastClean time.Time
 }
 
 func NewSessionProvider() *SessionProvider {
-	return &SessionProvider{}
+	return &SessionProvider{lastClean: time.Now()}
 }
 
 func (s *SessionProvider) Type() httpsession.SessionType {
@@ -51,8 +52,8 @@ func (s *SessionProvider) Session(key string) httpsession.Session {
 }
 
 func (s *SessionProvider) Save(session httpsession.Session) error {
-	s.cleanSessions()
 	s.sessions.Store(session.Id(), session)
+	s.cleanSessions()
 	return nil
 }
 
@@ -60,16 +61,22 @@ func (s *SessionProvider) Delete(key string) {
 	s.sessions.Delete(key)
 }
 
+// cleanSessions sweeps expired entries at most once every 10 seconds. The
+// sweep runs synchronously on the caller's goroutine so Save() does not
+// return until the post-sweep state is visible.
 func (s *SessionProvider) cleanSessions() {
-	if time.Now().Sub(s.lastClean) > 10*time.Second {
-		s.lastClean = time.Now()
-		go func(s *SessionProvider) {
-			s.sessions.Range(func(key, value any) bool {
-				if value.(httpsession.Session).IsExpire() {
-					s.sessions.Delete(key)
-				}
-				return true
-			})
-		}(s)
+	s.cleanMu.Lock()
+	if time.Since(s.lastClean) <= 10*time.Second {
+		s.cleanMu.Unlock()
+		return
 	}
+	s.lastClean = time.Now()
+	s.cleanMu.Unlock()
+
+	s.sessions.Range(func(key, value any) bool {
+		if value.(httpsession.Session).IsExpire() {
+			s.sessions.Delete(key)
+		}
+		return true
+	})
 }

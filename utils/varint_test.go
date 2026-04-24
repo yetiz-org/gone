@@ -168,6 +168,80 @@ func BenchmarkVarIntEncode(b *testing.B) {
 	}
 }
 
+// TestVarIntEncodeTo_AppendsIntoExistingBuf verifies that VarIntEncodeTo
+// writes the encoded bytes after any pre-existing readable content in dst.
+func TestVarIntEncodeTo_AppendsIntoExistingBuf(t *testing.T) {
+	cases := []struct {
+		name  string
+		prior []byte
+		value uint64
+		want  []byte
+	}{
+		{"empty_then_small", nil, 42, []byte{42}},
+		{"prior_then_small", []byte{'A', 'B'}, 42, []byte{'A', 'B', 42}},
+		{"prior_then_uint16", []byte{'H'}, 1024, []byte{'H', 0xfd, 0x04, 0x00}},
+		{"prior_then_uint32", []byte{'X'}, math.MaxUint16 + 1, []byte{'X', 0xfe, 0x00, 0x01, 0x00, 0x00}},
+		{"prior_then_uint64", nil, math.MaxUint32 + 1, []byte{0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := buf.EmptyByteBuf()
+			if len(tc.prior) > 0 {
+				dst.WriteBytes(tc.prior)
+			}
+			ret := VarIntEncodeTo(dst, tc.value)
+			assert.Same(t, dst, ret, "VarIntEncodeTo should return the same buf for chaining")
+			assert.Equal(t, tc.want, dst.Bytes())
+		})
+	}
+}
+
+// TestVarIntEncodeTo_MatchesVarIntEncode_Output guarantees the two APIs
+// produce byte-identical encodings across the flag classes.
+func TestVarIntEncodeTo_MatchesVarIntEncode_Output(t *testing.T) {
+	values := []uint64{
+		0, 1, 252, 253,
+		math.MaxUint16, math.MaxUint16 + 1,
+		math.MaxUint32, math.MaxUint32 + 1,
+		math.MaxUint64,
+	}
+	for _, v := range values {
+		a := VarIntEncode(v)
+		b := VarIntEncodeTo(buf.EmptyByteBuf(), v)
+		assert.Equal(t, a.Bytes(), b.Bytes(), "value=%d", v)
+	}
+}
+
+// TestVarIntEncodeTo_RoundTrip confirms a VarIntEncodeTo-written payload
+// decodes back to the original value via VarIntDecode.
+func TestVarIntEncodeTo_RoundTrip(t *testing.T) {
+	values := []uint64{0, 1, 252, 253, 65535, 65536, math.MaxUint32, math.MaxUint32 + 1, math.MaxUint64}
+	for _, v := range values {
+		dst := buf.EmptyByteBuf()
+		VarIntEncodeTo(dst, v)
+		flag, err := dst.ReadByte()
+		assert.NoError(t, err)
+		got := VarIntDecode(flag, dst)
+		assert.Equal(t, v, got, "round-trip failed for %d", v)
+	}
+}
+
+// BenchmarkVarIntEncodeTo_Reused measures the hot-loop cost when dst is
+// reused across calls (the pattern codecs will follow).
+func BenchmarkVarIntEncodeTo_Reused(b *testing.B) {
+	testValues := []uint64{42, 253, math.MaxUint16, math.MaxUint32, math.MaxUint64}
+	for _, val := range testValues {
+		b.Run("encode_to_reused", func(b *testing.B) {
+			dst := buf.EmptyByteBuf()
+			b.ReportAllocs()
+			for b.Loop() {
+				dst.Reset()
+				VarIntEncodeTo(dst, val)
+			}
+		})
+	}
+}
+
 // Performance benchmark for VarIntDecode
 func BenchmarkVarIntDecode(b *testing.B) {
 	testCases := []struct {
@@ -184,7 +258,8 @@ func BenchmarkVarIntDecode(b *testing.B) {
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
 			for b.Loop() {
-				// CRITICAL FIX: Create fresh ByteBuf for each iteration to avoid "insufficient size" panic
+				// Each iteration needs a fresh ByteBuf because VarIntDecode
+				// advances the reader index to consume the encoded bytes.
 				byteBuf := buf.NewByteBuf(tc.data)
 				_ = VarIntDecode(tc.flag, byteBuf)
 			}

@@ -56,7 +56,9 @@ func (h *SimpleCodec) decode(ctx channel.HandlerContext, in buf.ByteBuf, out str
 func (h *SimpleCodec) Write(ctx channel.HandlerContext, obj any, future channel.Future) {
 	switch m := obj.(type) {
 	case buf.ByteBuf:
-		ctx.Write(utils.VarIntEncode(uint64(m.ReadableBytes())).WriteByteBuf(m), future)
+		header := buf.EmptyByteBuf()
+		utils.VarIntEncodeTo(header, uint64(m.ReadableBytes()))
+		ctx.Write(buf.NewCompositeByteBuf(header, m), future)
 	default:
 		kklogger.ErrorJ("gtcp:SimpleCodec.Write#write!type_error", fmt.Sprintf("obj(%s) is not type of buf.ByteBuf", reflect.TypeOf(obj).String()))
 	}

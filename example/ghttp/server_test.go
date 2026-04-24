@@ -65,11 +65,9 @@ func TestServer_Start(t *testing.T) {
 	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel()
 	wg := concurrent.WaitGroup{}
 	for i := range 10 {
+		wg.Add(1)
 		go func(i int) {
-			wg.Add(1)
-			defer func() {
-				wg.Done()
-			}()
+			defer wg.Done()
 
 			v := fmt.Sprintf("%d", rand.Uint64())
 			req, _ := http2.NewRequest("GET", fmt.Sprintf("http://localhost:18080/long?v=%s", v), nil)
@@ -104,90 +102,87 @@ func TestServer_Start(t *testing.T) {
 	}
 
 	for range 10 {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
+			defer wg.Done()
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 			}
-
-			wg.Done()
 		}()
 	}
 
 	for range 10 {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
+			defer wg.Done()
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/home"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.Equal(t, 200, rtn.StatusCode)
 				assert.EqualValues(t, "/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 			}
-
-			wg.Done()
 		}()
 	}
 
 	for range 5 {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
+			defer wg.Done()
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/v1/home"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.Equal(t, 200, rtn.StatusCode)
 				assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 			}
-
-			wg.Done()
 		}()
 	}
 
 	for range 10 {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
+			defer wg.Done()
 			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/homes"); err != nil {
 				assert.Fail(t, err.Error())
 			} else {
 				assert.EqualValues(t, 404, rtn.StatusCode)
 			}
-
-			wg.Done()
 		}()
 	}
 
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
+		defer wg.Done()
 		if rtn, err := http2.DefaultClient.Get("http://localhost:18080/400"); err != nil {
 			assert.Fail(t, err.Error())
 		} else {
 			assert.EqualValues(t, 400, rtn.StatusCode)
 		}
-
-		wg.Done()
 	}()
 
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
+		defer wg.Done()
 		if rtn, err := http2.DefaultClient.Get("http://localhost:18080/sse"); err != nil {
 			assert.Fail(t, err.Error())
 		} else {
 			assert.EqualValues(t, 200, rtn.StatusCode)
 			assert.EqualValues(t, "true", rtn.Header.Get("Validate"))
-			time.Sleep(time.Second * 2)
+			// WriteReader consumes the body until EOF (server close), so the
+			// full SSE frame sequence is captured deterministically.
+			body := string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes())
 			expect := "event: event\ndata: 0\n\nevent: event\ndata: 1\n\nevent: event\ndata: 2\n\nevent: event2\ndata: 4\n\nevent: event2\ndata: 5\ndata: 5-1\n\nevent: event2\ndata: 6\n\n"
-			assert.EqualValues(t, expect, string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
+			assert.EqualValues(t, expect, body)
 		}
-
-		wg.Done()
 	}()
 
 	wg.Wait()
 
 	for range 50 {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
+			defer wg.Done()
 			request, _ := http2.NewRequest("POST", "http://localhost:18080", nil)
 			request.Header = http2.Header{}
 			request.Header.Set(httpheadername.Authorization, "!!!!")
@@ -197,8 +192,6 @@ func TestServer_Start(t *testing.T) {
 				assert.Equal(t, 200, rtn.StatusCode)
 				assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
 			}
-
-			wg.Done()
 		}()
 	}
 

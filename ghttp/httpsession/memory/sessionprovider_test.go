@@ -169,14 +169,13 @@ func TestSessionProvider_CleanSessions(t *testing.T) {
 		t.Fatalf("Should have 2 sessions, but got %d", len(sessions))
 	}
 
-	// Manually set clean time to past to force cleanup
+	// Backdate lastClean so the next Save() triggers a sweep. The sweep runs
+	// synchronously inside Save().
+	provider.cleanMu.Lock()
 	provider.lastClean = time.Now().Add(-15 * time.Second)
+	provider.cleanMu.Unlock()
 
-	// Trigger cleanup (through Save method)
 	provider.Save(validSession)
-
-	// Wait for cleanup to complete (cleanup is asynchronous)
-	time.Sleep(200 * time.Millisecond)
 
 	// Verify expired session was cleaned
 	if provider.Session(expiredSession.Id()) != nil {

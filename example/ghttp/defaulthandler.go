@@ -99,7 +99,6 @@ func (h *SSE) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Re
 	sse.WriteHeader(ctx, resp.Header(), params)
 	for i := range 3 {
 		sse.WriteMessage(ctx, ghttp.SSEMessage{Event: "event", Data: []string{fmt.Sprintf("%d", i)}}, params)
-		time.Sleep(time.Millisecond * 300)
 	}
 
 	sse.WriteMessages(ctx, []ghttp.SSEMessage{

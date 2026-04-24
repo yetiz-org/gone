@@ -83,6 +83,14 @@ func (c *DefaultConn) IsActive() bool {
 	return c.active
 }
 
+// MarkInactive flips the active flag to false so subsequent operations treat
+// the connection as closed. Callers that bypass DefaultConn.Write (for
+// example, scatter-gather writev paths operating directly on the underlying
+// net.Conn) use this to replicate DefaultConn.Write's error-state tracking.
+func (c *DefaultConn) MarkInactive() {
+	c.active = false
+}
+
 func WrapConn(conn net.Conn) Conn {
 	if conn == nil {
 		return nil
