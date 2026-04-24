@@ -44,6 +44,13 @@ func (bp *BufferPool) Get() []byte {
 	return buf
 }
 
+// GetDirty retrieves a buffer without clearing it. Callers must treat the
+// returned slice as uninitialized and only access indices they themselves
+// populate (e.g. via Read). Use Get when the buffer is consumed in full.
+func (bp *BufferPool) GetDirty() []byte {
+	return bp.pool.Get().([]byte)
+}
+
 // Put returns a buffer to the pool for reuse
 // The buffer should be of the same size as the pool's configured size
 func (bp *BufferPool) Put(buf []byte) {
@@ -122,6 +129,25 @@ func GetBufferForSize(size int) []byte {
 		return LargeBufferPool.GetWithSize(size)
 	default:
 		// For very large sizes, just allocate directly
+		return make([]byte, size)
+	}
+}
+
+// GetDirtyBufferForSize returns an uncleared buffer of the requested size.
+// The caller must fully overwrite indices it reads back. Sizes above the
+// largest pool fall back to a plain make, which is zero-initialized.
+func GetDirtyBufferForSize(size int) []byte {
+	switch {
+	case size <= 4*1024:
+		buf := SmallBufferPool.GetDirty()
+		return buf[:size]
+	case size <= 16*1024:
+		buf := MediumBufferPool.GetDirty()
+		return buf[:size]
+	case size <= 64*1024:
+		buf := LargeBufferPool.GetDirty()
+		return buf[:size]
+	default:
 		return make([]byte, size)
 	}
 }

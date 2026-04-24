@@ -3,6 +3,7 @@ package gtcp
 import (
 	"fmt"
 	"net"
+	"sync/atomic"
 
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/goth-kklogger"
@@ -11,7 +12,7 @@ import (
 type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	listen net.Listener
-	active bool
+	active atomic.Bool
 }
 
 var ErrBindTwice = fmt.Errorf("bind twice")
@@ -32,7 +33,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		return err
 	} else {
 		c.listen = listen
-		c.active = true
+		c.active.Store(true)
 	}
 
 	return nil
@@ -54,7 +55,7 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 
 func (c *ServerChannel) UnsafeClose() error {
 	c.DefaultNetServerChannel.UnsafeClose()
-	c.active = false
+	c.active.Store(false)
 
 	// Prevent nil pointer dereference - check if listener exists before closing
 	if c.listen != nil {
@@ -64,5 +65,5 @@ func (c *ServerChannel) UnsafeClose() error {
 }
 
 func (c *ServerChannel) IsActive() bool {
-	return c.active
+	return c.active.Load()
 }

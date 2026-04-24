@@ -1,7 +1,6 @@
 package ghttp
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
@@ -55,7 +54,7 @@ func (r *DefaultRoute) RouteNode(path string) (node RouteNode, nodeParams map[st
 					if current == r.root && resourceID != "" {
 						return nil, nil, false
 					} else {
-						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
+						params[current.(*_EndPoint).paramKey] = resourceID
 						return current, params, false
 					}
 				} else {
@@ -64,7 +63,7 @@ func (r *DefaultRoute) RouteNode(path string) (node RouteNode, nodeParams map[st
 			} else {
 				if next == nil {
 					if _, f := current.Resources()[resources[idx+1]]; f {
-						params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
+						params[current.(*_EndPoint).paramKey] = resourceID
 						continue
 					} else {
 						return nil, nil, false
@@ -75,7 +74,7 @@ func (r *DefaultRoute) RouteNode(path string) (node RouteNode, nodeParams map[st
 			}
 		case RouteTypeRecursiveEndPoint:
 			if next == nil {
-				params[fmt.Sprintf("[gone-http]%s_id", current.Name())] = resourceID
+				params[current.(*_EndPoint).paramKey] = resourceID
 			}
 
 			return current, params, false
@@ -173,9 +172,17 @@ type _Node struct {
 	parent      RouteNode
 	handler     HandlerTask
 	name        string
+	paramKey    string
 	acceptances []Acceptance
 	resources   map[string]RouteNode
 	routeType   RouteType
+}
+
+// defaultParamKey is the "[gone-http]<name>_id" key used when no custom
+// parameter mapping applies. Computed once at node construction so the
+// router hot path avoids fmt.Sprintf per request.
+func defaultParamKey(name string) string {
+	return "[gone-http]" + name + "_id"
 }
 
 func (n *_Node) Parent() RouteNode {
@@ -295,6 +302,7 @@ func NewEndPoint(name string, task HandlerTask, acceptances []Acceptance) *_EndP
 		_Node: _Node{
 			handler:     task,
 			name:        name,
+			paramKey:    defaultParamKey(name),
 			acceptances: []Acceptance{},
 			resources:   map[string]RouteNode{},
 			routeType:   RouteTypeEndPoint,

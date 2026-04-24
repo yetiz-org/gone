@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yetiz-org/gone/channel"
@@ -17,7 +18,7 @@ import (
 type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	server       *http.Server
-	active       bool
+	active       atomic.Bool
 	newChChan    chan *serverChannelAccept
 	chMap        sync.Map
 	maxBodyBytes int64
@@ -78,7 +79,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		c.Name = fmt.Sprintf("SERVER_%s", localAddr.String())
 	}
 
-	if c.active {
+	if c.active.Load() {
 		kklogger.ErrorJ("ghttp:ServerChannel.bind#bind!bind_twice", fmt.Sprintf("%s bind twice", c.Name))
 		os.Exit(1)
 	}
@@ -131,7 +132,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		},
 	}
 
-	c.active = true
+	c.active.Store(true)
 	go c.server.ListenAndServe()
 	return nil
 }
@@ -147,7 +148,7 @@ type serverChannelAccept struct {
 }
 
 func (c *ServerChannel) UnsafeClose() error {
-	if !c.active {
+	if !c.active.Load() {
 		return nil
 	}
 
@@ -172,7 +173,7 @@ func (c *ServerChannel) UnsafeClose() error {
 		})
 	}
 
-	c.active = false
+	c.active.Store(false)
 	localAddrStr := "unknown"
 	if c.LocalAddr() != nil {
 		localAddrStr = c.LocalAddr().String()
@@ -183,5 +184,5 @@ func (c *ServerChannel) UnsafeClose() error {
 }
 
 func (c *ServerChannel) IsActive() bool {
-	return c.active
+	return c.active.Load()
 }

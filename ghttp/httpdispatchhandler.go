@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/yetiz-org/gone/channel"
@@ -74,14 +75,16 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 
 			if err := acceptance.Do(ctx, request, response, params); err != nil {
 				if err == AcceptanceInterrupt {
-					kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
-						ChannelID:  ctx.Channel().ID(),
-						TrackID:    request.TrackID(),
-						State:      "Skip",
-						URI:        request.RequestURI(),
-						Handler:    reflect.TypeOf(acceptance).String(),
-						RemoteAddr: request.Request().RemoteAddr,
-					})
+					if kklogger.GetLogLevel() >= kklogger.TraceLevel {
+						kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
+							ChannelID:  ctx.Channel().ID(),
+							TrackID:    request.TrackID(),
+							State:      "Skip",
+							URI:        request.RequestURI(),
+							Handler:    reflect.TypeOf(acceptance).String(),
+							RemoteAddr: request.Request().RemoteAddr,
+						})
+					}
 
 					return
 				}
@@ -105,18 +108,16 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 
 				return
 			} else {
-				if kklogger.GetLogLevel() < kklogger.TraceLevel {
-					continue
+				if kklogger.GetLogLevel() >= kklogger.TraceLevel {
+					kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
+						ChannelID:  ctx.Channel().ID(),
+						TrackID:    request.TrackID(),
+						State:      "Pass",
+						URI:        request.RequestURI(),
+						Handler:    reflect.TypeOf(acceptance).String(),
+						RemoteAddr: request.Request().RemoteAddr,
+					})
 				}
-
-				kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
-					ChannelID:  ctx.Channel().ID(),
-					TrackID:    request.TrackID(),
-					State:      "Pass",
-					URI:        request.RequestURI(),
-					Handler:    reflect.TypeOf(acceptance).String(),
-					RemoteAddr: request.Request().RemoteAddr,
-				})
 			}
 		}
 
@@ -347,14 +348,16 @@ func (h *DispatchHandler) handleAutoRange(task HttpHandlerTask, request *Request
 	if start, end, valid := ParseRange(rangeHeader, contentSize); valid {
 		rangeData := content[start : end+1]
 		response.SetStatusCode(httpstatus.PartialContent)
-		response.SetHeader(httpheadername.ContentRange, fmt.Sprintf("bytes %d-%d/%d", start, end, contentSize))
-		response.SetHeader(httpheadername.ContentLength, fmt.Sprintf("%d", len(rangeData)))
+		response.SetHeader(httpheadername.ContentRange, "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.FormatInt(contentSize, 10))
+		response.SetHeader(httpheadername.ContentLength, strconv.Itoa(len(rangeData)))
 		response.SetBody(buf.NewByteBuf(rangeData))
-		kklogger.DebugJ("ghttp:DispatchHandler.handleAutoRange#range_request", fmt.Sprintf("range=%d-%d/%d", start, end, contentSize))
+		if kklogger.GetLogLevel() >= kklogger.DebugLevel {
+			kklogger.DebugJ("ghttp:DispatchHandler.handleAutoRange#range_request", fmt.Sprintf("range=%d-%d/%d", start, end, contentSize))
+		}
 	} else {
 		response.SetStatusCode(httpstatus.RequestedRangeNotSatisfiable)
-		response.SetHeader(httpheadername.ContentRange, fmt.Sprintf("bytes */%d", contentSize))
-		kklogger.WarnJ("ghttp:DispatchHandler.handleAutoRange#range_request!invalid_range", fmt.Sprintf("range=%s", rangeHeader))
+		response.SetHeader(httpheadername.ContentRange, "bytes */"+strconv.FormatInt(contentSize, 10))
+		kklogger.WarnJ("ghttp:DispatchHandler.handleAutoRange#range_request!invalid_range", "range="+rangeHeader)
 	}
 }
 

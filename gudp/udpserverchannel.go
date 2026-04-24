@@ -3,6 +3,7 @@ package gudp
 import (
 	"fmt"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/yetiz-org/gone/channel"
@@ -14,7 +15,7 @@ import (
 type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	conn   *net.UDPConn
-	active bool
+	active atomic.Bool
 }
 
 var ErrBindTwice = fmt.Errorf("bind twice")
@@ -43,7 +44,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		return err
 	} else {
 		c.conn = conn
-		c.active = true
+		c.active.Store(true)
 	}
 
 	return nil
@@ -90,7 +91,7 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 // UnsafeClose closes the UDP server connection
 func (c *ServerChannel) UnsafeClose() error {
 	c.DefaultNetServerChannel.UnsafeClose()
-	c.active = false
+	c.active.Store(false)
 
 	// Prevent nil pointer dereference and double close - check if connection exists before closing
 	if c.conn != nil {
@@ -103,7 +104,7 @@ func (c *ServerChannel) UnsafeClose() error {
 
 // IsActive returns whether the UDP server is currently active
 func (c *ServerChannel) IsActive() bool {
-	return c.active
+	return c.active.Load()
 }
 
 // UDPClientConn represents a virtual connection to a specific UDP client

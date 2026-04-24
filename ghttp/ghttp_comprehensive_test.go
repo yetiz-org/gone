@@ -143,7 +143,7 @@ func TestServerChannel_UnsafeBind(t *testing.T) {
 
 		err = serverCh.UnsafeBind(addr)
 		assert.NoError(t, err)
-		assert.True(t, serverCh.active)
+		assert.True(t, serverCh.IsActive())
 		assert.NotNil(t, serverCh.server)
 		assert.NotNil(t, serverCh.newChChan)
 
@@ -162,7 +162,7 @@ func TestServerChannel_UnsafeBind(t *testing.T) {
 
 		err = serverCh.UnsafeBind(addr)
 		assert.NoError(t, err)
-		assert.True(t, serverCh.active)
+		assert.True(t, serverCh.IsActive())
 		assert.Contains(t, serverCh.Name, "SERVER_")
 
 		// Cleanup
@@ -194,7 +194,7 @@ func TestServerChannel_UnsafeBind(t *testing.T) {
 
 		err = serverCh.UnsafeBind(addr)
 		assert.NoError(t, err)
-		assert.True(t, serverCh.active)
+		assert.True(t, serverCh.IsActive())
 		assert.Equal(t, int64(1024), serverCh.maxBodyBytes)
 
 		// Cleanup
@@ -209,7 +209,7 @@ func TestServerChannel_UnsafeClose(t *testing.T) {
 	t.Run("UnsafeClose_NotActive", func(t *testing.T) {
 		t.Parallel()
 
-		serverCh := &ServerChannel{active: false}
+		serverCh := &ServerChannel{}
 
 		err := serverCh.UnsafeClose()
 		assert.NoError(t, err)
@@ -226,12 +226,12 @@ func TestServerChannel_UnsafeClose(t *testing.T) {
 
 		err = serverCh.UnsafeBind(addr)
 		assert.NoError(t, err)
-		assert.True(t, serverCh.active)
+		assert.True(t, serverCh.IsActive())
 
 		// Now close
 		err = serverCh.UnsafeClose()
 		assert.NoError(t, err)
-		assert.False(t, serverCh.active)
+		assert.False(t, serverCh.IsActive())
 	})
 
 	t.Run("UnsafeClose_WithConnections", func(t *testing.T) {
@@ -247,12 +247,12 @@ func TestServerChannel_UnsafeClose(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Test active state and close functionality
-		serverCh.active = true
+		serverCh.active.Store(true)
 
 		// Close should handle active state
 		err = serverCh.UnsafeClose()
 		assert.NoError(t, err)
-		assert.False(t, serverCh.active)
+		assert.False(t, serverCh.IsActive())
 	})
 }
 
@@ -263,14 +263,15 @@ func TestServerChannel_IsActive(t *testing.T) {
 	t.Run("IsActive_False", func(t *testing.T) {
 		t.Parallel()
 
-		serverCh := &ServerChannel{active: false}
+		serverCh := &ServerChannel{}
 		assert.False(t, serverCh.IsActive())
 	})
 
 	t.Run("IsActive_True", func(t *testing.T) {
 		t.Parallel()
 
-		serverCh := &ServerChannel{active: true}
+		serverCh := &ServerChannel{}
+			serverCh.active.Store(true)
 		assert.True(t, serverCh.IsActive())
 	})
 }

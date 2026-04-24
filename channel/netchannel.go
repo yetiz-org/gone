@@ -15,9 +15,11 @@ import (
 	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
-// Get buffer from pool with specified size - uses appropriate pool based on size
+// Get buffer from pool with specified size - uses appropriate pool based on size.
+// Returned slice is uncleared; callers only read bytes they themselves wrote
+// via the subsequent net.Conn.Read (i.e. bs[:rc]).
 func getNetBuffer(size int) []byte {
-	return utils.GetBufferForSize(size)
+	return utils.GetDirtyBufferForSize(size)
 }
 
 // Put buffer back to appropriate pool based on size

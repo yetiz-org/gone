@@ -3,7 +3,6 @@ package channel
 import (
 	"fmt"
 	"net"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,8 +35,8 @@ type DefaultUnsafe struct {
 	closeS,
 	connectS,
 	disconnectS int32
-	writeBuffer   concurrent.Queue
-	writeBufferMu sync.RWMutex // Protect writeBuffer operations from race conditions
+	writeBuffer    concurrent.Queue
+	writeBufferLen atomic.Int64 // Push/Pop mirror — safe cross-goroutine length check
 }
 
 func NewUnsafe(channel Channel) Unsafe {
@@ -89,10 +88,8 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 
 	if obj != nil && u.channel.IsActive() {
 		future.(concurrent.Settable).Set(obj)
-		// Protect writeBuffer.Push() from race conditions
-		u.writeBufferMu.Lock()
 		u.writeBuffer.Push(future)
-		u.writeBufferMu.Unlock()
+		u.writeBufferLen.Add(1)
 	} else {
 		if obj == nil {
 			u.futureSuccess(future)
@@ -105,15 +102,11 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 	if uf, ok := u.channel.(UnsafeWrite); ok && u.markState(&u.writeS) {
 		go func(u *DefaultUnsafe, uf UnsafeWrite) {
 			for u.channel.IsActive() {
-				future := func() Future {
-					// Protect writeBuffer.Pop() from race conditions
-					u.writeBufferMu.Lock()
-					defer u.writeBufferMu.Unlock()
-					if v := u.writeBuffer.Pop(); v != nil {
-						return v.(Future)
-					}
-					return nil
-				}()
+				var future Future
+				if v := u.writeBuffer.Pop(); v != nil {
+					future = v.(Future)
+					u.writeBufferLen.Add(-1)
+				}
 
 				if future == nil {
 					// pending close
@@ -131,9 +124,8 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 			}
 
 			if !u.channel.IsActive() {
-				// Protect cleanup operations from race conditions
-				u.writeBufferMu.Lock()
 				for v := u.writeBuffer.Pop(); v != nil; v = u.writeBuffer.Pop() {
+					u.writeBufferLen.Add(-1)
 					future := v.(Future)
 					if u.channel.CloseFuture().IsDone() {
 						u.futureFail(future, ErrChannelClosed)
@@ -141,15 +133,10 @@ func (u *DefaultUnsafe) Write(obj any, future Future) {
 						u.futureFail(future, ErrChannelNotActive)
 					}
 				}
-				u.writeBufferMu.Unlock()
 			}
 
 			u.resetState(&u.writeS)
-			// Protect writeBuffer.Len() check from race conditions
-			u.writeBufferMu.RLock()
-			hasBufferedWrites := u.writeBuffer.Len() > 0
-			u.writeBufferMu.RUnlock()
-			if hasBufferedWrites {
+			if u.writeBufferLen.Load() > 0 {
 				u.Write(nil, nil)
 			}
 		}(u, uf)

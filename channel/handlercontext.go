@@ -3,7 +3,6 @@ package channel
 import (
 	"context"
 	"net"
-	"sync"
 	"time"
 
 	kklogger "github.com/yetiz-org/goth-kklogger"
@@ -210,6 +209,11 @@ func _NewWrapHandlerContext(parent context.Context, handlerContext HandlerContex
 
 type ValueHandlerContext wrapHandlerContext
 
+// DefaultHandlerContext is a pipeline node. nextCtx/prevCtx are mutated only
+// on the goroutine currently running the pipeline — Bootstrap/serverChannel at
+// startup, or an I/O callback at runtime (e.g. gws WebSocket upgrade replacing
+// handlers, DefaultInitializer.Added removing itself). No cross-goroutine
+// concurrent mutation occurs, so these fields need no synchronization.
 type DefaultHandlerContext struct {
 	name     string
 	pipeline Pipeline
@@ -217,13 +221,10 @@ type DefaultHandlerContext struct {
 	nextCtx  HandlerContext
 	prevCtx  HandlerContext
 	ctx      context.Context
-	mu       sync.RWMutex // Protect concurrent access to nextCtx and prevCtx
 }
 
 func (c *DefaultHandlerContext) setPrev(prev HandlerContext) HandlerContext {
-	c.mu.Lock()
 	c.prevCtx = prev
-	c.mu.Unlock()
 	return c
 }
 
@@ -408,10 +409,7 @@ func (c *DefaultHandlerContext) Deregister(future Future) Future {
 }
 
 func (c *DefaultHandlerContext) prev() HandlerContext {
-	c.mu.RLock()
-	prev := c.prevCtx
-	c.mu.RUnlock()
-	return prev
+	return c.prevCtx
 }
 
 func (c *DefaultHandlerContext) deferErrorCaught() {
