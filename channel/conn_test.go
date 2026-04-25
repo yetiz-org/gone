@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,38 @@ import (
 // MockNetConn is a mock implementation of net.Conn for testing
 type MockNetConn struct {
 	mock.Mock
+}
+
+func TestDefaultConn_ConcurrentActiveStateAccess(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	conn := WrapConn(client).(*DefaultConn)
+	const goroutines = 32
+	const iterations = 1000
+	var wg sync.WaitGroup
+
+	for range goroutines {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				_ = conn.IsActive()
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				conn.markInactive()
+			}
+		}()
+	}
+
+	wg.Wait()
+	assert.False(t, conn.IsActive())
 }
 
 func (m *MockNetConn) Read(b []byte) (n int, err error) {

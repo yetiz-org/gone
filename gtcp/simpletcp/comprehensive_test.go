@@ -20,7 +20,6 @@ import (
 	goneMock "github.com/yetiz-org/gone/mock"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	concurrent "github.com/yetiz-org/goth-concurrent"
-	"github.com/yetiz-org/goth-kklogger"
 )
 
 // =============================================================================
@@ -549,6 +548,61 @@ func TestClient_ErrorHandlingScenarios(t *testing.T) {
 	})
 }
 
+func TestClient_NilChannelOperationsReturnFailedFuture(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient(nil)
+
+	writeFuture := client.Write(buf.EmptyByteBuf())
+	assert.True(t, writeFuture.IsDone(), "nil-channel write should complete immediately")
+	assert.False(t, writeFuture.IsSuccess(), "nil-channel write should fail instead of returning a pending future")
+
+	disconnectFuture := client.Disconnect()
+	assert.True(t, disconnectFuture.IsDone(), "nil-channel disconnect should complete immediately")
+	assert.False(t, disconnectFuture.IsSuccess(), "nil-channel disconnect should fail instead of returning a pending future")
+}
+
+func TestServer_StopWithoutStartReturnsFailedFuture(t *testing.T) {
+	t.Parallel()
+
+	server := NewServer(nil)
+
+	stopFuture := server.Stop()
+	assert.True(t, stopFuture.IsDone(), "nil-channel stop should complete immediately")
+	assert.False(t, stopFuture.IsSuccess(), "nil-channel stop should fail instead of panicking")
+}
+
+func TestClient_ChannelAccessConcurrentWithReconnectState(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient(nil)
+	mockCh := goneMock.NewMockChannel()
+
+	const goroutines = 32
+	const iterations = 1000
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				client.mu.Lock()
+				client.ch = mockCh
+				client.mu.Unlock()
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				_ = client.Channel()
+				client.close.Store(false)
+				_ = client.close.Load()
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 // =============================================================================
 // Server Tests (from simpleserver_test.go)
 // =============================================================================
@@ -586,9 +640,13 @@ func (h *testClientHandler) Read(ctx channel.HandlerContext, obj any) {
 
 // Test server start and client connections
 func TestServer_Start(t *testing.T) {
-	kklogger.SetLogLevel("DEBUG")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	assert.NoError(t, listener.Close())
+
 	server := NewServer(&testServerHandler{})
-	sch := server.Start(&net.TCPAddr{IP: nil, Port: 18083})
+	sch := server.Start(&net.TCPAddr{IP: nil, Port: port})
 	assert.NotNil(t, sch)
 	count := 10
 	for range count {
@@ -600,7 +658,7 @@ func TestServer_Start(t *testing.T) {
 				return atomic.LoadInt32(&tcHandler.active) < int32(count) // RACE FIX: Use atomic load
 			}
 
-			cch := client.Start(&net.TCPAddr{IP: nil, Port: 18083})
+			cch := client.Start(&net.TCPAddr{IP: nil, Port: port})
 			assert.NotNil(t, cch)
 			tcHandler.wg.Wait()
 			assert.Equal(t, int32(count), atomic.LoadInt32(&tcHandler.read))   // RACE FIX: Use atomic load
@@ -616,7 +674,7 @@ func TestServer_Start(t *testing.T) {
 			return atomic.LoadInt32(&tcHandler.active) < int32(count) // RACE FIX: Use atomic load
 		}
 
-		cch := client.Start(&net.TCPAddr{IP: nil, Port: 18083})
+		cch := client.Start(&net.TCPAddr{IP: nil, Port: port})
 		assert.NotNil(t, cch)
 		tcHandler.wg.Wait()
 		assert.Equal(t, int32(count), atomic.LoadInt32(&tcHandler.read))   // RACE FIX: Use atomic load

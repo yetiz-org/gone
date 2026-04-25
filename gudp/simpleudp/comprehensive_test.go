@@ -30,7 +30,7 @@ func TestNewClient(t *testing.T) {
 	if client.Handler != handler {
 		t.Error("Client should store provided handler")
 	}
-	if client.close != false {
+	if client.close.Load() {
 		t.Error("Client should initialize with close=false")
 	}
 
@@ -62,7 +62,7 @@ func TestClient_Creation(t *testing.T) {
 				assert.NotNil(t, client, "TestCase: %s should return non-nil client", tt.name)
 				assert.Equal(t, tt.handler, client.Handler,
 					"TestCase: %s should store provided handler", tt.name)
-				assert.False(t, client.close,
+				assert.False(t, client.close.Load(),
 					"TestCase: %s should initialize with close=false", tt.name)
 				assert.Nil(t, client.AutoReconnect,
 					"TestCase: %s should initialize with nil AutoReconnect", tt.name)
@@ -80,11 +80,13 @@ func TestClient_ChannelOperations(t *testing.T) {
 	// Before start, Channel() should return nil
 	assert.Nil(t, client.Channel(), "Channel should be nil before start")
 
-	// Test disconnect without connection should not panic
-	assert.NotPanics(t, func() {
-		client.close = true
-		// client.Disconnect() would panic since ch is nil, but we test the close flag
-	}, "Setting close flag should not panic")
+	writeFuture := client.Write(buf.EmptyByteBuf())
+	assert.True(t, writeFuture.IsDone(), "nil-channel write should complete immediately")
+	assert.False(t, writeFuture.IsSuccess(), "nil-channel write should fail instead of panicking")
+
+	disconnectFuture := client.Disconnect()
+	assert.True(t, disconnectFuture.IsDone(), "nil-channel disconnect should complete immediately")
+	assert.False(t, disconnectFuture.IsSuccess(), "nil-channel disconnect should fail instead of panicking")
 }
 
 // TestClientBasicOperations tests client basic operations without network
@@ -111,7 +113,7 @@ func TestClientBasicOperations(t *testing.T) {
 	}
 
 	// Test close flag
-	if client.close != false {
+	if client.close.Load() {
 		t.Error("Client should initialize with close=false")
 	}
 
@@ -183,13 +185,9 @@ func TestServer_ChannelOperations(t *testing.T) {
 	// Before start, Channel() should return nil
 	assert.Nil(t, server.Channel(), "Channel should be nil before start")
 
-	// Test stop without connection should not panic
-	assert.NotPanics(t, func() {
-		// server.Stop() would panic since ch is nil, but we test this scenario
-		if server.ch != nil {
-			server.Stop()
-		}
-	}, "Stop check should not panic when channel is nil")
+	stopFuture := server.Stop()
+	assert.True(t, stopFuture.IsDone(), "nil-channel stop should complete immediately")
+	assert.False(t, stopFuture.IsSuccess(), "nil-channel stop should fail instead of panicking")
 }
 
 // TestServerBasicOperations tests server basic operations without network

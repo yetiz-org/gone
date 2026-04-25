@@ -55,8 +55,8 @@ func (bp *BufferPool) GetDirty() []byte {
 // The buffer should be of the same size as the pool's configured size
 func (bp *BufferPool) Put(buf []byte) {
 	// Only return buffers of the expected size to maintain pool consistency
-	if len(buf) == bp.size {
-		bp.pool.Put(buf)
+	if cap(buf) == bp.size {
+		bp.pool.Put(buf[:bp.size])
 	}
 }
 
@@ -154,13 +154,13 @@ func GetDirtyBufferForSize(size int) []byte {
 
 // PutBufferForSize returns a buffer to the appropriate pool based on its size
 func PutBufferForSize(buf []byte) {
-	size := len(buf)
-	switch size {
-	case 4 * 1024:
+	size := cap(buf)
+	switch {
+	case size == 4*1024:
 		SmallBufferPool.Put(buf)
-	case 16 * 1024:
+	case size == 16*1024:
 		MediumBufferPool.Put(buf)
-	case 64 * 1024:
+	case size == 64*1024:
 		LargeBufferPool.Put(buf)
 		// For other sizes, just let it be garbage collected
 	}

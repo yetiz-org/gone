@@ -26,7 +26,7 @@ func markConnInactiveOnError(c Conn, err error) {
 		return
 	}
 	if dc, ok := c.(*DefaultConn); ok {
-		dc.MarkInactive()
+		dc.markInactive()
 	}
 }
 
@@ -184,7 +184,7 @@ func (c *DefaultNetChannel) UnsafeRead() (any, error) {
 		// Create a copy of the data since we're returning the buffer to pool
 		data := make([]byte, rc)
 		copy(data, bs[:rc])
-		return buf.NewByteBuf(data), nil
+		return buf.NewSharedByteBuf(data), nil
 	}
 }
 

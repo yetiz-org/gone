@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
 	buf "github.com/yetiz-org/goth-bytebuf"
-	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
 // TestParseRange_SpecifiedRange tests parsing of "bytes=start-end" format
@@ -757,8 +756,6 @@ func (trw *testResponseWriter) WriteResponse() {
 // TestStaticFilesHandlerTask_GoneHTTPServerClient_Integration performs REAL Gone HTTP server/client testing
 // This test follows the pattern from example/ghttp/server_test.go to properly start a Gone HTTP server
 func TestStaticFilesHandlerTask_GoneHTTPServerClient_Integration(t *testing.T) {
-	kklogger.SetLogLevel("DEBUG")
-
 	// Create temporary directory and test files
 	tmpDir := t.TempDir()
 
@@ -810,13 +807,15 @@ func TestStaticFilesHandlerTask_GoneHTTPServerClient_Integration(t *testing.T) {
 		ch.Pipeline().AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
 	}))
 
-	// Bind to port 18085 (following example/ghttp pattern)
-	testPort := 18085
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "should get available port")
+	testPort := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+
 	serverCh := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: testPort}).Sync().Channel()
 	require.NotNil(t, serverCh, "server channel should not be nil")
 
-	// Use fixed port address
-	baseURL := fmt.Sprintf("http://localhost:%d", testPort)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", testPort)
 	t.Logf("✓ Gone HTTP server started on port %d", testPort)
 
 	// Ensure server shutdown

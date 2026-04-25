@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -95,6 +96,80 @@ func TestPutBufferForSize(t *testing.T) {
 	PutBufferForSize(buf128k) // Should be ignored
 }
 
+func TestPutBufferForSize_RecyclesBucketByCapacity(t *testing.T) {
+	buf := GetDirtyBufferForSize(1024)
+	if len(buf) != 1024 {
+		t.Fatalf("expected requested length 1024, got %d", len(buf))
+	}
+	if cap(buf) != 4*1024 {
+		t.Fatalf("expected small bucket capacity 4KB, got %d", cap(buf))
+	}
+
+	buf[0] = 42
+	PutBufferForSize(buf)
+
+	reused := GetDirtyBufferForSize(1024)
+	if cap(reused) != 4*1024 {
+		t.Fatalf("expected recycled small bucket capacity 4KB, got %d", cap(reused))
+	}
+	PutBufferForSize(reused)
+}
+
+func TestGetDirtyBufferForSize_BucketBoundaries(t *testing.T) {
+	tests := []struct {
+		size    int
+		wantCap int
+	}{
+		{0, 4 * 1024},
+		{1, 4 * 1024},
+		{4*1024 - 1, 4 * 1024},
+		{4 * 1024, 4 * 1024},
+		{4*1024 + 1, 16 * 1024},
+		{16 * 1024, 16 * 1024},
+		{16*1024 + 1, 64 * 1024},
+		{64 * 1024, 64 * 1024},
+		{64*1024 + 1, 64*1024 + 1},
+	}
+
+	for _, test := range tests {
+		buf := GetDirtyBufferForSize(test.size)
+		if len(buf) != test.size {
+			t.Fatalf("size %d: expected len %d, got %d", test.size, test.size, len(buf))
+		}
+		if cap(buf) != test.wantCap {
+			t.Fatalf("size %d: expected cap %d, got %d", test.size, test.wantCap, cap(buf))
+		}
+		PutBufferForSize(buf)
+	}
+}
+
+func TestPutBufferForSize_ConcurrentSlicedBuffers(t *testing.T) {
+	const goroutines = 32
+	const iterations = 1000
+
+	var wg sync.WaitGroup
+	errCh := make(chan string, goroutines)
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				buf := GetDirtyBufferForSize(1024)
+				if len(buf) != 1024 || cap(buf) != 4*1024 {
+					errCh <- "expected len=1024 cap=4096"
+					return
+				}
+				PutBufferForSize(buf[:512])
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
+}
+
 func BenchmarkBufferPool_GetPut(b *testing.B) {
 	pool := NewBufferPool(4096)
 
@@ -125,5 +200,13 @@ func BenchmarkGlobalPools_Large(b *testing.B) {
 	for b.Loop() {
 		buf := GetLargeBuffer()
 		PutLargeBuffer(buf)
+	}
+}
+
+func BenchmarkGetDirtyBufferForSize_1024_GetPut(b *testing.B) {
+	b.ResetTimer()
+	for b.Loop() {
+		buf := GetDirtyBufferForSize(1024)
+		PutBufferForSize(buf)
 	}
 }

@@ -35,6 +35,9 @@ func (s *Server) Channel() channel.Channel {
 }
 
 func (s *Server) Stop() channel.Future {
+	if s.ch == nil {
+		return failedFuture(channel.ErrNilObject)
+	}
 	return s.ch.Close()
 }
 

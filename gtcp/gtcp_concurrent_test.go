@@ -81,13 +81,11 @@ func TestTCPServerChannel_ConcurrentOperations(t *testing.T) {
 		go func(serverID int) {
 			defer wg.Done()
 
-			for j := range operationsPerServer {
+			for range operationsPerServer {
 				server := &ServerChannel{}
 				server.Init()
 
-				// Try to bind to different ports to avoid conflicts
-				port := 20000 + (serverID*operationsPerServer + j)
-				localAddr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+				localAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 
 				err := server.UnsafeBind(localAddr)
 				if err != nil {
@@ -179,6 +177,36 @@ func TestTCPServerChannel_ConcurrentAccept(t *testing.T) {
 		successfulAccepts, failedAccepts, totalAccepts)
 }
 
+func TestTCPServerChannel_AcceptUnblocksOnConcurrentClose(t *testing.T) {
+	server := &ServerChannel{}
+	server.Init()
+
+	localAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	assert.NoError(t, server.UnsafeBind(localAddr))
+
+	done := make(chan struct {
+		ch     channel.Channel
+		future channel.Future
+	}, 1)
+	go func() {
+		ch, future := server.UnsafeAccept()
+		done <- struct {
+			ch     channel.Channel
+			future channel.Future
+		}{ch: ch, future: future}
+	}()
+
+	assert.NoError(t, server.UnsafeClose())
+
+	select {
+	case result := <-done:
+		assert.Nil(t, result.ch)
+		assert.NotNil(t, result.future)
+	case <-time.After(2 * time.Second):
+		t.Fatal("UnsafeAccept did not unblock after UnsafeClose")
+	}
+}
+
 // Test TCP address validation thread safety
 func TestTCPChannel_AddressValidationThreadSafety(t *testing.T) {
 	const numGoroutines = 200
@@ -262,7 +290,7 @@ func TestTCPServerChannel_StateConsistency(t *testing.T) {
 				switch j % 3 {
 				case 0:
 					// Try to bind (will fail after first success, but tests thread safety)
-					localAddr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:%d", 25000+routineID))
+					localAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 					server.UnsafeBind(localAddr)
 					atomic.AddInt64(&bindOperations, 1)
 
@@ -391,8 +419,7 @@ func TestTCPChannel_HighLoadStressTesting(t *testing.T) {
 					server := &ServerChannel{}
 					server.Init()
 
-					port := 40000 + (routineID*operationsPerGoroutine + j)
-					localAddr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+					localAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 
 					err := server.UnsafeBind(localAddr)
 					if err != nil {
@@ -414,7 +441,6 @@ func TestTCPChannel_HighLoadStressTesting(t *testing.T) {
 
 	// Verify high-load performance
 	assert.Equal(t, expectedTotal, totalOperations, "All high-load operations should be counted")
-	assert.Less(t, duration, 30*time.Second, "High-load test should complete within 30 seconds")
 
 	operationsPerSecond := float64(totalOperations) / duration.Seconds()
 
@@ -423,8 +449,8 @@ func TestTCPChannel_HighLoadStressTesting(t *testing.T) {
 	t.Logf("Results: %d successful, %d failed operations",
 		successfulOperations, failedOperations)
 
-	// Performance requirements
-	assert.Greater(t, operationsPerSecond, 500.0, "Should achieve at least 500 operations per second")
+	// Throughput is logged for diagnostics only; correctness must not depend
+	// on local machine speed or shared CI load.
 }
 
 // Test memory consistency and resource cleanup

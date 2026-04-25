@@ -3,6 +3,7 @@ package gtcp
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	"github.com/yetiz-org/gone/channel"
@@ -12,12 +13,16 @@ import (
 type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	listen net.Listener
+	mu     sync.Mutex
 	active atomic.Bool
 }
 
 var ErrBindTwice = fmt.Errorf("bind twice")
 
 func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.Name == "" {
 		c.Name = fmt.Sprintf("TCPSERV_%s", localAddr.String())
 	}
@@ -40,7 +45,15 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 }
 
 func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
-	if conn, err := c.listen.Accept(); err != nil {
+	c.mu.Lock()
+	listen := c.listen
+	c.mu.Unlock()
+
+	if listen == nil {
+		return nil, c.Pipeline().NewFuture()
+	}
+
+	if conn, err := listen.Accept(); err != nil {
 		if !c.IsActive() {
 			return nil, c.Pipeline().NewFuture()
 		}
@@ -55,11 +68,15 @@ func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
 
 func (c *ServerChannel) UnsafeClose() error {
 	c.DefaultNetServerChannel.UnsafeClose()
-	c.active.Store(false)
 
-	// Prevent nil pointer dereference - check if listener exists before closing
-	if c.listen != nil {
-		return c.listen.Close()
+	c.mu.Lock()
+	c.active.Store(false)
+	listen := c.listen
+	c.listen = nil
+	c.mu.Unlock()
+
+	if listen != nil {
+		return listen.Close()
 	}
 	return nil
 }

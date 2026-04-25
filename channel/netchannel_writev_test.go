@@ -1,8 +1,10 @@
 package channel
 
 import (
+	"errors"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -10,8 +12,46 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	buf "github.com/yetiz-org/goth-bytebuf"
+	concurrent "github.com/yetiz-org/goth-concurrent"
 	"github.com/yetiz-org/goth-util/structs"
 )
+
+type errorNetConn struct {
+	readErr  error
+	writeErr error
+}
+
+func (c *errorNetConn) Read(_ []byte) (int, error) {
+	return 0, c.readErr
+}
+
+func (c *errorNetConn) Write(_ []byte) (int, error) {
+	return 0, c.writeErr
+}
+
+func (c *errorNetConn) Close() error {
+	return nil
+}
+
+func (c *errorNetConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
+}
+
+func (c *errorNetConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2}
+}
+
+func (c *errorNetConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *errorNetConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *errorNetConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
 
 // dialLoopbackPair brings up a TCP listener on 127.0.0.1, dials back to it,
 // and returns (client, server). Both sides are *net.TCPConn so the
@@ -119,6 +159,41 @@ func TestUnsafeWrite_BytesSlice(t *testing.T) {
 	assert.Equal(t, "raw-slice", string(got))
 }
 
+func TestUnsafeRead_ReturnedByteBufIsDetachedFromPooledReadBuffer(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	ch := &DefaultNetChannel{BufferSize: 1024, ReadTimeout: 2 * time.Second}
+	ch.setConn(client)
+	ch.alive = concurrent.NewFuture()
+
+	writeAndRead := func(payload string) buf.ByteBuf {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() {
+			_, err := server.Write([]byte(payload))
+			done <- err
+		}()
+
+		obj, err := ch.UnsafeRead()
+		require.NoError(t, err)
+		require.NoError(t, <-done)
+
+		bb, ok := obj.(buf.ByteBuf)
+		require.True(t, ok)
+		return bb
+	}
+
+	first := writeAndRead("first")
+	second := writeAndRead("second")
+
+	require.Equal(t, "first", string(first.Bytes()), "later reads must not mutate a previously returned ByteBuf")
+	require.Equal(t, "second", string(second.Bytes()))
+}
+
 // TestUnsafeWrite_UnknownType_Rejected verifies non-ByteBuf / non-[]byte
 // values return ErrUnknownObjectType.
 func TestUnsafeWrite_UnknownType_Rejected(t *testing.T) {
@@ -132,24 +207,65 @@ func TestUnsafeWrite_UnknownType_Rejected(t *testing.T) {
 // writev path fails, the wrapping DefaultConn is flipped into the inactive
 // state (mirroring DefaultConn.Write's behavior on non-deadline errors).
 func TestUnsafeWrite_CompositeError_MarksConnInactive(t *testing.T) {
-	client, server := dialLoopbackPair(t)
-	ch := newNetChannelFor(t, client)
-	require.NoError(t, server.Close())
-	require.NoError(t, client.SetWriteDeadline(time.Now().Add(200*time.Millisecond)))
+	ch := newNetChannelFor(t, &errorNetConn{writeErr: errors.New("write failed")})
 
 	head := buf.NewSharedByteBuf([]byte("X"))
 	composite := buf.NewCompositeByteBuf(head)
 
-	var err error
-	for i := 0; i < 50; i++ {
-		err = ch.UnsafeWrite(composite)
-		if err != nil {
-			break
-		}
-	}
-	if err != nil {
-		assert.False(t, ch.Conn().IsActive(), "non-deadline write failure must mark the conn inactive")
-	}
+	err := ch.UnsafeWrite(composite)
+	require.Error(t, err)
+	assert.False(t, ch.Conn().IsActive(), "non-deadline write failure must mark the conn inactive")
+}
+
+func TestUnsafeWrite_CompositeDeadlineError_KeepsConnActive(t *testing.T) {
+	ch := newNetChannelFor(t, &errorNetConn{writeErr: os.ErrDeadlineExceeded})
+
+	composite := buf.NewCompositeByteBuf(buf.NewSharedByteBuf([]byte("X")))
+
+	err := ch.UnsafeWrite(composite)
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+	assert.True(t, ch.Conn().IsActive(), "deadline write failures must not mark the conn inactive")
+}
+
+func TestUnsafeRead_ErrorBranches(t *testing.T) {
+	t.Run("nil conn", func(t *testing.T) {
+		ch := &DefaultNetChannel{BufferSize: 1024, ReadTimeout: time.Second}
+
+		obj, err := ch.UnsafeRead()
+
+		require.Nil(t, obj)
+		require.ErrorIs(t, err, ErrNilObject)
+	})
+
+	t.Run("inactive channel", func(t *testing.T) {
+		ch := newNetChannelFor(t, &errorNetConn{})
+
+		obj, err := ch.UnsafeRead()
+
+		require.Nil(t, obj)
+		require.ErrorIs(t, err, net.ErrClosed)
+	})
+
+	t.Run("deadline while conn active skips", func(t *testing.T) {
+		ch := newNetChannelFor(t, &errorNetConn{readErr: os.ErrDeadlineExceeded})
+		ch.alive = concurrent.NewFuture()
+
+		obj, err := ch.UnsafeRead()
+
+		require.Nil(t, obj)
+		require.ErrorIs(t, err, ErrSkip)
+	})
+
+	t.Run("deadline while conn inactive reports not active", func(t *testing.T) {
+		ch := newNetChannelFor(t, &errorNetConn{readErr: os.ErrDeadlineExceeded})
+		ch.alive = concurrent.NewFuture()
+		ch.Conn().(*DefaultConn).markInactive()
+
+		obj, err := ch.UnsafeRead()
+
+		require.Nil(t, obj)
+		require.ErrorIs(t, err, ErrNotActive)
+	})
 }
 
 // TestReplayDecoder_Composite_ZeroCopyAccumulation exercises the composite

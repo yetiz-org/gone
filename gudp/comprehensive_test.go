@@ -344,18 +344,16 @@ func TestUDPServerChannel_ConcurrentOperations(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent server creation and binding
-	for i := range numServers {
+	for range numServers {
 		wg.Add(1)
-		go func(serverID int) {
+		go func() {
 			defer wg.Done()
 
-			for j := range operationsPerServer {
+			for range operationsPerServer {
 				server := &ServerChannel{}
 				server.Init()
 
-				// Try to bind to different ports to avoid conflicts
-				port := 20000 + (serverID*operationsPerServer + j)
-				localAddr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", port))
+				localAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 
 				err := server.UnsafeBind(localAddr)
 				if err != nil {
@@ -366,7 +364,7 @@ func TestUDPServerChannel_ConcurrentOperations(t *testing.T) {
 					server.UnsafeClose()
 				}
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()
@@ -383,6 +381,61 @@ func TestUDPServerChannel_ConcurrentOperations(t *testing.T) {
 // =============================================================================
 // UDPClientConn Tests (from udpserverchannel_comprehensive_test.go)
 // =============================================================================
+
+func TestServerChannel_UnsafeAcceptDeliversFirstPacket(t *testing.T) {
+	server := &ServerChannel{}
+	server.Init()
+	localAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	assert.NoError(t, server.UnsafeBind(localAddr))
+	defer server.UnsafeClose()
+
+	client, err := net.DialUDP("udp", nil, server.conn.LocalAddr().(*net.UDPAddr))
+	assert.NoError(t, err)
+	defer client.Close()
+	_, err = client.Write([]byte("first-packet"))
+	assert.NoError(t, err)
+
+	child, future := server.UnsafeAccept()
+	assert.NotNil(t, child)
+	assert.NotNil(t, future)
+
+	netChild := child.(channel.NetChannel)
+	readBuffer := make([]byte, 32)
+	n, err := netChild.Conn().Read(readBuffer)
+	assert.NoError(t, err)
+	assert.Equal(t, "first-packet", string(readBuffer[:n]))
+}
+
+func TestUDPClientConn_ReadFiltersPacketsByClientAddress(t *testing.T) {
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	assert.NoError(t, err)
+	defer serverConn.Close()
+
+	targetClient, err := net.DialUDP("udp", nil, serverConn.LocalAddr().(*net.UDPAddr))
+	assert.NoError(t, err)
+	defer targetClient.Close()
+
+	otherClient, err := net.DialUDP("udp", nil, serverConn.LocalAddr().(*net.UDPAddr))
+	assert.NoError(t, err)
+	defer otherClient.Close()
+
+	clientConn := &UDPClientConn{
+		server:     serverConn,
+		clientAddr: targetClient.LocalAddr().(*net.UDPAddr),
+		firstRead:  true,
+	}
+	assert.NoError(t, serverConn.SetReadDeadline(time.Now().Add(2*time.Second)))
+
+	_, err = otherClient.Write([]byte("wrong-client"))
+	assert.NoError(t, err)
+	_, err = targetClient.Write([]byte("target-client"))
+	assert.NoError(t, err)
+
+	readBuffer := make([]byte, 32)
+	n, err := clientConn.Read(readBuffer)
+	assert.NoError(t, err)
+	assert.Equal(t, "target-client", string(readBuffer[:n]))
+}
 
 // TestUDPConnWrapper wraps a real UDP connection for testing
 type TestUDPConnWrapper struct {
@@ -618,29 +671,25 @@ func BenchmarkUDPServerChannel_ConcurrentOperations(b *testing.B) {
 
 	b.ResetTimer()
 
-	n := 0
 	for b.Loop() {
 		var wg sync.WaitGroup
 
-		for i := range numGoroutines {
+		for range numGoroutines {
 			wg.Add(1)
-			go func(routineID int) {
+			go func() {
 				defer wg.Done()
 
 				server := &ServerChannel{}
 				server.Init()
 
-				// Try to bind to different ports
-				port := 30000 + (n*numGoroutines + routineID)
-				localAddr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", port))
+				localAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 
 				server.UnsafeBind(localAddr)
 				server.IsActive()
 				server.UnsafeClose()
-			}(i)
+			}()
 		}
 
 		wg.Wait()
-		n++
 	}
 }

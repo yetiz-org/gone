@@ -2,6 +2,8 @@ package simpleudp
 
 import (
 	"net"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yetiz-org/gone/gudp"
@@ -17,7 +19,8 @@ type Client struct {
 	bootstrap     channel.Bootstrap
 	remoteAddr    net.Addr
 	ch            channel.Channel
-	close         bool
+	mu            sync.RWMutex
+	close         atomic.Bool
 }
 
 // NewClient creates a new simple UDP client with the specified handler
@@ -46,24 +49,44 @@ func (c *Client) start() channel.Channel {
 	if c.bootstrap == nil {
 		return nil // Return nil if bootstrap is not initialized
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.ch = c.bootstrap.Connect(nil, c.remoteAddr).Sync().Channel()
 	return c.ch
 }
 
 // Channel returns the underlying channel
 func (c *Client) Channel() channel.Channel {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return c.ch
 }
 
 // Write sends data through the UDP connection
 func (c *Client) Write(buf buf.ByteBuf) channel.Future {
-	return c.ch.Write(buf)
+	ch := c.Channel()
+	if ch == nil {
+		return failedFuture(channel.ErrNilObject)
+	}
+	return ch.Write(buf)
 }
 
 // Disconnect closes the UDP connection
 func (c *Client) Disconnect() channel.Future {
-	c.close = true
-	return c.ch.Disconnect()
+	c.close.Store(true)
+	ch := c.Channel()
+	if ch == nil {
+		return failedFuture(channel.ErrNilObject)
+	}
+	return ch.Disconnect()
+}
+
+func failedFuture(err error) channel.Future {
+	future := channel.NewFuture(nil)
+	future.Completable().Fail(err)
+	return future
 }
 
 // connectionHandler handles UDP connection lifecycle events
@@ -89,11 +112,11 @@ func (h *connectionHandler) Active(ctx channel.HandlerContext) {
 
 // Unregistered handles UDP connection cleanup and reconnection logic
 func (h *connectionHandler) Unregistered(ctx channel.HandlerContext) {
-	if !h.client.close && h.client.AutoReconnect != nil {
+	if !h.client.close.Load() && h.client.AutoReconnect != nil {
 		if h.client.AutoReconnect() {
 			h.client.start()
 		} else {
-			h.client.close = true
+			h.client.close.Store(true)
 		}
 	}
 

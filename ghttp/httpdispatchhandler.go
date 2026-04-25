@@ -350,7 +350,7 @@ func (h *DispatchHandler) handleAutoRange(task HttpHandlerTask, request *Request
 		response.SetStatusCode(httpstatus.PartialContent)
 		response.SetHeader(httpheadername.ContentRange, "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.FormatInt(contentSize, 10))
 		response.SetHeader(httpheadername.ContentLength, strconv.Itoa(len(rangeData)))
-		response.SetBody(buf.NewByteBuf(rangeData))
+		response.SetBody(buf.NewSharedByteBuf(rangeData))
 		if kklogger.GetLogLevel() >= kklogger.DebugLevel {
 			kklogger.DebugJ("ghttp:DispatchHandler.handleAutoRange#range_request", fmt.Sprintf("range=%d-%d/%d", start, end, contentSize))
 		}

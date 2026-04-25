@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,7 +16,7 @@ type Conn interface {
 
 type DefaultConn struct {
 	conn   net.Conn
-	active bool
+	active atomic.Bool
 }
 
 func (c *DefaultConn) Read(b []byte) (n int, err error) {
@@ -25,7 +26,7 @@ func (c *DefaultConn) Read(b []byte) (n int, err error) {
 				return rl, err
 			}
 
-			c.active = false
+			c.active.Store(false)
 		}
 
 		return rl, err
@@ -41,7 +42,7 @@ func (c *DefaultConn) Write(b []byte) (n int, err error) {
 				return wl, err
 			}
 
-			c.active = false
+			c.active.Store(false)
 		}
 
 		return wl, err
@@ -51,7 +52,7 @@ func (c *DefaultConn) Write(b []byte) (n int, err error) {
 }
 
 func (c *DefaultConn) Close() error {
-	c.active = false
+	c.active.Store(false)
 	return c.conn.Close()
 }
 
@@ -80,15 +81,15 @@ func (c *DefaultConn) Conn() net.Conn {
 }
 
 func (c *DefaultConn) IsActive() bool {
-	return c.active
+	return c.active.Load()
 }
 
-// MarkInactive flips the active flag to false so subsequent operations treat
+// markInactive flips the active flag to false so subsequent operations treat
 // the connection as closed. Callers that bypass DefaultConn.Write (for
 // example, scatter-gather writev paths operating directly on the underlying
 // net.Conn) use this to replicate DefaultConn.Write's error-state tracking.
-func (c *DefaultConn) MarkInactive() {
-	c.active = false
+func (c *DefaultConn) markInactive() {
+	c.active.Store(false)
 }
 
 func WrapConn(conn net.Conn) Conn {
@@ -96,8 +97,7 @@ func WrapConn(conn net.Conn) Conn {
 		return nil
 	}
 
-	return &DefaultConn{
-		conn:   conn,
-		active: true,
-	}
+	wrapped := &DefaultConn{conn: conn}
+	wrapped.active.Store(true)
+	return wrapped
 }
