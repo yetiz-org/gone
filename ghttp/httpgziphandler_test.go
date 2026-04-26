@@ -190,7 +190,7 @@ func TestGZipHandler_GzipWriteConcurrentPoolUse(t *testing.T) {
 	handler := &GZipHandler{CompressThreshold: 128}
 	const goroutines = 32
 	const iterations = 50
-	payload := strings.Repeat(`{"title":"soundrise","body":"compressible payload"}`, 64)
+	payload := strings.Repeat(`{"title":"sample","body":"compressible payload"}`, 64)
 	errCh := make(chan error, goroutines*iterations)
 	var wg sync.WaitGroup
 
@@ -244,7 +244,7 @@ func mustAtoi(t *testing.T, value string) int {
 var gzipBenchSink int
 
 func BenchmarkGZipWrite_Current(b *testing.B) {
-	payload := buf.NewByteBufString(strings.Repeat(`{"title":"soundrise","body":"compressible payload"}`, 128))
+	payload := buf.NewByteBufString(strings.Repeat(`{"title":"sample","body":"compressible payload"}`, 128))
 	handler := &GZipHandler{CompressThreshold: 128}
 
 	b.ReportAllocs()
@@ -259,7 +259,7 @@ func BenchmarkGZipWrite_Current(b *testing.B) {
 }
 
 func BenchmarkGZipWrite_Legacy(b *testing.B) {
-	payload := buf.NewByteBufString(strings.Repeat(`{"title":"soundrise","body":"compressible payload"}`, 128))
+	payload := buf.NewByteBufString(strings.Repeat(`{"title":"sample","body":"compressible payload"}`, 128))
 
 	b.ReportAllocs()
 	b.ResetTimer()

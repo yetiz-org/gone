@@ -5,7 +5,36 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 )
+
+// skipHandlerRegister, when set to a non-zero value, instructs SetEndpoint
+// to skip calling HandlerTask.Register on each registered handler.
+//
+// Spec/documentation tooling (goai) flips this on so that handlers whose
+// Register() boots a database, cache, or other live resource can be walked
+// in environments where those resources are unavailable. The flag is opt-in
+// — production code paths must leave it at zero.
+var skipHandlerRegister int32
+
+// SetSkipHandlerRegister toggles the global skip flag. Returns the previous
+// value so callers can restore it.
+func SetSkipHandlerRegister(skip bool) bool {
+	var newVal int32
+	if skip {
+		newVal = 1
+	}
+
+	prev := atomic.SwapInt32(&skipHandlerRegister, newVal)
+
+	return prev != 0
+}
+
+// SkipHandlerRegister reports whether handler registration is currently
+// being skipped.
+func SkipHandlerRegister() bool {
+	return atomic.LoadInt32(&skipHandlerRegister) != 0
+}
 
 type _SimpleNode struct {
 	_Node
@@ -302,7 +331,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 		r.endpointPaths[current] = "/" + path
 	}
 
-	if handler != nil {
+	if handler != nil && !SkipHandlerRegister() {
 		handler.Register()
 	}
 

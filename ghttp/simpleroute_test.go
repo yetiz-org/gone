@@ -524,8 +524,8 @@ func TestRealWorldScenario(t *testing.T) {
 	route.SetGroup("/adm/v1/auth")
 	route.SetEndpoint("/adm/v1/auth/token_renew", newMockHandler("tokenRenew"))
 
-	route.SetGroup("/adm/v1/soundscape")
-	route.SetEndpoint("/adm/v1/soundscape/command_executor", newMockHandler("commandExecutor"))
+	route.SetGroup("/adm/v1/system")
+	route.SetEndpoint("/adm/v1/system/command_executor", newMockHandler("commandExecutor"))
 
 	route.SetEndpoint("/d/t/rl", newMockHandler("rl"), newMockAcceptance("rateLimit"))
 	route.SetEndpoint("/d/t/rll", newMockHandler("rll"))
