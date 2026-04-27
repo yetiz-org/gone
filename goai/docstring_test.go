@@ -1730,6 +1730,51 @@ func TestBuildUsesDocstringEndpointPathAsCanonicalPath(t *testing.T) {
 	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "documents_id"))
 }
 
+func TestBuildCachesDocstringExtractionPerHandlerMethod(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	calls := 0
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/items/{items_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "items_id", Required: true, Description: "Generated item identifier."},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			calls++
+
+			return &OperationDoc{
+				Endpoint: OperationEndpoint{Method: "GET", Path: "/items/{id}"},
+				Operation: Operation{
+					Summary: "Get item",
+					Tags:    []string{"Items"},
+					Parameters: []*Parameter{
+						{
+							Name:        "id",
+							In:          "path",
+							Description: "Item ID.",
+							Schema:      &Schema{Type: "string"},
+						},
+					},
+				},
+			}, true
+		},
+	})
+
+	require.Contains(t, doc.Paths, "/items/{id}")
+	op := doc.Paths["/items/{id}"].Get
+	require.NotNil(t, op)
+	assert.Equal(t, "Get item", op.Summary)
+	assert.Equal(t, []string{"Items"}, op.Tags)
+	assert.Equal(t, "Item ID.", _FindParameter(t, op.Parameters, "path", "id").Description)
+	assert.Equal(t, 1, calls)
+}
+
 func TestBuildCanonicalPathDoesNotMergeEquivalentEndpointOverrides(t *testing.T) {
 	handler := &_DocstringTestHandler{}
 	docText := `

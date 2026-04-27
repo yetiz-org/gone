@@ -64,6 +64,8 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 		tsClassifier = DefaultClassifier()
 	}
 
+	docExtractor := cachedOperationDocExtractor(opts.OperationDocExtractor)
+
 	doc := &Document{
 		OpenAPI: "3.0.3",
 		Info: Info{
@@ -85,7 +87,7 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 	schemaBld := newSchemaBuilder(doc.Components)
 
 	for _, c := range candidates {
-		c = _CanonicalizeCandidatePathFromDocstring(c, opts.OperationDocExtractor)
+		c = _CanonicalizeCandidatePathFromDocstring(c, docExtractor)
 
 		profiles := c.Profiles
 		if len(profiles) == 0 {
@@ -98,18 +100,70 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 		// `include: { tags: [Public] }`). Building the full Operation
 		// before profile filter would be wasteful, so we extract just
 		// the tag list here.
-		operationTags := candidateOperationTags(c, tsClassifier, opts.OperationDocExtractor)
+		operationTags := candidateOperationTags(c, tsClassifier, docExtractor)
 
 		if profile != nil && !profile.Matches(c, profiles, operationTags) {
 			continue
 		}
 
 		ensurePathItem(doc, c.Path)
-		op := buildOperation(c, schemaBld, tsClassifier, opts.SuppressEmptySchemas, opts.OperationDocExtractor)
+		op := buildOperation(c, schemaBld, tsClassifier, opts.SuppressEmptySchemas, docExtractor)
 		doc.Paths[c.Path].SetOperation(c.Method, op)
 	}
 
 	return doc
+}
+
+type operationDocCacheKey struct {
+	handlerType reflect.Type
+	handlerPtr  uintptr
+	methodName  string
+}
+
+type operationDocCacheEntry struct {
+	doc *OperationDoc
+	ok  bool
+}
+
+func cachedOperationDocExtractor(extractor OperationDocExtractor) OperationDocExtractor {
+	if extractor == nil {
+		return nil
+	}
+
+	cache := map[operationDocCacheKey]operationDocCacheEntry{}
+	return func(handler any, methodName string) (*OperationDoc, bool) {
+		key := operationDocCacheKey{
+			handlerType: reflect.TypeOf(handler),
+			handlerPtr:  operationDocHandlerPointer(handler),
+			methodName:  methodName,
+		}
+		if entry, ok := cache[key]; ok {
+			return entry.doc, entry.ok
+		}
+
+		doc, ok := extractor(handler, methodName)
+		cache[key] = operationDocCacheEntry{doc: doc, ok: ok}
+
+		return doc, ok
+	}
+}
+
+func operationDocHandlerPointer(handler any) uintptr {
+	if handler == nil {
+		return 0
+	}
+
+	v := reflect.ValueOf(handler)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		if v.IsNil() {
+			return 0
+		}
+
+		return v.Pointer()
+	default:
+		return 0
+	}
 }
 
 // candidateOperationTags returns the OpenAPI tag list a candidate's
