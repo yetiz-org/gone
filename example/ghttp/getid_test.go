@@ -428,26 +428,24 @@ func TestGetID_ConcurrentRequests_Integration(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 }
 
-// TestGetID_BackwardCompatibility_Integration ensures old code still works
-func TestGetID_BackwardCompatibility_Integration(t *testing.T) {
+// TestGetID_ParameterFormats_Integration verifies supported parameter layouts.
+func TestGetID_ParameterFormats_Integration(t *testing.T) {
 	ch := startGetIDTestServer(t, 19009)
 	defer ch.Close()
 
-	t.Run("ColonSyntax_LegacyBehavior", func(t *testing.T) {
-		result := getJSON(t, "http://localhost:19009/api/v1/users/legacy-user/posts/legacy-post")
+	t.Run("ColonSyntax", func(t *testing.T) {
+		result := getJSON(t, "http://localhost:19009/api/v1/users/colon-user/posts/colon-post")
 
-		// Old colon syntax should still work
-		assert.Equal(t, "legacy-user", result["user_id"])
-		assert.Equal(t, "legacy-post", result["post_id"])
+		assert.Equal(t, "colon-user", result["user_id"])
+		assert.Equal(t, "colon-post", result["post_id"])
 	})
 
-	t.Run("DefaultSyntax_LegacyBehavior", func(t *testing.T) {
-		result := getJSON(t, "http://localhost:19009/api/v1/categories/legacy-cat/products/legacy-prod/reviews/legacy-rev")
+	t.Run("DefaultSyntax", func(t *testing.T) {
+		result := getJSON(t, "http://localhost:19009/api/v1/categories/default-cat/products/default-prod/reviews/default-rev")
 
-		// Default syntax with node name should still work
-		assert.Equal(t, "legacy-cat", result["categories"])
-		assert.Equal(t, "legacy-prod", result["products"])
-		assert.Equal(t, "legacy-rev", result["reviews"])
+		assert.Equal(t, "default-cat", result["categories"])
+		assert.Equal(t, "default-prod", result["products"])
+		assert.Equal(t, "default-rev", result["reviews"])
 	})
 
 	time.Sleep(100 * time.Millisecond)

@@ -45,6 +45,20 @@ type Config struct {
 	// Output describes where to write each profile's yaml. Keyed by profile
 	// name; value is a relative path from the config file's directory.
 	Output map[string]string `yaml:"output,omitempty"`
+
+	// EnableDocstringExtraction toggles source-level Go doc-comment
+	// extraction for operation-level OpenAPI metadata. When true,
+	// RunCLIFromConfig wires DefaultOperationDocExtractorWithBuildTags()
+	// into the build pipeline, which reads only namespaced handler
+	// `@goai.*` directives. Ordinary Go comments remain source-only.
+	// Explicit Spec values, route-derived parameters, generated schemas, and
+	// acceptance-derived security continue to win; docstring extraction
+	// only fills gaps.
+	EnableDocstringExtraction bool `yaml:"enableDocstringExtraction,omitempty"`
+	// DocstringBuildTags are passed to DefaultOperationDocExtractorWithBuildTags
+	// when EnableDocstringExtraction is true. Use this when handler docs or
+	// schema structs live in files guarded by custom Go build tags.
+	DocstringBuildTags []string `yaml:"docstringBuildTags,omitempty"`
 }
 
 // ConfigProfile is the on-disk shape of one profile's selector pair.
@@ -162,7 +176,7 @@ func (c *Config) ToRunOptions() RunOptions {
 		return RunOptions{}
 	}
 
-	return RunOptions{
+	opts := RunOptions{
 		Title:                   c.Title,
 		Description:             c.Description,
 		Version:                 c.Version,
@@ -179,6 +193,12 @@ func (c *Config) ToRunOptions() RunOptions {
 		RestrictToBaseSpecPaths: c.RestrictToBaseSpecPaths,
 		ExcludePaths:            c.ExcludePaths,
 	}
+
+	if c.EnableDocstringExtraction {
+		opts.OperationDocExtractor = DefaultOperationDocExtractorWithBuildTags(c.DocstringBuildTags...)
+	}
+
+	return opts
 }
 
 // ToBuildOptions projects the Config onto a BuildOptions, used by the
@@ -188,7 +208,7 @@ func (c *Config) ToBuildOptions() BuildOptions {
 		return BuildOptions{}
 	}
 
-	return BuildOptions{
+	opts := BuildOptions{
 		Title:          c.Title,
 		Description:    c.Description,
 		Version:        c.Version,
@@ -200,4 +220,10 @@ func (c *Config) ToBuildOptions() BuildOptions {
 		GlobalSecurity: c.GlobalSecurity,
 		ExternalDocs:   c.ExternalDocs,
 	}
+
+	if c.EnableDocstringExtraction {
+		opts.OperationDocExtractor = DefaultOperationDocExtractorWithBuildTags(c.DocstringBuildTags...)
+	}
+
+	return opts
 }

@@ -123,7 +123,7 @@ func (c *UDPClientConn) Read(b []byte) (n int, err error) {
 		c.firstRead = true
 		n = copy(b, c.lastData)
 		if n < len(c.lastData) {
-			// If buffer is too small, we lose data - this is a limitation of UDP
+			// If the destination buffer is too small, unread packet bytes are discarded.
 			kklogger.WarnJ("gudp:UDPClientConn.Read#read!buffer_too_small",
 				fmt.Sprintf("Buffer size %d smaller than packet size %d", len(b), len(c.lastData)))
 		}

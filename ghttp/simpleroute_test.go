@@ -23,10 +23,9 @@ Wildcard Behavior:
 - Examples: /static/js/srp.js, /static/js/home/home.js, /static/css/main.css
 - The matched segment is stored in params with the node name as key
 
-Current Limitations:
-- Explicit parameter syntax (:param_name) is not yet fully implemented
-- Nested resource parameters need further implementation
-- Use DefaultRoute for complex nested parameter scenarios
+Route Scope:
+- SimpleRoute uses endpoint names directly for parameter extraction
+- DefaultRoute handles explicit parameter syntax and complex nested scenarios
 
 Parameter Extraction:
 - Wildcard params use the node name as key
@@ -142,7 +141,7 @@ func TestWildcardRouting(t *testing.T) {
 // TestNestedParameterExtraction tests parameter extraction from nested paths
 // Note: SimpleRoute uses endpoint names directly (no :param syntax needed)
 func TestNestedParameterExtraction(t *testing.T) {
-	t.Skip("Skipping: explicit :param syntax not yet fully implemented")
+	t.Skip("Skipping: this case uses DefaultRoute parameter syntax")
 
 	route := NewSimpleRoute()
 
@@ -177,7 +176,7 @@ func TestNestedParameterExtraction(t *testing.T) {
 // TestParentNodeAccess tests accessing parent nodes
 // Note: SimpleRoute uses endpoint names directly
 func TestParentNodeAccess(t *testing.T) {
-	t.Skip("Skipping: explicit :param syntax not yet fully implemented")
+	t.Skip("Skipping: this case uses DefaultRoute parameter syntax")
 
 	route := NewSimpleRoute()
 
@@ -554,7 +553,7 @@ func TestRealWorldScenario(t *testing.T) {
 	})
 
 	t.Run("NestedOrganizationParameters", func(t *testing.T) {
-		t.Skip("Skipping: explicit :param syntax not yet fully implemented")
+		t.Skip("Skipping: this case uses DefaultRoute parameter syntax")
 	})
 
 	t.Run("BasicRoutes", func(t *testing.T) {
@@ -2197,17 +2196,17 @@ func TestGetID_DefaultFormat(t *testing.T) {
 	}
 }
 
-// TestGetID_BackwardCompatibility verifies backward compatibility with existing code
-func TestGetID_BackwardCompatibility(t *testing.T) {
+// TestGetID_ExistingParameterFormats verifies supported parameter layouts.
+func TestGetID_ExistingParameterFormats(t *testing.T) {
 	handler := &DefaultHandlerTask{}
 
-	t.Run("LegacyDefaultFormat", func(t *testing.T) {
-		// Simulate legacy params format
+	t.Run("DefaultFormat", func(t *testing.T) {
+		// Simulate the node-derived parameter format.
 		params := map[string]any{
-			"[gone-http]users_id":   "user123",
-			"[gone-http]posts_id":   "post456",
-			"[gone-http]is_index":   false,
-			"[gone-http]node_name":  "posts",
+			"[gone-http]users_id":  "user123",
+			"[gone-http]posts_id":  "post456",
+			"[gone-http]is_index":  false,
+			"[gone-http]node_name": "posts",
 		}
 
 		if id := handler.GetID("users", params); id != "user123" {
@@ -2218,11 +2217,11 @@ func TestGetID_BackwardCompatibility(t *testing.T) {
 		}
 	})
 
-	t.Run("LegacyColonSyntaxFormat", func(t *testing.T) {
-		// Simulate colon syntax params format
+	t.Run("ColonSyntaxFormat", func(t *testing.T) {
+		// Simulate colon syntax parameters.
 		params := map[string]any{
-			"[gone-http]user_id":   "user123",
-			"[gone-http]post_id":   "post456",
+			"[gone-http]user_id": "user123",
+			"[gone-http]post_id": "post456",
 		}
 
 		if id := handler.GetID("user", params); id != "user123" {
@@ -2236,8 +2235,8 @@ func TestGetID_BackwardCompatibility(t *testing.T) {
 	t.Run("NewBraceSyntaxFormat", func(t *testing.T) {
 		// Simulate brace syntax params format with p: prefix
 		params := map[string]any{
-			"[gone-http]p:user_id":   "user123",
-			"[gone-http]p:post_id":   "post456",
+			"[gone-http]p:user_id": "user123",
+			"[gone-http]p:post_id": "post456",
 		}
 
 		if id := handler.GetID("user_id", params); id != "user123" {

@@ -341,9 +341,7 @@ func TestDefaultSession_Created_Updated(t *testing.T) {
 		t.Error("Updated time should be same as created time initially")
 	}
 
-	// Note: Updated time is set during creation and doesn't change in the current implementation
-	// If the implementation changes to update this timestamp on data changes,
-	// additional tests should be added
+	// Updated time is set during creation.
 }
 
 func TestDefaultSession_Data(t *testing.T) {

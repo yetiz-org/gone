@@ -13,9 +13,9 @@
 //	    the project's handler package at compile time. `goai emit` is a
 //	    convenience wrapper that locates and executes that binary for you.
 //
-//	goai merge --generated <file> --existing <file> [--overrides <file>] [-o <file>]
-//	    Three-way merge between auto-generated, hand-tuned, and override
-//	    OpenAPI yaml documents. Existing wins for overlapping keys; new
+//	goai merge --generated <file> --existing <file> [-o <file>]
+//	    Three-way merge between auto-generated and hand-tuned OpenAPI yaml
+//	    documents. Existing wins for overlapping keys; new
 //	    paths/schemas/components from generated are appended. Pure file
 //	    operation — no route walking, no Go package import.
 //
@@ -23,10 +23,6 @@
 //	    Validate that an OpenAPI yaml file parses, declares openapi 3.x,
 //	    has a non-empty info object, and at least one path. Pure file
 //	    operation.
-//
-//	goai gen ./...
-//	    Codegen pass that writes zz_goai_init.go files. Not yet implemented;
-//	    use manual goai.Register calls.
 //
 //	goai version
 //	    Print the bundled goai package version.
@@ -56,8 +52,6 @@ func main() {
 	switch cmd {
 	case "emit":
 		exit(runEmit(args))
-	case "gen":
-		exit(runGen(args))
 	case "lint":
 		exit(runLint(args))
 	case "merge":
@@ -87,9 +81,8 @@ func printUsage() {
 
 Usage:
   goai emit --root <dir> [-o <file>] [-args ...]
-  goai merge --generated <file> --existing <file> [--overrides <file>] [-o <file>]
+  goai merge --generated <file> --existing <file> [-o <file>]
   goai lint <file>
-  goai gen ./...
   goai version
   goai help
 
@@ -175,14 +168,13 @@ func runEmit(args []string) error {
 }
 
 // runMerge performs a pure file-to-file three-way merge using
-// goai.Merge3Way. Useful in CI / Makefile when you have a generated yaml
-// (from a previous emit step) and want to layer it onto a hand-tuned base
-// without spinning up Go again.
+// goai.Merge3Way. Useful in CI / Makefile when you have a generated
+// OpenAPI yaml and want to layer it onto a hand-tuned base without
+// spinning up Go again.
 func runMerge(args []string) error {
 	fs := flag.NewFlagSet("goai merge", flag.ContinueOnError)
 	generated := fs.String("generated", "", "auto-generated OpenAPI yaml")
 	existing := fs.String("existing", "", "hand-tuned baseline yaml (wins on overlap)")
-	overrides := fs.String("overrides", "", "optional explicit overrides yaml (reserved)")
 	output := fs.String("o", "-", "output file; '-' for stdout")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -202,15 +194,7 @@ func runMerge(args []string) error {
 		return fmt.Errorf("read existing %s: %w", *existing, err)
 	}
 
-	var oBytes []byte
-	if *overrides != "" {
-		oBytes, err = os.ReadFile(*overrides)
-		if err != nil {
-			return fmt.Errorf("read overrides %s: %w", *overrides, err)
-		}
-	}
-
-	merged, err := goai.Merge3Way(gBytes, eBytes, oBytes)
+	merged, err := goai.Merge3Way(gBytes, eBytes, nil)
 	if err != nil {
 		return err
 	}
@@ -268,12 +252,6 @@ func runLint(args []string) error {
 	fmt.Fprintf(os.Stderr, "goai lint: %s ok (%d paths, %d operations)\n", path, report.Paths, report.Operations)
 
 	return nil
-}
-
-func runGen(args []string) error {
-	_ = args
-
-	return fmt.Errorf("gen is not implemented — use manual goai.Register calls instead")
 }
 
 // dirExists reports whether the given path exists and is a directory.

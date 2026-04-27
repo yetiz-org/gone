@@ -75,9 +75,9 @@ func make4K(n int) []byte {
 	return out
 }
 
-// BenchmarkUnsafeWrite_LegacyByteBuf measures the cost of coalescing header
+// BenchmarkUnsafeWrite_DefaultByteBuf measures the cost of coalescing header
 // and body into one DefaultByteBuf and sending via DefaultConn.Write.
-func BenchmarkUnsafeWrite_LegacyByteBuf(b *testing.B) {
+func BenchmarkUnsafeWrite_DefaultByteBuf(b *testing.B) {
 	client, server := benchDialPair(b)
 	startDrainer(b, server)
 	ch := benchNewChannel(b, client)

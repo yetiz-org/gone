@@ -58,8 +58,6 @@ func TestBasicMockConstructors(t *testing.T) {
 
 		mockTcpServerChannel := NewMockTcpServerChannel()
 		assert.NotNil(t, mockTcpServerChannel, "NewMockTcpServerChannel should return non-nil")
-
-		// Note: SimpleClient and SimpleServer mocks were removed as they are not needed
 	})
 
 	t.Run("WebSocket_Mocks", func(t *testing.T) {
@@ -324,14 +322,12 @@ func TestErrorHandling(t *testing.T) {
 	})
 }
 
-// TestUntestedMockConstructors tests all previously uncovered mock constructors
-func TestUntestedMockConstructors(t *testing.T) {
+// TestMockConstructors verifies mock constructor return values.
+func TestMockConstructors(t *testing.T) {
 	t.Run("Channel_Message_Mocks", func(t *testing.T) {
-		// Test NewMockMessageEncoder (0.0% -> 100%)
 		mockEncoder := NewMockMessageEncoder()
 		assert.NotNil(t, mockEncoder, "NewMockMessageEncoder should return non-nil")
 
-		// Test NewMockMessageDecoder (0.0% -> 100%)
 		mockDecoder := NewMockMessageDecoder()
 		assert.NotNil(t, mockDecoder, "NewMockMessageDecoder should return non-nil")
 	})

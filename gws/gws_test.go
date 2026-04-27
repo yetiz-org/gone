@@ -1,17 +1,5 @@
 package gws
 
-// Consolidated tests from:
-// - gws_comprehensive_test.go
-// - gws_concurrent_test.go
-// - gws_invokehandler_test.go
-// - gws_upgradeprocessor_test.go
-//
-// NOTE:
-// - Imports are deduplicated.
-// - Original test names and t.Parallel() are preserved.
-// - Helpers like NewMockMessage and NewMockHandlerTask are provided by existing files
-//   (mock_message.go/mock_message_test.go and mock_handlertask.go) and not redefined here.
-
 import (
 	"errors"
 	"net"

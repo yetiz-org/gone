@@ -185,12 +185,12 @@ func TestSitemapHandlerIncludesHTMLHandlersWithDefaultsAndOverrides(t *testing.T
 
 	login := got["https://example.com/base/login"]
 	if login.ChangeFreq != "weekly" || login.Priority != "0.5" {
-		t.Fatalf("default metadata not applied: %#v", login)
+		t.Fatalf("missing default metadata: %#v", login)
 	}
 
 	custom := got["https://canonical.example/custom"]
 	if custom.LastMod != "2026-04-24" || custom.ChangeFreq != "daily" || custom.Priority != "0.9" {
-		t.Fatalf("override metadata not applied: %#v", custom)
+		t.Fatalf("missing override metadata: %#v", custom)
 	}
 
 	forced := got["https://example.com/base/forced-api"]

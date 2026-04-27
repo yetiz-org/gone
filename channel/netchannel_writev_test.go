@@ -132,9 +132,9 @@ func TestUnsafeWrite_CompositeByteBuf_WritevPath(t *testing.T) {
 	assert.Equal(t, "HEAD|MID|TAIL", string(got))
 }
 
-// TestUnsafeWrite_PlainByteBuf_LegacyPath verifies that a plain *DefaultByteBuf
+// TestUnsafeWrite_PlainByteBuf_DefaultPath verifies that a plain *DefaultByteBuf
 // (no io.WriterTo) flows through DefaultConn.Write.
-func TestUnsafeWrite_PlainByteBuf_LegacyPath(t *testing.T) {
+func TestUnsafeWrite_PlainByteBuf_DefaultPath(t *testing.T) {
 	client, server := dialLoopbackPair(t)
 	ch := newNetChannelFor(t, client)
 

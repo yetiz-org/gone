@@ -258,18 +258,18 @@ func BenchmarkGZipWrite_Current(b *testing.B) {
 	}
 }
 
-func BenchmarkGZipWrite_Legacy(b *testing.B) {
+func BenchmarkGZipWrite_Baseline(b *testing.B) {
 	payload := buf.NewByteBufString(strings.Repeat(`{"title":"sample","body":"compressible payload"}`, 128))
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		gzBody := legacyGZipWrite(payload)
+		gzBody := baselineGZipWrite(payload)
 		gzipBenchSink += gzBody.ReadableBytes()
 	}
 }
 
-func legacyGZipWrite(buffer buf.ByteBuf) buf.ByteBuf {
+func baselineGZipWrite(buffer buf.ByteBuf) buf.ByteBuf {
 	est := buffer.ReadableBytes() / 3
 	if est < 128 {
 		est = 128

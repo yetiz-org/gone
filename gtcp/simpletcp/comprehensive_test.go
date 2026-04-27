@@ -286,9 +286,7 @@ func TestSimpleCodec_ErrorHandling(t *testing.T) {
 		func() {
 			defer func() {
 				r := recover()
-				// Write with nil data will panic in current implementation
-				// This is expected behavior, so we expect a panic
-				assert.NotNil(t, r, "Write with nil data should panic in current implementation")
+				assert.NotNil(t, r, "Write with nil data should panic")
 			}()
 			codec.Write(ctx, nil, mockFuture)
 		}()
@@ -383,7 +381,7 @@ func TestClient_CoreMethodCoverage(t *testing.T) {
 	assert.NotNil(t, client, "Client should not be nil")
 	assert.Equal(t, handler, client.Handler, "Handler should be set correctly")
 
-	// AutoReconnect is nil by default in the current implementation
+	// AutoReconnect is nil by default.
 	assert.Nil(t, client.AutoReconnect, "AutoReconnect should be nil by default")
 
 	// Test custom AutoReconnect function
@@ -493,7 +491,7 @@ func TestClient_ConcurrentOperations(t *testing.T) {
 				// Test basic operations
 				assert.NotNil(t, client)
 				assert.NotNil(t, client.Handler)
-				// AutoReconnect is nil by default in the current implementation
+				// AutoReconnect is nil by default.
 				assert.Nil(t, client.AutoReconnect)
 
 				// Test handler operations

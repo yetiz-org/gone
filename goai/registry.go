@@ -32,7 +32,7 @@ var (
 // regardless of whether the value is the zero value of a struct.
 //
 // Calling Register more than once for the same handler+method overwrites
-// the previous entry; this lets generated init() files coexist with
+// the existing entry; this lets generated init() files coexist with
 // hand-written project-level overrides.
 func Register(handler ghttp.HandlerTask, method string, req any, resp any, opts ...Option) {
 	if handler == nil {
@@ -158,10 +158,10 @@ func Reset() {
 // allowed to give multiple `&EmptyStruct{}` allocations the same address,
 // which silently collapses pointer-based maps.
 //
-// LIMITATION: registering more than one *instance* of the same handler
-// type causes later calls to overwrite earlier ones. Projects that need
-// per-instance customisation should embed differentiation into the type
-// (e.g. distinct types per route) rather than reusing a single struct.
+// Register keys by handler type, so more than one instance of the same
+// handler type shares one entry. Projects that need per-instance
+// customisation should embed differentiation into the type (e.g. distinct
+// types per route) rather than reusing a single struct.
 func handlerKey(h ghttp.HandlerTask) string {
 	if h == nil {
 		return ""

@@ -59,7 +59,7 @@
 // # Examples
 //
 // Each subdirectory under `examples/` is a runnable program demonstrating
-// one feature: quickstart, customschema, full, runtime, merge.
+// one feature: quickstart, customschema, docstring, full, runtime, merge.
 //
 // See README.md for the full reference.
 package goai

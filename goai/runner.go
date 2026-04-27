@@ -72,7 +72,7 @@ type RunOptions struct {
 	// components.schemas, components.securitySchemes); auto-discovered
 	// entries fill gaps. Use this when the project keeps a curated
 	// `docs/openapi/openapi.yaml` as the canonical source of truth and
-	// wants the generator to surface routes not yet documented in it.
+	// wants the generator to surface routes absent from it.
 	//
 	// Mutually exclusive with BaseSpecPath; BaseSpec wins when both are set.
 	BaseSpec []byte
@@ -85,8 +85,8 @@ type RunOptions struct {
 
 	// RestrictToBaseSpecPaths, when true and a base spec is supplied,
 	// constrains the generator to ONLY emit operations whose path also
-	// appears in the base spec. Auto-discovered routes that have not yet
-	// been documented in the hand-tuned yaml are dropped from the output.
+	// appears in the base spec. Auto-discovered routes absent from the
+	// hand-tuned yaml are dropped from the output.
 	//
 	// Use this when the curated `docs/openapi/openapi.yaml` is treated as
 	// the canonical endpoint registry — i.e. a route does not "exist" for
@@ -105,6 +105,20 @@ type RunOptions struct {
 	//	{"/static/**", "/favicon.ico", "/robots.txt"} // drop static asset routes
 	//	{"/debug/**"}                                  // drop debug-only routes
 	ExcludePaths []string
+
+	// OperationDocExtractor enables source-level Go doc-comment extraction
+	// for operation-level OpenAPI metadata. The built-in extractor only
+	// reads namespaced `@goai.*` directives from handler struct and method
+	// docs, so ordinary implementation comments stay private. Use
+	// DefaultOperationDocExtractor() or
+	// DefaultOperationDocExtractorWithBuildTags() to turn on the AST-based
+	// implementation; pass nil (the default) to disable docstring
+	// fallback entirely.
+	//
+	// Explicit Spec values, route-derived parameters, generated schemas,
+	// and acceptance-derived security always win; docstring content only
+	// fills gaps.
+	OperationDocExtractor OperationDocExtractor
 
 	// Args is the argv slice the CLI parses. nil → os.Args[1:].
 	Args []string
@@ -238,6 +252,7 @@ func RunCLI(factory RouteFactory, opts RunOptions) {
 		GlobalSecurity:        opts.GlobalSecurity,
 		ExternalDocs:          opts.ExternalDocs,
 		TagSecurityClassifier: opts.TagSecurityClassifier,
+		OperationDocExtractor: opts.OperationDocExtractor,
 	})
 
 	if doc.Components == nil {
@@ -516,9 +531,8 @@ type runFromConfigOpts struct {
 	classifier *Classifier
 }
 
-// WithClassifier injects a fallback Classifier used when handlers have not
-// yet implemented SpecProvider / SecurityProvider. Once every handler in the
-// project self-declares its tag and security, drop this option.
+// WithClassifier injects a fallback Classifier for handlers that do not
+// implement SpecProvider or SecurityProvider.
 func WithClassifier(c *Classifier) RunFromConfigOption {
 	return func(o *runFromConfigOpts) { o.classifier = c }
 }

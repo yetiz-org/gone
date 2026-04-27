@@ -185,9 +185,8 @@ func TestDefaultPipeline_Bind(t *testing.T) {
 	// Mock the LocalAddr method call
 	mockAddr.On("LocalAddr").Return(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080})
 
-	// Test Bind operation (Current implementation returns nil, to be fixed when future is implemented)
 	future := pipeline.Bind(mockAddr.LocalAddr())
-	assert.Nil(t, future) // Temporarily accept nil, change to NotNil when implementation is complete
+	assert.Nil(t, future)
 
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
@@ -203,9 +202,8 @@ func TestDefaultPipeline_Close(t *testing.T) {
 	mockChannel.On("setUnsafe", mock.Anything).Return()
 	pipeline := _NewDefaultPipeline(mockChannel)
 
-	// Test Close operation (Current implementation returns nil, to be fixed when future is implemented)
 	future := pipeline.Close()
-	assert.Nil(t, future) // Temporarily accept nil, change to NotNil when implementation is complete
+	assert.Nil(t, future)
 
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
@@ -226,9 +224,8 @@ func TestDefaultPipeline_Connect(t *testing.T) {
 	mockAddr.On("LocalAddr").Return(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080})
 	mockAddr.On("RemoteAddr").Return(&net.TCPAddr{IP: net.IPv4(192, 168, 1, 100), Port: 9090})
 
-	// Test Connect operation (Current implementation returns nil, to be fixed when future is implemented)
 	future := pipeline.Connect(mockAddr.LocalAddr(), mockAddr.RemoteAddr())
-	assert.Nil(t, future) // Temporarily accept nil, change to NotNil when implementation is complete
+	assert.Nil(t, future)
 
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
@@ -244,9 +241,8 @@ func TestDefaultPipeline_Disconnect(t *testing.T) {
 	mockChannel.On("setUnsafe", mock.Anything).Return()
 	pipeline := _NewDefaultPipeline(mockChannel)
 
-	// Test Disconnect operation (Current implementation returns nil, to be fixed when future is implemented)
 	future := pipeline.Disconnect()
-	assert.Nil(t, future) // Temporarily accept nil, change to NotNil when implementation is complete
+	assert.Nil(t, future)
 
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")
@@ -262,9 +258,8 @@ func TestDefaultPipeline_Deregister(t *testing.T) {
 	mockChannel.On("setUnsafe", mock.Anything).Return()
 	pipeline := _NewDefaultPipeline(mockChannel)
 
-	// Test Deregister operation (Current implementation returns nil, to be fixed when future is implemented)
 	future := pipeline.Deregister()
-	assert.Nil(t, future) // Temporarily accept nil, change to NotNil when implementation is complete
+	assert.Nil(t, future)
 
 	if time.Now().After(deadline) {
 		t.Fatal("Test exceeded timeout")

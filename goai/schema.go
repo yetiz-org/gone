@@ -6,11 +6,18 @@ import (
 	"time"
 )
 
+// SchemaNameProvider lets a struct type choose its OpenAPI component schema
+// name when goai builds schemas from reflection.
+type SchemaNameProvider interface {
+	GOAISchemaName() string
+}
+
 // schemaBuilder converts Go reflect types into OpenAPI schemas while
 // deduplicating named struct types into the shared Components.Schemas map.
 type schemaBuilder struct {
 	components *Components
 	visiting   map[reflect.Type]string // type → component name; tracks recursion
+	typeOfName map[string]reflect.Type
 	// pkgOfName tracks "<canonical component key> → <full pkg path>" so we
 	// can detect collisions between same-typename structs that live in
 	// different packages but share the same last package segment (e.g.
@@ -29,6 +36,7 @@ func newSchemaBuilder(components *Components) *schemaBuilder {
 	return &schemaBuilder{
 		components: components,
 		visiting:   map[reflect.Type]string{},
+		typeOfName: map[string]reflect.Type{},
 		pkgOfName:  map[string]string{},
 	}
 }
@@ -196,25 +204,91 @@ func (b *schemaBuilder) componentName(t reflect.Type) string {
 	}
 
 	pkg := t.PkgPath()
+	short := schemaComponentBaseName(t)
 	if pkg == "" {
+		return b.uniqueComponentName(short, t)
+	}
+
+	return b.uniqueComponentName(short, t)
+}
+
+func (b *schemaBuilder) uniqueComponentName(name string, t reflect.Type) string {
+	if name == "" {
+		return ""
+	}
+
+	pkg := t.PkgPath()
+	if existing, seen := b.typeOfName[name]; seen {
+		if existing == t {
+			return name
+		}
+
+		full := fullSchemaComponentName(t)
+		b.typeOfName[full] = t
+		b.pkgOfName[full] = pkg
+
+		return full
+	}
+
+	if existing, seen := b.pkgOfName[name]; seen && existing != pkg {
+		full := fullSchemaComponentName(t)
+		b.typeOfName[full] = t
+		b.pkgOfName[full] = pkg
+
+		return full
+	}
+
+	if _, exists := b.components.Schemas[name]; exists {
+		existingPkg := b.pkgOfName[name]
+		if existingPkg == "" || existingPkg != pkg {
+			full := fullSchemaComponentName(t)
+			b.typeOfName[full] = t
+			b.pkgOfName[full] = pkg
+
+			return full
+		}
+	}
+
+	b.typeOfName[name] = t
+	b.pkgOfName[name] = pkg
+
+	return name
+}
+
+func schemaComponentBaseName(t reflect.Type) string {
+	if name := schemaNameFromProvider(t); name != "" {
+		return name
+	}
+
+	if t.PkgPath() == "" {
 		return t.Name()
 	}
 
-	short := shortPkgName(pkg) + "." + t.Name()
+	return shortPkgName(t.PkgPath()) + "." + t.Name()
+}
 
-	if existing, seen := b.pkgOfName[short]; !seen || existing == pkg {
-		b.pkgOfName[short] = pkg
-
-		return short
+func schemaNameFromProvider(t reflect.Type) string {
+	if t == nil || t.Name() == "" {
+		return ""
 	}
 
-	// Collision: a different pkg already owns the short key. Promote this
-	// type to the fully-qualified form so the $ref unambiguously identifies
-	// its source type.
-	full := strings.ReplaceAll(pkg, "/", ".") + "." + t.Name()
-	b.pkgOfName[full] = pkg
+	providerType := reflect.TypeOf((*SchemaNameProvider)(nil)).Elem()
+	pointerType := reflect.PointerTo(t)
+	if !pointerType.Implements(providerType) {
+		return ""
+	}
 
-	return full
+	provider := reflect.New(t).Interface().(SchemaNameProvider)
+
+	return _SanitizeComponentName(strings.TrimSpace(provider.GOAISchemaName()))
+}
+
+func fullSchemaComponentName(t reflect.Type) string {
+	if t.PkgPath() == "" {
+		return t.Name()
+	}
+
+	return strings.ReplaceAll(t.PkgPath(), "/", ".") + "." + t.Name()
 }
 
 // shortPkgName returns the last "/"-separated segment of pkg, which is the

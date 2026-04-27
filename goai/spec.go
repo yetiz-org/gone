@@ -1,25 +1,74 @@
 package goai
 
+import "reflect"
+
 // Spec carries optional metadata for a single (handler, method) operation.
 // All fields are deliberately unexported; callers shape Spec values through
 // functional options exclusively. This keeps the public API forward
 // compatible — new fields can be added without breaking call sites.
 type Spec struct {
-	summary          string
-	description      string
-	operationID      string
-	tags             []string
-	examples         map[string]any
-	multiExamples    map[string]map[string]*Example
-	deprecated       bool
-	security         []SecurityRef
-	extraHeaders     []HeaderDef
-	extraParams      []PathParam
-	externalDocs     *ExternalDocumentation
-	callbacks        map[string]Callback
-	servers          []Server
-	requestMediaType string
+	summary            string
+	description        string
+	operationID        string
+	tags               []string
+	examples           map[string]any
+	multiExamples      map[string]map[string]*Example
+	deprecated         bool
+	security           []SecurityRef
+	extraHeaders       []HeaderDef
+	extraParams        []PathParam
+	externalDocs       *ExternalDocumentation
+	callbacks          map[string]Callback
+	servers            []Server
+	requestMediaType   string
+	requestDescription string
+	successDescription string
+	responses          map[string]*ResponseSpec
 }
+
+// ResponseSpec describes a single status-code response declared on an
+// operation via WithResponse. All fields are optional; Description is the
+// only one builder treats as required by OpenAPI semantics. When empty,
+// success responses use the method default, recognised HTTP status codes
+// use net/http.StatusText, "default" uses "Default response", and unknown
+// status keys fall back to "OK" so the emitted yaml stays valid.
+type ResponseSpec struct {
+	// Description is rendered verbatim under responses.<status>.description.
+	Description string
+
+	// SchemaType, when non-nil, drives schema synthesis from a Go type
+	// (the same path used for request bodies and successful response
+	// bodies registered via goai.Register). Mutually exclusive with
+	// Schema; Schema wins when both are set.
+	SchemaType reflect.Type
+
+	// Schema, when non-nil, is used directly without further synthesis.
+	// Use this for hand-tuned schemas, $ref-based reuse, or to attach
+	// schemas the schema builder cannot derive (e.g. raw JSON Schema
+	// objects).
+	Schema *Schema
+
+	// MediaType overrides the response content media type. Empty falls
+	// back to "application/json" when Schema or SchemaType is set; when
+	// both Schema and SchemaType are nil the response carries no
+	// content block regardless of MediaType.
+	MediaType string
+
+	// Example is a single inline example. Use Examples when richer
+	// metadata (named summaries / descriptions / external values) is
+	// needed.
+	Example any
+
+	// Examples is the per-name Example map. Mutually compatible with
+	// Example — yaml encoders emit both fields.
+	Examples map[string]*Example
+
+	// Headers documents response headers attached to this status code.
+	Headers []HeaderDef
+}
+
+// ResponseOption mutates a ResponseSpec built by WithResponse.
+type ResponseOption func(*ResponseSpec)
 
 // Option mutates a Spec during NewSpec or Register.
 type Option func(*Spec)
@@ -173,6 +222,104 @@ func WithRequestMediaType(mediaType string) Option {
 	return func(s *Spec) { s.requestMediaType = mediaType }
 }
 
+// WithRequestDescription sets the operation's request body description.
+// Renders under requestBody.description in the emitted yaml.
+func WithRequestDescription(description string) Option {
+	return func(s *Spec) { s.requestDescription = description }
+}
+
+// WithSuccessDescription overrides the method default response description
+// emitted under the conventional success status code (200 / 201 / 204).
+// Use this when the success response merits a richer description than the
+// generic default.
+func WithSuccessDescription(description string) Option {
+	return func(s *Spec) { s.successDescription = description }
+}
+
+// WithResponse declares an operation response under the given HTTP status
+// code. Use multiple times for distinct status codes (e.g. "400", "404",
+// "default"). description should be a short human-readable explanation of
+// what the status code means in the operation's context. Additional
+// content (schema, examples, headers) is layered on via ResponseOption.
+//
+// Calling WithResponse with the operation's conventional success status
+// (matching successStatus(httpMethod)) updates that response's description
+// in the same way as WithSuccessDescription, but lets the caller also
+// attach a custom schema or examples — useful for handlers that document a
+// response shape distinct from the registered Go response type.
+func WithResponse(status string, description string, opts ...ResponseOption) Option {
+	return func(s *Spec) {
+		if s.responses == nil {
+			s.responses = map[string]*ResponseSpec{}
+		}
+
+		entry := s.responses[status]
+		if entry == nil {
+			entry = &ResponseSpec{}
+			s.responses[status] = entry
+		}
+
+		if description != "" {
+			entry.Description = description
+		}
+
+		for _, opt := range opts {
+			opt(entry)
+		}
+	}
+}
+
+// WithResponseSchema attaches a Go type whose synthesised schema becomes
+// the response body. Use for non-success responses whose body shape is not
+// captured by the registered (handler, method) response type — e.g. an
+// error envelope on a 400 / 404 branch.
+// Pointer types are automatically unwrapped so that *T behaves like T.
+func WithResponseSchema(t reflect.Type) ResponseOption {
+	for t != nil && t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return func(r *ResponseSpec) { r.SchemaType = t }
+}
+
+// WithResponseSchemaPrebuilt attaches a pre-built Schema verbatim under
+// the response content block. Use for $ref-based reuse or when the schema
+// is hand-authored.
+func WithResponseSchemaPrebuilt(schema *Schema) ResponseOption {
+	return func(r *ResponseSpec) { r.Schema = schema }
+}
+
+// WithResponseMediaType overrides the response content media type
+// (default "application/json").
+func WithResponseMediaType(mediaType string) ResponseOption {
+	return func(r *ResponseSpec) { r.MediaType = mediaType }
+}
+
+// WithResponseExample attaches a single inline example to the response
+// content block.
+func WithResponseExample(example any) ResponseOption {
+	return func(r *ResponseSpec) { r.Example = example }
+}
+
+// WithResponseExampleObject attaches a named Example Object to the
+// response content block. Use multiple times for distinct named examples.
+func WithResponseExampleObject(name string, example *Example) ResponseOption {
+	return func(r *ResponseSpec) {
+		if r.Examples == nil {
+			r.Examples = map[string]*Example{}
+		}
+
+		r.Examples[name] = example
+	}
+}
+
+// WithResponseHeader documents a response header attached to this status
+// code's response. Use multiple times for distinct headers.
+func WithResponseHeader(h HeaderDef) ResponseOption {
+	return func(r *ResponseSpec) {
+		r.Headers = append(r.Headers, h)
+	}
+}
+
 // WithSecurity appends a SecurityRef. Multiple calls combine as logical OR
 // at the operation level (per OpenAPI semantics).
 func WithSecurity(scheme string, scopes ...string) Option {
@@ -281,6 +428,18 @@ func (s Spec) MultiExamples() map[string]map[string]*Example { return s.multiExa
 // RequestMediaType returns the operator-overridden request media type, or
 // empty string when goai should fall back to "application/json".
 func (s Spec) RequestMediaType() string { return s.requestMediaType }
+
+// RequestDescription returns the operation request body description, or
+// empty string when unset.
+func (s Spec) RequestDescription() string { return s.requestDescription }
+
+// SuccessDescription returns the override for the success response
+// description, or empty string when the builder should use its default.
+func (s Spec) SuccessDescription() string { return s.successDescription }
+
+// Responses returns the per-status response specs declared via WithResponse.
+// The returned map and its entries must not be mutated by callers.
+func (s Spec) Responses() map[string]*ResponseSpec { return s.responses }
 
 // SpecProvider supplies a Spec that applies to every HTTP method the handler
 // implements. Use this when the spec metadata (tags, security, deprecated)
