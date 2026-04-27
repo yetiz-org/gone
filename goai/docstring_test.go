@@ -1766,6 +1766,40 @@ func TestBuildCanonicalPathDoesNotMergeEquivalentEndpointOverrides(t *testing.T)
 	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "slug"))
 }
 
+func TestBuildCanonicalPathCanInsertAndRemovePathParams(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /api/v1/organizations/{organizations_id}/albums/{albums_id}/assets
+@goai.summary List album assets
+@goai.param path albums_id string required "Album ID."
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/api/v1/organizations/{organizations_id}/albums/assets/{assets_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "organizations_id", Required: true, Description: "Route organization ID."},
+				{Name: "assets_id", Required: true, Description: "Generated asset ID."},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	require.Contains(t, doc.Paths, "/api/v1/organizations/{organizations_id}/albums/{albums_id}/assets")
+	op := doc.Paths["/api/v1/organizations/{organizations_id}/albums/{albums_id}/assets"].Get
+	require.NotNil(t, op)
+	assert.Equal(t, "List album assets", op.Summary)
+	assert.NotNil(t, _FindOperationParameter(op.Parameters, "path", "organizations_id"))
+	assert.Equal(t, "Album ID.", _FindParameter(t, op.Parameters, "path", "albums_id").Description)
+	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "assets_id"))
+}
+
 func TestBuildOperationAppliesEndpointIndexedDocstringDirectives(t *testing.T) {
 	handler := &_DocstringTestHandler{}
 	docText := `

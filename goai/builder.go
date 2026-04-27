@@ -1036,11 +1036,15 @@ func _OperationDocEndpointForCandidate(doc *OperationDoc, c OperationCandidate) 
 func _CandidateWithCanonicalPath(c OperationCandidate, path string) OperationCandidate {
 	renames := _PathTemplateParamRenameMap(c.Path, path)
 	c.Path = path
-	if len(renames) == 0 {
-		return c
+
+	canonicalNames := map[string]struct{}{}
+	for _, name := range _PathTemplateParamNames(path) {
+		canonicalNames[name] = struct{}{}
 	}
 
+	seen := map[string]struct{}{}
 	params := append([]PathParam(nil), c.PathParams...)
+	filtered := make([]PathParam, 0, len(params))
 	for i := range params {
 		if name, ok := renames[params[i].Name]; ok {
 			params[i].Name = name
@@ -1048,9 +1052,29 @@ func _CandidateWithCanonicalPath(c OperationCandidate, path string) OperationCan
 			params[i].Style = ""
 			params[i].Example = ""
 		}
+
+		if _, ok := canonicalNames[params[i].Name]; !ok {
+			continue
+		}
+
+		seen[params[i].Name] = struct{}{}
+		filtered = append(filtered, params[i])
 	}
 
-	c.PathParams = params
+	for _, name := range _PathTemplateParamNames(path) {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+
+		filtered = append(filtered, PathParam{
+			Name:        name,
+			In:          "path",
+			Required:    true,
+			Description: "Resource identifier",
+		})
+	}
+
+	c.PathParams = filtered
 	return c
 }
 
@@ -1079,46 +1103,23 @@ func _PathTemplateParamRenameMap(from string, to string) map[string]string {
 }
 
 func _PathTemplatesEquivalent(a string, b string) bool {
-	aParts := _PathTemplateParts(a)
-	bParts := _PathTemplateParts(b)
-	if len(aParts) != len(bParts) {
-		return false
-	}
-
-	for i := range aParts {
-		if aParts[i].Param && bParts[i].Param {
-			continue
-		}
-
-		if aParts[i] != bParts[i] {
-			return false
-		}
-	}
-
-	return true
+	return reflect.DeepEqual(_PathTemplateStaticSegments(a), _PathTemplateStaticSegments(b))
 }
 
-type _PathTemplatePart struct {
-	Value string
-	Param bool
-}
-
-func _PathTemplateParts(path string) []_PathTemplatePart {
+func _PathTemplateStaticSegments(path string) []string {
 	trimmed := strings.Trim(path, "/")
 	if trimmed == "" {
 		return nil
 	}
 
 	segments := strings.Split(trimmed, "/")
-	parts := make([]_PathTemplatePart, 0, len(segments))
+	parts := make([]string, 0, len(segments))
 	for _, segment := range segments {
-		part := _PathTemplatePart{Value: segment}
 		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
-			part.Param = true
-			part.Value = "{}"
+			continue
 		}
 
-		parts = append(parts, part)
+		parts = append(parts, segment)
 	}
 
 	return parts
