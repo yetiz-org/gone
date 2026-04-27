@@ -315,6 +315,7 @@ Directive format:
 | Directive | Shape |
 | --- | --- |
 | `@goai.endpoint` | `METHOD /path` |
+| `@goai.endpoint.<directive>` | `METHOD /path <directive payload>` |
 | `@goai.summary` | `summary text` |
 | `@goai.description` | `description line`; repeat to append lines |
 | `@goai.operationId` | `operation.id` |
@@ -356,6 +357,18 @@ Conventions:
 - Only lines starting with `@goai.` are parsed.
 - `@goai.endpoint` documents and validates intent; the walked route method
   and path remain authoritative.
+- Repeat `@goai.endpoint` when one handler method is mounted on multiple
+  route paths. These endpoint lines are the only docstring declarations that
+  decide which walked routes may receive method-level operation metadata.
+- Use `@goai.endpoint.<directive>` when metadata belongs only to one declared
+  endpoint, for example
+  `@goai.endpoint.param GET /api/v1/orgs/{orgs_id}/songs path orgs_id string required "Organization ID"`.
+  Endpoint-scoped directives do not declare routes by themselves; the method
+  and path must also appear in a `@goai.endpoint` line. Scoped path parameters,
+  request bodies, responses, schemas, tags, security, and descriptions are
+  merged only into matching route candidates, so one endpoint's variables or
+  operation metadata do not leak into another endpoint that uses the same
+  handler method.
 - Put shared operation metadata such as tags and security on the handler
   struct doc comment; put `@goai.endpoint`, summary, operationId,
   parameters, request bodies, responses, examples, and per-method overrides

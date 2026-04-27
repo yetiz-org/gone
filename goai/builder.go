@@ -136,7 +136,9 @@ func candidateOperationTags(c OperationCandidate, classifier *Classifier, docExt
 	tags := _DeduplicateStrings(spec.Tags())
 	if len(tags) == 0 && docExtractor != nil {
 		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok {
-			tags = _DeduplicateStrings(doc.Operation.Tags)
+			if docOp := _OperationDocOperationForCandidate(doc, c); docOp != nil {
+				tags = _DeduplicateStrings(docOp.Tags)
+			}
 		}
 	}
 
@@ -199,13 +201,15 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	op.Servers = spec.OperationServers()
 
 	var operationDoc *OperationDoc
+	var operationDocOp *Operation
 	operationDocMatches := false
 	if docExtractor != nil {
 		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok {
 			operationDoc = doc
 			operationDocMatches = _OperationDocMatches(doc, c)
-			if len(op.Tags) == 0 && len(doc.Operation.Tags) > 0 {
-				op.Tags = _DeduplicateStrings(doc.Operation.Tags)
+			operationDocOp = _OperationDocOperationForCandidate(doc, c)
+			if len(op.Tags) == 0 && operationDocOp != nil && len(operationDocOp.Tags) > 0 {
+				op.Tags = _DeduplicateStrings(operationDocOp.Tags)
 			}
 		}
 	}
@@ -340,8 +344,8 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	_ApplySpecExtraHeaders(op, successResp, spec)
 
 	if operationDocMatches {
-		_MergeOperationDocSchemas(schemaBld, operationDoc)
-		_MergeOperationDocFallback(op, &operationDoc.Operation, spec, c.Method)
+		_MergeOperationDocSchemasForCandidate(schemaBld, operationDoc, operationDocOp, c)
+		_MergeOperationDocFallback(op, operationDocOp, spec, c)
 	}
 
 	if needsDefaultSuccessContent && len(successResp.Content) == 0 {
@@ -615,7 +619,7 @@ func _ApplyResponseSpec(op *Operation, status string, rs *ResponseSpec, schemaBl
 	}
 }
 
-func _MergeOperationDocFallback(op *Operation, docOp *Operation, spec Spec, method string) {
+func _MergeOperationDocFallback(op *Operation, docOp *Operation, spec Spec, c OperationCandidate) {
 	if op == nil || docOp == nil {
 		return
 	}
@@ -650,9 +654,9 @@ func _MergeOperationDocFallback(op *Operation, docOp *Operation, spec Spec, meth
 		op.Servers = append([]Server(nil), docOp.Servers...)
 	}
 
-	_MergeOperationDocParameters(op, docOp.Parameters)
+	_MergeOperationDocParameters(op, docOp.Parameters, _PathParamNamesForCandidate(c))
 	_MergeOperationDocRequestBody(op, docOp.RequestBody)
-	_MergeOperationDocResponses(op, docOp.Responses, spec, method)
+	_MergeOperationDocResponses(op, docOp.Responses, spec, c.Method)
 
 	if op.Security == nil && docOp.Security != nil {
 		op.Security = docOp.Security
@@ -731,6 +735,34 @@ func _MergeOperationDocSchemas(schemaBld *schemaBuilder, doc *OperationDoc) {
 			schemaBld.pkgOfName[name] = pkg
 		}
 	}
+}
+
+func _MergeOperationDocSchemasForCandidate(schemaBld *schemaBuilder, doc *OperationDoc, op *Operation, c OperationCandidate) {
+	if schemaBld == nil || schemaBld.components == nil || doc == nil || op == nil {
+		return
+	}
+
+	tmp := &OperationDoc{
+		Operation:      *op,
+		Schemas:        _CloneSchemaMap(doc.Schemas),
+		SchemaPackages: _CloneSchemaPackageMap(doc.SchemaPackages),
+	}
+	for _, endpointOperation := range doc.EndpointOperations {
+		if !_OperationEndpointMatchesCandidate(endpointOperation.Endpoint, c) {
+			continue
+		}
+
+		tmp.Schemas = _MergeSchemaMaps(tmp.Schemas, endpointOperation.Schemas)
+		if len(endpointOperation.SchemaPackages) > 0 && tmp.SchemaPackages == nil {
+			tmp.SchemaPackages = map[string]string{}
+		}
+		for name, pkg := range endpointOperation.SchemaPackages {
+			tmp.SchemaPackages[name] = pkg
+		}
+	}
+
+	_MergeOperationDocSchemas(schemaBld, tmp)
+	*op = tmp.Operation
 }
 
 func _OperationDocSchemaComponentName(schemaBld *schemaBuilder, name string, pkg string) string {
@@ -896,25 +928,287 @@ func _OperationDocMatches(doc *OperationDoc, c OperationCandidate) bool {
 		return false
 	}
 
-	if doc.Endpoint.Method == "" || doc.Endpoint.Path == "" {
+	endpoints := _OperationDocEndpoints(doc)
+	if len(endpoints) == 0 {
 		return false
 	}
 
-	if !strings.EqualFold(doc.Endpoint.Method, c.Method) {
-		return false
+	for _, endpoint := range endpoints {
+		if !strings.EqualFold(endpoint.Method, c.Method) {
+			continue
+		}
+
+		if endpoint.Path != c.Path {
+			continue
+		}
+
+		return true
 	}
 
-	if doc.Endpoint.Path != c.Path {
-		return false
-	}
-
-	return true
+	return false
 }
 
-func _MergeOperationDocParameters(op *Operation, params []*Parameter) {
+func _OperationDocHasEndpointDirectives(doc *OperationDoc) bool {
+	return len(_OperationDocEndpoints(doc)) > 0
+}
+
+func _OperationDocOperationForCandidate(doc *OperationDoc, c OperationCandidate) *Operation {
+	if doc == nil {
+		return nil
+	}
+
+	if !_OperationDocHasEndpointDirectives(doc) {
+		return &doc.Operation
+	}
+
+	if !_OperationDocMatches(doc, c) {
+		return nil
+	}
+
+	operation := _CloneOperation(doc.Operation)
+	for _, endpointOperation := range doc.EndpointOperations {
+		if !_OperationEndpointMatchesCandidate(endpointOperation.Endpoint, c) {
+			continue
+		}
+
+		_MergeEndpointOperationOverride(&operation, &endpointOperation.Operation)
+	}
+
+	return &operation
+}
+
+func _OperationDocEndpoints(doc *OperationDoc) []OperationEndpoint {
+	if doc == nil {
+		return nil
+	}
+
+	endpoints := append([]OperationEndpoint(nil), doc.Endpoints...)
+	if len(endpoints) > 0 {
+		return endpoints
+	}
+
+	if doc.Endpoint.Method != "" && doc.Endpoint.Path != "" {
+		return []OperationEndpoint{doc.Endpoint}
+	}
+
+	return nil
+}
+
+func _OperationEndpointMatchesCandidate(endpoint OperationEndpoint, c OperationCandidate) bool {
+	return strings.EqualFold(endpoint.Method, c.Method) && endpoint.Path == c.Path
+}
+
+func _CloneOperation(op Operation) Operation {
+	clone := op
+	clone.Tags = append([]string(nil), op.Tags...)
+	clone.Parameters = append([]*Parameter(nil), op.Parameters...)
+	clone.Servers = append([]Server(nil), op.Servers...)
+
+	if op.Responses != nil {
+		clone.Responses = make(map[string]*Response, len(op.Responses))
+		for status, response := range op.Responses {
+			clone.Responses[status] = response
+		}
+	}
+
+	if op.Callbacks != nil {
+		clone.Callbacks = make(map[string]Callback, len(op.Callbacks))
+		for name, callback := range op.Callbacks {
+			clone.Callbacks[name] = callback
+		}
+	}
+
+	if op.Extensions != nil {
+		clone.Extensions = make(map[string]any, len(op.Extensions))
+		for key, value := range op.Extensions {
+			clone.Extensions[key] = value
+		}
+	}
+
+	return clone
+}
+
+func _CloneSchemaMap(schemas map[string]*Schema) map[string]*Schema {
+	if len(schemas) == 0 {
+		return nil
+	}
+
+	clone := make(map[string]*Schema, len(schemas))
+	for name, schema := range schemas {
+		clone[name] = schema
+	}
+
+	return clone
+}
+
+func _CloneSchemaPackageMap(packages map[string]string) map[string]string {
+	if len(packages) == 0 {
+		return nil
+	}
+
+	clone := make(map[string]string, len(packages))
+	for name, pkg := range packages {
+		clone[name] = pkg
+	}
+
+	return clone
+}
+
+func _MergeSchemaMaps(dst map[string]*Schema, src map[string]*Schema) map[string]*Schema {
+	if len(src) == 0 {
+		return dst
+	}
+
+	if dst == nil {
+		dst = map[string]*Schema{}
+	}
+	for name, schema := range src {
+		dst[name] = schema
+	}
+
+	return dst
+}
+
+func _MergeEndpointOperationOverride(base *Operation, scoped *Operation) {
+	if base == nil || scoped == nil {
+		return
+	}
+
+	if scoped.OperationID != "" {
+		base.OperationID = scoped.OperationID
+	}
+	if scoped.Summary != "" {
+		base.Summary = scoped.Summary
+	}
+	if scoped.Description != "" {
+		base.Description = scoped.Description
+	}
+	if len(scoped.Tags) > 0 {
+		base.Tags = _DeduplicateStrings(scoped.Tags)
+	}
+	if scoped.Deprecated {
+		base.Deprecated = true
+	}
+	if scoped.ExternalDocs != nil {
+		base.ExternalDocs = scoped.ExternalDocs
+	}
+	if len(scoped.Callbacks) > 0 {
+		if base.Callbacks == nil {
+			base.Callbacks = map[string]Callback{}
+		}
+		for name, callback := range scoped.Callbacks {
+			base.Callbacks[name] = callback
+		}
+	}
+	if len(scoped.Servers) > 0 {
+		base.Servers = append([]Server(nil), scoped.Servers...)
+	}
+	if len(scoped.Parameters) > 0 {
+		base.Parameters = _MergeDocParameterOverrides(base.Parameters, scoped.Parameters)
+	}
+	if scoped.RequestBody != nil {
+		base.RequestBody = scoped.RequestBody
+	}
+	if len(scoped.Responses) > 0 {
+		if base.Responses == nil {
+			base.Responses = map[string]*Response{}
+		}
+		for status, response := range scoped.Responses {
+			base.Responses[status] = response
+		}
+	}
+	if scoped.Security != nil {
+		base.Security = scoped.Security
+	}
+	if len(scoped.Extensions) > 0 {
+		if base.Extensions == nil {
+			base.Extensions = map[string]any{}
+		}
+		for key, value := range scoped.Extensions {
+			base.Extensions[key] = value
+		}
+	}
+}
+
+func _MergeDocParameterOverrides(base []*Parameter, scoped []*Parameter) []*Parameter {
+	out := append([]*Parameter(nil), base...)
+	for _, scopedParam := range scoped {
+		if scopedParam == nil {
+			continue
+		}
+
+		replaced := false
+		for i, existing := range out {
+			if existing == nil {
+				continue
+			}
+			if existing.In == scopedParam.In && existing.Name == scopedParam.Name {
+				out[i] = scopedParam
+				replaced = true
+				break
+			}
+		}
+
+		if !replaced {
+			out = append(out, scopedParam)
+		}
+	}
+
+	return out
+}
+
+func _PathParamNamesForCandidate(c OperationCandidate) map[string]struct{} {
+	names := map[string]struct{}{}
+	for _, param := range c.PathParams {
+		if param.Name != "" {
+			names[param.Name] = struct{}{}
+		}
+	}
+
+	for _, name := range _PathTemplateParamNames(c.Path) {
+		names[name] = struct{}{}
+	}
+
+	return names
+}
+
+func _PathTemplateParamNames(path string) []string {
+	if path == "" {
+		return nil
+	}
+
+	names := []string{}
+	for {
+		start := strings.IndexByte(path, '{')
+		if start < 0 {
+			return names
+		}
+
+		path = path[start+1:]
+		end := strings.IndexByte(path, '}')
+		if end < 0 {
+			return names
+		}
+
+		name := strings.TrimSpace(path[:end])
+		if name != "" {
+			names = append(names, name)
+		}
+
+		path = path[end+1:]
+	}
+}
+
+func _MergeOperationDocParameters(op *Operation, params []*Parameter, pathParamNames map[string]struct{}) {
 	for _, docParam := range params {
 		if docParam == nil {
 			continue
+		}
+
+		if docParam.In == "path" {
+			if _, ok := pathParamNames[docParam.Name]; !ok {
+				continue
+			}
 		}
 
 		existing := _FindOperationParameter(op.Parameters, docParam.In, docParam.Name)

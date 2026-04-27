@@ -390,6 +390,77 @@ func TestParseOpenAPIDocCommentExtractsNamespacedDirectives(t *testing.T) {
 	assert.Equal(t, "internal", op.Extensions["x-operation-tier"])
 }
 
+func TestParseOpenAPIDocCommentKeepsMultipleEndpointDirectives(t *testing.T) {
+	text := `
+@goai.endpoint GET /api/v1/items/{items_id}
+@goai.endpoint GET /mgmt/v1/items/{items_id}
+@goai.endpoint.param GET /api/v1/items/{items_id} path items_id string required "Item ID."
+@goai.summary Get item
+`
+
+	doc, ok := _ParseOpenAPIDocCommentWithContext(text, "Get", nil)
+	require.True(t, ok)
+	require.NotNil(t, doc)
+
+	assert.Equal(t, OperationEndpoint{Method: "GET", Path: "/mgmt/v1/items/{items_id}"}, doc.Endpoint)
+	assert.Equal(t, []OperationEndpoint{
+		{Method: "GET", Path: "/api/v1/items/{items_id}"},
+		{Method: "GET", Path: "/mgmt/v1/items/{items_id}"},
+	}, doc.Endpoints)
+	require.Len(t, doc.EndpointOperations, 1)
+	assert.Equal(t, OperationEndpoint{Method: "GET", Path: "/api/v1/items/{items_id}"}, doc.EndpointOperations[0].Endpoint)
+	require.Len(t, doc.EndpointOperations[0].Operation.Parameters, 1)
+	assert.Equal(t, "items_id", doc.EndpointOperations[0].Operation.Parameters[0].Name)
+}
+
+func TestParseOpenAPIDocCommentIgnoresInvalidEndpointScopedDirective(t *testing.T) {
+	text := `
+@goai.endpoint.unknown GET /ghost ignored
+@goai.summary Ghost operation
+`
+
+	doc, ok := _ParseOpenAPIDocCommentWithContext(text, "Get", nil)
+	require.True(t, ok)
+	require.NotNil(t, doc)
+
+	assert.Empty(t, doc.Endpoints)
+	assert.Empty(t, doc.EndpointOperations)
+	assert.Equal(t, "Ghost operation", doc.Operation.Summary)
+}
+
+func TestParseOpenAPIDocCommentExtractsEndpointScopedOperationDirectives(t *testing.T) {
+	text := `
+@goai.endpoint POST /items/{items_id}
+@goai.endpoint.summary POST /items/{items_id} Create item
+@goai.endpoint.description POST /items/{items_id} Creates an item.
+@goai.endpoint.tag POST /items/{items_id} ScopedItems
+@goai.endpoint.security POST /items/{items_id} OAuth2 items:write
+@goai.endpoint.requestBody POST /items/{items_id} required application/json object "Payload."
+@goai.endpoint.response POST /items/{items_id} 201 "Created" mediaType=application/json type=object
+`
+
+	doc, ok := _ParseOpenAPIDocCommentWithContext(text, "Create", nil)
+	require.True(t, ok)
+	require.NotNil(t, doc)
+	require.Len(t, doc.EndpointOperations, 1)
+
+	op := doc.EndpointOperations[0].Operation
+	assert.Equal(t, "Create item", op.Summary)
+	assert.Equal(t, "Creates an item.", op.Description)
+	assert.Equal(t, []string{"ScopedItems"}, op.Tags)
+	require.NotNil(t, op.Security)
+	assert.Equal(t, []map[string][]string{{"OAuth2": {"items:write"}}}, *op.Security)
+	require.NotNil(t, op.RequestBody)
+	assert.True(t, op.RequestBody.Required)
+	assert.Equal(t, "Payload.", op.RequestBody.Description)
+	require.Contains(t, op.RequestBody.Content, "application/json")
+	assert.Equal(t, "object", op.RequestBody.Content["application/json"].Schema.Type)
+	require.Contains(t, op.Responses, "201")
+	assert.Equal(t, "Created", op.Responses["201"].Description)
+	require.Contains(t, op.Responses["201"].Content, "application/json")
+	assert.Equal(t, "object", op.Responses["201"].Content["application/json"].Schema.Type)
+}
+
 func TestDefaultOperationDocExtractorReadsNamespacedDirectives(t *testing.T) {
 	extractor := DefaultOperationDocExtractor()
 
@@ -1442,6 +1513,252 @@ func TestBuildOperationIgnoresDocFallbackWhenEndpointDoesNotMatch(t *testing.T) 
 	op := doc.Paths["/items/{id}"].Get
 	require.NotNil(t, op)
 	assert.Empty(t, op.Summary)
+}
+
+func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docOp := &OperationDoc{
+		Endpoint: OperationEndpoint{Method: "GET", Path: "/mgmt/v1/projects/{projects_id}"},
+		Endpoints: []OperationEndpoint{
+			{Method: "GET", Path: "/api/v1/organizations/{organizations_id}/projects/{projects_id}"},
+			{Method: "GET", Path: "/mgmt/v1/projects/{projects_id}"},
+		},
+		EndpointOperations: []OperationEndpointDoc{
+			{
+				Endpoint: OperationEndpoint{Method: "GET", Path: "/api/v1/organizations/{organizations_id}/projects/{projects_id}"},
+				Operation: Operation{
+					Parameters: []*Parameter{
+						{
+							Name:        "organizations_id",
+							In:          "path",
+							Description: "Organization ID.",
+							Schema:      &Schema{Type: "string"},
+						},
+					},
+				},
+			},
+		},
+		Operation: Operation{
+			Summary:     "Get item",
+			Description: "Returns an item.",
+			Parameters: []*Parameter{
+				{
+					Name:        "projects_id",
+					In:          "path",
+					Description: "Project ID.",
+					Schema:      &Schema{Type: "string"},
+				},
+				{
+					Name:        "include",
+					In:          "query",
+					Description: "Related resources to include.",
+					Schema:      &Schema{Type: "string"},
+				},
+			},
+		},
+	}
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/api/v1/organizations/{organizations_id}/projects/{projects_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "organizations_id", Required: true, Description: "Route organization ID."},
+				{Name: "projects_id", Required: true, Description: "Route project ID."},
+			},
+		},
+		{
+			Path:          "/mgmt/v1/projects/{projects_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "projects_id", Required: true, Description: "Route project ID."},
+			},
+		},
+		{
+			Path:          "/internal/v1/projects/{projects_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "projects_id", Required: true, Description: "Route project ID."},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return docOp, true
+		},
+	})
+
+	apiOp := doc.Paths["/api/v1/organizations/{organizations_id}/projects/{projects_id}"].Get
+	require.NotNil(t, apiOp)
+	assert.Equal(t, "Get item", apiOp.Summary)
+	assert.Equal(t, "Returns an item.", apiOp.Description)
+	assert.Equal(t, "Route organization ID.", _FindParameter(t, apiOp.Parameters, "path", "organizations_id").Description)
+	assert.Equal(t, "Route project ID.", _FindParameter(t, apiOp.Parameters, "path", "projects_id").Description)
+	assert.Equal(t, "Related resources to include.", _FindParameter(t, apiOp.Parameters, "query", "include").Description)
+
+	mgmtOp := doc.Paths["/mgmt/v1/projects/{projects_id}"].Get
+	require.NotNil(t, mgmtOp)
+	assert.Equal(t, "Get item", mgmtOp.Summary)
+	assert.Equal(t, "Returns an item.", mgmtOp.Description)
+	assert.Equal(t, "Route project ID.", _FindParameter(t, mgmtOp.Parameters, "path", "projects_id").Description)
+	assert.Nil(t, _FindOperationParameter(mgmtOp.Parameters, "path", "organizations_id"))
+	assert.Equal(t, "Related resources to include.", _FindParameter(t, mgmtOp.Parameters, "query", "include").Description)
+
+	internalOp := doc.Paths["/internal/v1/projects/{projects_id}"].Get
+	require.NotNil(t, internalOp)
+	assert.Empty(t, internalOp.Summary)
+	assert.Empty(t, internalOp.Description)
+	assert.Nil(t, _FindOperationParameter(internalOp.Parameters, "query", "include"))
+}
+
+func TestBuildProfileIgnoresEndpointScopedTagsWhenDocstringEndpointDoesNotMatch(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/undocumented",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, &Profile{
+		Name:    "documented",
+		Include: Selector{Tags: []string{"Documented"}},
+	}, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return &OperationDoc{
+				Endpoints: []OperationEndpoint{
+					{Method: "GET", Path: "/documented"},
+				},
+				Operation: Operation{
+					Tags: []string{"Documented"},
+				},
+			}, true
+		},
+	})
+
+	assert.NotContains(t, doc.Paths, "/undocumented")
+}
+
+func TestBuildProfileUsesOnlyMatchingEndpointScopedTags(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/documented",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+		{
+			Path:          "/undocumented",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, &Profile{
+		Name:    "documented",
+		Include: Selector{Tags: []string{"Documented"}},
+	}, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return &OperationDoc{
+				Endpoints: []OperationEndpoint{
+					{Method: "GET", Path: "/documented"},
+					{Method: "GET", Path: "/undocumented"},
+				},
+				EndpointOperations: []OperationEndpointDoc{
+					{
+						Endpoint:  OperationEndpoint{Method: "GET", Path: "/documented"},
+						Operation: Operation{Tags: []string{"Documented"}},
+					},
+				},
+			}, true
+		},
+	})
+
+	assert.Contains(t, doc.Paths, "/documented")
+	assert.NotContains(t, doc.Paths, "/undocumented")
+}
+
+func TestBuildOperationDoesNotTreatEndpointScopedMetadataAsEndpointDeclaration(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/ghost",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return &OperationDoc{
+				EndpointOperations: []OperationEndpointDoc{
+					{
+						Endpoint: OperationEndpoint{Method: "GET", Path: "/ghost"},
+						Operation: Operation{
+							Summary: "Ghost operation",
+							Tags:    []string{"Ghost"},
+						},
+					},
+				},
+			}, true
+		},
+	})
+
+	op := doc.Paths["/ghost"].Get
+	require.NotNil(t, op)
+	assert.Empty(t, op.Summary)
+	assert.Empty(t, op.Tags)
+}
+
+func TestBuildOperationMergesOnlyMatchingEndpointScopedSchemas(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/mgmt/v1/projects/{projects_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "projects_id", Required: true},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return &OperationDoc{
+				Endpoints: []OperationEndpoint{
+					{Method: "GET", Path: "/api/v1/projects/{projects_id}"},
+					{Method: "GET", Path: "/mgmt/v1/projects/{projects_id}"},
+				},
+				EndpointOperations: []OperationEndpointDoc{
+					{
+						Endpoint: OperationEndpoint{Method: "GET", Path: "/api/v1/projects/{projects_id}"},
+						Operation: Operation{
+							Responses: map[string]*Response{
+								"200": {
+									Description: "API response.",
+									Content: map[string]*MediaType{
+										"application/json": {
+											Schema: &Schema{Ref: "#/components/schemas/APIProjectResponse"},
+										},
+									},
+								},
+							},
+						},
+						Schemas: map[string]*Schema{
+							"APIProjectResponse": {Type: "object"},
+						},
+					},
+				},
+			}, true
+		},
+	})
+
+	require.NotNil(t, doc.Components)
+	assert.NotContains(t, doc.Components.Schemas, "APIProjectResponse")
 }
 
 func TestBuildOperationIgnoresDocFallbackWithoutEndpointDirective(t *testing.T) {

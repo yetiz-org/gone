@@ -32,12 +32,22 @@ type OperationEndpoint struct {
 	Path   string
 }
 
-// OperationDoc is the doc-comment metadata for one handler method.
-type OperationDoc struct {
+// OperationEndpointDoc is metadata scoped to a single declared endpoint.
+type OperationEndpointDoc struct {
 	Endpoint       OperationEndpoint
 	Operation      Operation
 	Schemas        map[string]*Schema
 	SchemaPackages map[string]string
+}
+
+// OperationDoc is the doc-comment metadata for one handler method.
+type OperationDoc struct {
+	Endpoint           OperationEndpoint
+	Endpoints          []OperationEndpoint
+	EndpointOperations []OperationEndpointDoc
+	Operation          Operation
+	Schemas            map[string]*Schema
+	SchemaPackages     map[string]string
 }
 
 // OperationDocExtractor returns OpenAPI operation metadata extracted from
@@ -174,8 +184,12 @@ func (c *_DocstringCache) _ExtractOperationDoc(handler any, methodName string) (
 	}
 
 	doc.Endpoint = OperationEndpoint{}
+	doc.Endpoints = nil
+	doc.EndpointOperations = nil
 	if methodOnlyDoc != nil {
 		doc.Endpoint = methodOnlyDoc.Endpoint
+		doc.Endpoints = append([]OperationEndpoint(nil), methodOnlyDoc.Endpoints...)
+		doc.EndpointOperations = append([]OperationEndpointDoc(nil), methodOnlyDoc.EndpointOperations...)
 	}
 
 	if methodOnlyDoc != nil && len(methodOnlyDoc.Operation.Tags) > 0 {
@@ -423,6 +437,10 @@ func _Directive(line string) (string, string, bool) {
 }
 
 func _ApplyDirective(doc *OperationDoc, ctx *_DocParseContext, name, payload string) bool {
+	if target, ok := strings.CutPrefix(name, "endpoint."); ok {
+		return _ApplyEndpointScopedDirective(doc, ctx, target, payload)
+	}
+
 	if target, ok := strings.CutSuffix(name, ".description"); ok {
 		return _ApplyTargetDescription(doc, target, payload)
 	}
@@ -539,10 +557,110 @@ func _ApplyEndpoint(doc *OperationDoc, payload string) bool {
 		return false
 	}
 
-	doc.Endpoint.Method = strings.ToUpper(fields[0])
-	doc.Endpoint.Path = fields[1]
+	endpoint := OperationEndpoint{
+		Method: strings.ToUpper(fields[0]),
+		Path:   fields[1],
+	}
+	_AppendOperationEndpoint(doc, endpoint, true)
 
 	return true
+}
+
+func _ApplyEndpointScopedDirective(doc *OperationDoc, ctx *_DocParseContext, name string, payload string) bool {
+	if name == "endpoint" || strings.HasPrefix(name, "endpoint.") {
+		return false
+	}
+
+	method, rest := _TakeFirstField(payload)
+	if method == "" {
+		return false
+	}
+
+	path, rest := _TakeFirstField(rest)
+	if path == "" {
+		return false
+	}
+
+	endpoint := OperationEndpoint{
+		Method: strings.ToUpper(method),
+		Path:   path,
+	}
+
+	var base OperationEndpointDoc
+	if endpointDoc := _FindEndpointOperationDoc(doc, endpoint); endpointDoc != nil {
+		base = *endpointDoc
+	}
+
+	scoped := &OperationDoc{
+		Operation:      _CloneOperation(base.Operation),
+		Schemas:        _CloneSchemaMap(base.Schemas),
+		SchemaPackages: _CloneSchemaPackageMap(base.SchemaPackages),
+	}
+	if !_ApplyDirective(scoped, ctx, name, rest) {
+		return false
+	}
+
+	endpointDoc := _EndpointOperationDoc(doc, endpoint)
+	if endpointDoc == nil {
+		return false
+	}
+
+	endpointDoc.Operation = scoped.Operation
+	endpointDoc.Schemas = scoped.Schemas
+	endpointDoc.SchemaPackages = scoped.SchemaPackages
+
+	return true
+}
+
+func _EndpointOperationDoc(doc *OperationDoc, endpoint OperationEndpoint) *OperationEndpointDoc {
+	if doc == nil || endpoint.Method == "" || endpoint.Path == "" {
+		return nil
+	}
+
+	for i := range doc.EndpointOperations {
+		if _OperationEndpointEqual(doc.EndpointOperations[i].Endpoint, endpoint) {
+			return &doc.EndpointOperations[i]
+		}
+	}
+
+	doc.EndpointOperations = append(doc.EndpointOperations, OperationEndpointDoc{Endpoint: endpoint})
+	return &doc.EndpointOperations[len(doc.EndpointOperations)-1]
+}
+
+func _FindEndpointOperationDoc(doc *OperationDoc, endpoint OperationEndpoint) *OperationEndpointDoc {
+	if doc == nil || endpoint.Method == "" || endpoint.Path == "" {
+		return nil
+	}
+
+	for i := range doc.EndpointOperations {
+		if _OperationEndpointEqual(doc.EndpointOperations[i].Endpoint, endpoint) {
+			return &doc.EndpointOperations[i]
+		}
+	}
+
+	return nil
+}
+
+func _AppendOperationEndpoint(doc *OperationDoc, endpoint OperationEndpoint, updateAlias bool) {
+	if doc == nil || endpoint.Method == "" || endpoint.Path == "" {
+		return
+	}
+
+	if updateAlias {
+		doc.Endpoint = endpoint
+	}
+
+	for _, existing := range doc.Endpoints {
+		if _OperationEndpointEqual(existing, endpoint) {
+			return
+		}
+	}
+
+	doc.Endpoints = append(doc.Endpoints, endpoint)
+}
+
+func _OperationEndpointEqual(a OperationEndpoint, b OperationEndpoint) bool {
+	return strings.EqualFold(a.Method, b.Method) && a.Path == b.Path
 }
 
 func _ApplyParameter(doc *OperationDoc, ctx *_DocParseContext, payload string) bool {
