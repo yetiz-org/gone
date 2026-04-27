@@ -1,9 +1,12 @@
 package goai
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/yetiz-org/gone/erresponse"
 )
 
 func TestApplyGoaiTagParsesExampleBySchemaType(t *testing.T) {
@@ -68,4 +71,36 @@ func TestApplyGoaiTagParsesExampleBySchemaType(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.schema.Example)
 		})
 	}
+}
+
+func TestSchemaBuilderUsesDefaultErrorResponseSchemaMetadata(t *testing.T) {
+	components := NewComponents()
+	builder := newSchemaBuilder(components)
+
+	schema := builder.build(reflect.TypeOf(erresponse.DefaultErrorResponse{}))
+
+	require.NotNil(t, schema)
+	assert.Equal(t, "#/components/schemas/erresponse.DefaultErrorResponse", schema.Ref)
+
+	errorSchema := components.Schemas["erresponse.DefaultErrorResponse"]
+	require.NotNil(t, errorSchema)
+
+	statusCode := errorSchema.Properties["status_code"]
+	require.NotNil(t, statusCode)
+	assert.Equal(t, "HTTP status code", statusCode.Description)
+	assert.Equal(t, int64(401), statusCode.Example)
+
+	errorName := errorSchema.Properties["error"]
+	require.NotNil(t, errorName)
+	assert.Equal(t, "Error code", errorName.Description)
+	assert.Equal(t, "invalid_token", errorName.Example)
+
+	errorDescription := errorSchema.Properties["error_description"]
+	require.NotNil(t, errorDescription)
+	assert.Equal(t, "Error description", errorDescription.Description)
+	assert.Equal(t, "insufficient authentication", errorDescription.Example)
+
+	data := errorSchema.Properties["data"]
+	require.NotNil(t, data)
+	assert.Equal(t, "Additional error data", data.Description)
 }

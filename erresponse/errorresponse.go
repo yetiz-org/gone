@@ -15,12 +15,19 @@ type ErrorResponse interface {
 	Clone() ErrorResponse
 }
 
+// DefaultErrorResponse is the standard JSON error envelope returned by ghttp handlers.
+//
+// @goai.schemaName erresponse.DefaultErrorResponse
 type DefaultErrorResponse struct {
 	kkerror.DefaultKKError
-	StatusCode  int            `json:"status_code,omitempty"`
-	Name        string         `json:"error,omitempty"`
-	Description string         `json:"error_description,omitempty"`
-	Data        map[string]any `json:"data,omitempty"`
+	StatusCode  int            `json:"status_code,omitempty" goai:"description=HTTP status code;example=401"`
+	Name        string         `json:"error,omitempty" goai:"description=Error code;example=invalid_token"`
+	Description string         `json:"error_description,omitempty" goai:"description=Error description;example=insufficient authentication"`
+	Data        map[string]any `json:"data,omitempty" goai:"description=Additional error data"`
+}
+
+func (d *DefaultErrorResponse) GOAISchemaName() string {
+	return "erresponse.DefaultErrorResponse"
 }
 
 func (d *DefaultErrorResponse) Error() string {

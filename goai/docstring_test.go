@@ -691,6 +691,53 @@ func TestBuildOperationUsesDocstringImportedSchemaType(t *testing.T) {
 	require.Contains(t, schema.Properties, "source")
 }
 
+func TestBuildOperationUsesDocstringImportedDefaultErrorResponseSchemaMetadata(t *testing.T) {
+	handler := &_DocstringSchemaHandler{}
+	schemaBuilder := _DocstringPackageASTBuilderFromSource(t, `package docstringsource
+
+import "github.com/yetiz-org/gone/erresponse"
+
+type Handler struct{}
+`)
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/schema",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(`
+@goai.endpoint GET /schema
+@goai.response 401 "Unauthorized." schemaType=erresponse.DefaultErrorResponse
+`, methodName, &_DocParseContext{
+				_SchemaBuilder: schemaBuilder,
+			})
+		},
+	})
+
+	op := doc.Paths["/schema"].Get
+	require.NotNil(t, op)
+	mt := op.Responses["401"].Content["application/json"]
+	require.NotNil(t, mt)
+	require.NotNil(t, mt.Schema)
+	assert.Equal(t, "#/components/schemas/erresponse.DefaultErrorResponse", mt.Schema.Ref)
+
+	schema := doc.Components.Schemas["erresponse.DefaultErrorResponse"]
+	require.NotNil(t, schema)
+	statusCode := schema.Properties["status_code"]
+	require.NotNil(t, statusCode)
+	assert.Equal(t, "HTTP status code", statusCode.Description)
+	assert.Equal(t, int64(401), statusCode.Example)
+
+	errorName := schema.Properties["error"]
+	require.NotNil(t, errorName)
+	assert.Equal(t, "Error code", errorName.Description)
+	assert.Equal(t, "invalid_token", errorName.Example)
+}
+
 func TestBuildOperationUsesDocstringAliasImportedGenericSchemaType(t *testing.T) {
 	handler := &_DocstringSchemaHandler{}
 	doc := Build([]OperationCandidate{
