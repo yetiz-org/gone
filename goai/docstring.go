@@ -172,6 +172,10 @@ func (c *_DocstringCache) _ExtractOperationDoc(handler any, methodName string) (
 	}
 
 	doc.Endpoint = methodOnlyDoc.Endpoint
+	if len(methodOnlyDoc.Operation.Tags) > 0 {
+		doc.Operation.Tags = methodOnlyDoc.Operation.Tags
+	}
+	doc.Operation.Tags = _DeduplicateStrings(doc.Operation.Tags)
 
 	return doc, true
 }

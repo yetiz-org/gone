@@ -132,10 +132,10 @@ func candidateOperationTags(c OperationCandidate, classifier *Classifier, docExt
 		}
 	}
 
-	tags := spec.Tags()
+	tags := _DeduplicateStrings(spec.Tags())
 	if len(tags) == 0 && docExtractor != nil {
 		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok && _OperationDocMatches(doc, c) {
-			tags = append([]string(nil), doc.Operation.Tags...)
+			tags = _DeduplicateStrings(doc.Operation.Tags)
 		}
 	}
 
@@ -191,7 +191,7 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	op.Summary = spec.Summary()
 	op.Description = spec.Description()
 
-	op.Tags = spec.Tags()
+	op.Tags = _DeduplicateStrings(spec.Tags())
 	op.Deprecated = spec.Deprecated()
 	op.ExternalDocs = spec.ExternalDocs()
 	op.Callbacks = spec.Callbacks()
@@ -622,7 +622,7 @@ func _MergeOperationDocFallback(op *Operation, docOp *Operation, spec Spec, meth
 	}
 
 	if len(spec.Tags()) == 0 && len(docOp.Tags) > 0 {
-		op.Tags = append([]string(nil), docOp.Tags...)
+		op.Tags = _DeduplicateStrings(docOp.Tags)
 	}
 
 	if !spec.Deprecated() && docOp.Deprecated {
@@ -658,6 +658,33 @@ func _MergeOperationDocFallback(op *Operation, docOp *Operation, spec Spec, meth
 			}
 		}
 	}
+}
+
+func _DeduplicateStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+
+		if _, exists := seen[value]; exists {
+			continue
+		}
+
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 func _MergeOperationDocSchemas(schemaBld *schemaBuilder, doc *OperationDoc) {

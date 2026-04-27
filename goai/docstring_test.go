@@ -184,6 +184,13 @@ type _DocstringSchemaHandler struct {
 	ghttp.DefaultHTTPHandlerTask
 }
 
+// _DocstringTagOverrideHandler keeps a default tag on the handler type.
+//
+// @goai.tag Organization
+type _DocstringTagOverrideHandler struct {
+	ghttp.DefaultHTTPHandlerTask
+}
+
 // _DocstringEndpointOnStructHandler keeps a misleading endpoint directive on
 // the handler type; endpoint directives must stay method-local.
 //
@@ -198,6 +205,22 @@ type _DocstringEndpointOnStructHandler struct {
 // @goai.endpoint GET /schema
 // @goai.response 200 "Schema response." schemaType=_DocstringSchemaResponse
 func (h *_DocstringSchemaHandler) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
+	return nil
+}
+
+// Get repeats the handler-level tag.
+//
+// @goai.endpoint GET /tag-override
+// @goai.tag Organization
+func (h *_DocstringTagOverrideHandler) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
+	return nil
+}
+
+// Post overrides the handler-level tag.
+//
+// @goai.endpoint POST /tag-override
+// @goai.tag Management
+func (h *_DocstringTagOverrideHandler) Post(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
 	return nil
 }
 
@@ -385,6 +408,26 @@ func TestDefaultOperationDocExtractorReadsHandlerStructDirectives(t *testing.T) 
 	require.NotNil(t, doc.Operation.Security)
 	require.Len(t, *doc.Operation.Security, 1)
 	assert.Equal(t, []string{"read"}, (*doc.Operation.Security)[0]["OrganizationToken"])
+}
+
+func TestDefaultOperationDocExtractorDeduplicatesRepeatedTags(t *testing.T) {
+	extractor := DefaultOperationDocExtractor()
+
+	doc, ok := extractor(&_DocstringTagOverrideHandler{}, "Get")
+	require.True(t, ok)
+	require.NotNil(t, doc)
+
+	assert.Equal(t, []string{"Organization"}, doc.Operation.Tags)
+}
+
+func TestDefaultOperationDocExtractorMethodTagsOverrideHandlerTags(t *testing.T) {
+	extractor := DefaultOperationDocExtractor()
+
+	doc, ok := extractor(&_DocstringTagOverrideHandler{}, "Post")
+	require.True(t, ok)
+	require.NotNil(t, doc)
+
+	assert.Equal(t, []string{"Management"}, doc.Operation.Tags)
 }
 
 func TestDefaultOperationDocExtractorKeepsEndpointMethodLocal(t *testing.T) {
