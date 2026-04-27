@@ -84,11 +84,12 @@ func DefaultOperationDocExtractorWithBuildTags(tags ...string) OperationDocExtra
 // _DocstringCache memoises parsed source files keyed by absolute path so
 // repeated lookups for handlers in the same package don't re-parse.
 type _DocstringCache struct {
-	mu        sync.Mutex
-	fset      *token.FileSet
-	files     map[string]*ast.File
-	packages  map[string][]*ast.File
-	buildTags []string
+	mu           sync.Mutex
+	fset         *token.FileSet
+	files        map[string]*ast.File
+	packages     map[string][]*ast.File
+	packageNames sync.Map
+	buildTags    []string
 }
 
 type _DocParseContext struct {
@@ -157,7 +158,7 @@ func (c *_DocstringCache) _ExtractOperationDoc(handler any, methodName string) (
 	}
 
 	ctx := &_DocParseContext{
-		_SchemaBuilder: _NewASTSchemaBuilderWithPrimaryFile(files, _ReceiverPkgPath(t), filepath.Dir(file), c.buildTags, parsed),
+		_SchemaBuilder: _NewASTSchemaBuilderWithPrimaryFileAndCache(files, _ReceiverPkgPath(t), filepath.Dir(file), c.buildTags, parsed, &c.packageNames),
 	}
 
 	methodOnlyDoc, ok := _ParseOpenAPIDocCommentWithContext(methodDoc, methodName, ctx)
@@ -183,7 +184,7 @@ func (c *_DocstringCache) _ParseFile(path string) *ast.File {
 		return f
 	}
 
-	parsed, err := parser.ParseFile(c.fset, path, nil, parser.ParseComments)
+	parsed, err := parser.ParseFile(c.fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		// Cache the failure as nil so we don't retry on every method
 		// of the same handler. Parse errors are usually environmental
@@ -222,7 +223,7 @@ func (c *_DocstringCache) _ParsePackage(path string, packageName string) []*ast.
 		return err == nil && match
 	}
 
-	pkgs, err := parser.ParseDir(c.fset, dir, filter, parser.ParseComments)
+	pkgs, err := parser.ParseDir(c.fset, dir, filter, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		c.packages[key] = nil
 
@@ -1434,6 +1435,7 @@ type _ASTSchemaBuilder struct {
 	_Dir             string
 	_BuildTags       []string
 	_Imports         map[string]string
+	_ImportNames     *sync.Map
 	_SelfAliases     map[string]bool
 	_ImportBuilders  map[string]*_ASTSchemaBuilder
 	_TypeSpecs       map[string]*ast.TypeSpec
@@ -1454,19 +1456,28 @@ func _NewASTSchemaBuilderWithContext(files []*ast.File, pkgPath string, dir stri
 }
 
 func _NewASTSchemaBuilderWithPrimaryFile(files []*ast.File, pkgPath string, dir string, buildTags []string, primary *ast.File) *_ASTSchemaBuilder {
+	return _NewASTSchemaBuilderWithPrimaryFileAndCache(files, pkgPath, dir, buildTags, primary, nil)
+}
+
+func _NewASTSchemaBuilderWithPrimaryFileAndCache(files []*ast.File, pkgPath string, dir string, buildTags []string, primary *ast.File, importNames *sync.Map) *_ASTSchemaBuilder {
+	if importNames == nil {
+		importNames = &sync.Map{}
+	}
+
 	return _NewASTSchemaBuilderWithState(
 		files,
 		pkgPath,
 		pkgPath,
 		dir,
 		buildTags,
-		_ASTImportsFromPrimary(files, primary, dir, buildTags),
+		_ASTImportsFromPrimary(files, primary, dir, buildTags, importNames),
 		map[string]bool{},
 		map[string]*Schema{},
 		map[string]string{},
 		map[string]string{},
 		map[string]bool{},
 		map[string]*_ASTSchemaBuilder{},
+		importNames,
 	)
 }
 
@@ -1483,13 +1494,19 @@ func _NewASTSchemaBuilderWithState(
 	componentOwners map[string]string,
 	visiting map[string]bool,
 	importBuilders map[string]*_ASTSchemaBuilder,
+	importNames *sync.Map,
 ) *_ASTSchemaBuilder {
+	if importNames == nil {
+		importNames = &sync.Map{}
+	}
+
 	b := &_ASTSchemaBuilder{
 		_PkgPath:         pkgPath,
 		_RootPkgPath:     rootPkgPath,
 		_Dir:             dir,
 		_BuildTags:       append([]string(nil), buildTags...),
 		_Imports:         _CloneStringMap(imports),
+		_ImportNames:     importNames,
 		_SelfAliases:     _CloneBoolMap(selfAliases),
 		_ImportBuilders:  importBuilders,
 		_TypeSpecs:       map[string]*ast.TypeSpec{},
@@ -1512,7 +1529,7 @@ func _NewASTSchemaBuilderWithState(
 			b._PackageName = file.Name.Name
 		}
 
-		fileImports := _ASTImports(file, b._Dir, b._BuildTags)
+		fileImports := _ASTImports(file, b._Dir, b._BuildTags, b._ImportNames)
 
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -1559,14 +1576,14 @@ func _ASTSchemaName(gen *ast.GenDecl, typeSpec *ast.TypeSpec) string {
 	return ""
 }
 
-func _ASTImportsFromPrimary(files []*ast.File, primary *ast.File, dir string, buildTags []string) map[string]string {
+func _ASTImportsFromPrimary(files []*ast.File, primary *ast.File, dir string, buildTags []string, importNames *sync.Map) map[string]string {
 	if primary != nil {
-		return _ASTImports(primary, dir, buildTags)
+		return _ASTImports(primary, dir, buildTags, importNames)
 	}
 
 	out := map[string]string{}
 	for _, file := range files {
-		for alias, importPath := range _ASTImports(file, dir, buildTags) {
+		for alias, importPath := range _ASTImports(file, dir, buildTags, importNames) {
 			if _, exists := out[alias]; !exists {
 				out[alias] = importPath
 			}
@@ -1576,14 +1593,14 @@ func _ASTImportsFromPrimary(files []*ast.File, primary *ast.File, dir string, bu
 	return out
 }
 
-func _ASTImports(file *ast.File, dir string, buildTags []string) map[string]string {
+func _ASTImports(file *ast.File, dir string, buildTags []string, importNames *sync.Map) map[string]string {
 	out := map[string]string{}
 	if file == nil {
 		return out
 	}
 
 	for _, spec := range file.Imports {
-		alias, importPath, ok := _ASTImportBinding(spec, dir, buildTags)
+		alias, importPath, ok := _ASTImportBinding(spec, dir, buildTags, importNames)
 		if ok {
 			out[alias] = importPath
 		}
@@ -1610,7 +1627,7 @@ func _CloneBoolMap(in map[string]bool) map[string]bool {
 	return out
 }
 
-func _ASTImportBinding(spec *ast.ImportSpec, dir string, buildTags []string) (string, string, bool) {
+func _ASTImportBinding(spec *ast.ImportSpec, dir string, buildTags []string, importNames *sync.Map) (string, string, bool) {
 	if spec == nil || spec.Path == nil {
 		return "", "", false
 	}
@@ -1625,13 +1642,13 @@ func _ASTImportBinding(spec *ast.ImportSpec, dir string, buildTags []string) (st
 		case ".", "_":
 			return "", "", false
 		case "":
-			return _ImportPackageName(importPath, dir, buildTags), importPath, true
+			return _ImportPackageName(importPath, dir, buildTags, importNames), importPath, true
 		default:
 			return spec.Name.Name, importPath, true
 		}
 	}
 
-	return _ImportPackageName(importPath, dir, buildTags), importPath, true
+	return _ImportPackageName(importPath, dir, buildTags, importNames), importPath, true
 }
 
 func (b *_ASTSchemaBuilder) _SchemaForTypeName(raw string) (*Schema, bool) {
@@ -2000,6 +2017,7 @@ func (b *_ASTSchemaBuilder) _ImportedBuilderForAlias(alias string, imports map[s
 		b._ComponentOwners,
 		b._Visiting,
 		b._ImportBuilders,
+		b._ImportNames,
 	)
 	b._ImportBuilders[importPath] = imported
 	imported._Imports[alias] = importPath
@@ -2025,7 +2043,7 @@ func (b *_ASTSchemaBuilder) _ImportedPackageFiles(importPath string) ([]*ast.Fil
 		return err == nil && match
 	}
 
-	pkgs, err := parser.ParseDir(token.NewFileSet(), dir, filter, parser.ParseComments)
+	pkgs, err := parser.ParseDir(token.NewFileSet(), dir, filter, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		return nil, "", false
 	}
@@ -2039,53 +2057,119 @@ func (b *_ASTSchemaBuilder) _ImportedPackageFiles(importPath string) ([]*ast.Fil
 }
 
 func (b *_ASTSchemaBuilder) _ImportDir(importPath string) string {
-	return _ImportDirForPath(importPath, b._Dir, b._BuildTags)
-}
-
-func _ImportDirForPath(importPath string, dir string, buildTags []string) string {
-	buildCtx := build.Default
-	buildCtx.BuildTags = append(append([]string(nil), buildCtx.BuildTags...), buildTags...)
-	if pkg, err := buildCtx.Import(importPath, dir, build.FindOnly); err == nil && pkg.Dir != "" {
-		return pkg.Dir
-	}
-
-	if importDir := _ModuleImportDir(dir, importPath); importDir != "" {
+	if importDir := _ModuleImportDir(b._Dir, importPath); importDir != "" {
 		return importDir
 	}
 
-	return _GoListImportDir(dir, importPath, buildTags)
-}
-
-func _ImportPackageName(importPath string, dir string, buildTags []string) string {
-	importDir := _ImportDirForPath(importPath, dir, buildTags)
-	if importDir == "" {
-		return importpath.Base(importPath)
-	}
-
 	buildCtx := build.Default
-	buildCtx.BuildTags = append(append([]string(nil), buildCtx.BuildTags...), buildTags...)
-	filter := func(info fs.FileInfo) bool {
-		if strings.HasSuffix(info.Name(), "_test.go") {
-			return false
+	buildCtx.BuildTags = append(append([]string(nil), buildCtx.BuildTags...), b._BuildTags...)
+	if _LooksLikeStandardImport(importPath) {
+		if pkg, err := buildCtx.Import(importPath, b._Dir, build.FindOnly); err == nil && pkg.Dir != "" {
+			return pkg.Dir
 		}
 
-		match, err := buildCtx.MatchFile(importDir, info.Name())
-
-		return err == nil && match
+		return ""
 	}
 
-	pkgs, err := parser.ParseDir(token.NewFileSet(), importDir, filter, 0)
-	if err != nil {
-		return importpath.Base(importPath)
+	return _GoListImportDir(b._Dir, importPath, b._BuildTags)
+}
+
+func _ImportPackageName(importPath string, dir string, buildTags []string, importNames *sync.Map) string {
+	if importNames == nil {
+		importNames = &sync.Map{}
 	}
 
-	for name := range pkgs {
-		if !strings.HasSuffix(name, "_test") {
+	importDir := _ModuleImportDir(dir, importPath)
+	if importDir == "" && _LooksLikeStandardImport(importPath) {
+		buildCtx := build.Default
+		buildCtx.BuildTags = append(append([]string(nil), buildCtx.BuildTags...), buildTags...)
+		if pkg, err := buildCtx.Import(importPath, dir, build.FindOnly); err == nil && pkg.Dir != "" {
+			importDir = pkg.Dir
+		}
+	}
+
+	cacheKey := importDir + "\x00" + strings.Join(buildTags, "\x00")
+	if importDir != "" {
+		if cached, ok := importNames.Load(cacheKey); ok {
+			if name, ok := cached.(string); ok && name != "" {
+				return name
+			}
+		}
+
+		if name, ok := _ParseImportPackageNameFromDir(importDir, buildTags); ok {
+			importNames.Store(cacheKey, name)
+
 			return name
 		}
 	}
 
-	return importpath.Base(importPath)
+	return _DefaultPackageNameFromImportPath(importPath)
+}
+
+func _ParseImportPackageNameFromDir(importDir string, buildTags []string) (string, bool) {
+	entries, err := os.ReadDir(importDir)
+	if err != nil {
+		return "", false
+	}
+
+	buildCtx := build.Default
+	buildCtx.BuildTags = append(append([]string(nil), buildCtx.BuildTags...), buildTags...)
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil || info.IsDir() || strings.HasSuffix(info.Name(), "_test.go") {
+			continue
+		}
+
+		match, err := buildCtx.MatchFile(importDir, info.Name())
+		if err != nil || !match {
+			continue
+		}
+
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(importDir, info.Name()), nil, parser.PackageClauseOnly)
+		if err != nil || file == nil || file.Name == nil || file.Name.Name == "" {
+			continue
+		}
+
+		return file.Name.Name, true
+	}
+
+	return "", false
+}
+
+func _DefaultPackageNameFromImportPath(importPath string) string {
+	base := importpath.Base(importPath)
+	if base == "" || base == "." || base == "/" {
+		return ""
+	}
+
+	if strings.HasPrefix(base, "v") && len(base) > 1 && _AllDigits(base[1:]) {
+		parent := importpath.Base(importpath.Dir(importPath))
+		if parent != "" && parent != "." && parent != "/" {
+			base = parent
+		}
+	}
+
+	if idx := strings.LastIndex(base, "."); idx > 0 {
+		base = base[:idx]
+	}
+
+	return base
+}
+
+func _AllDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return s != ""
+}
+
+func _LooksLikeStandardImport(importPath string) bool {
+	first, _, _ := strings.Cut(importPath, "/")
+
+	return !strings.Contains(first, ".")
 }
 
 func _ASTPackageFiles(pkgs map[string]*ast.Package) []*ast.File {

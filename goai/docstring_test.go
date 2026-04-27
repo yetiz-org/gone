@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,6 +46,93 @@ type _CustomSchemaNameResponse struct {
 
 func (_CustomSchemaNameResponse) GOAISchemaName() string {
 	return "PublicCustomResponse"
+}
+
+func TestImportPackageNamePrefersModuleDirWithoutGoList(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/mod\n\ngo 1.26\n"), 0o644))
+
+	pkgDir := filepath.Join(root, "pkg", "foo")
+	require.NoError(t, os.MkdirAll(pkgDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkgDir, "foo.go"), []byte("package custompkg\n\ntype T struct{}\n"), 0o644))
+
+	fakeBin := filepath.Join(root, "bin")
+	require.NoError(t, os.MkdirAll(fakeBin, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "go"), []byte("#!/bin/sh\nsleep 2\nexit 1\n"), 0o755))
+
+	t.Setenv("GO111MODULE", "on")
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	done := make(chan string, 1)
+	go func() {
+		done <- _ImportPackageName("example.com/mod/pkg/foo", root, nil, &sync.Map{})
+	}()
+
+	select {
+	case got := <-done:
+		assert.Equal(t, "custompkg", got)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("_ImportPackageName invoked go list before checking the local module directory")
+	}
+}
+
+func TestImportPackageNameUsesBaseForExternalImportWithoutGoList(t *testing.T) {
+	root := t.TempDir()
+	fakeBin := filepath.Join(root, "bin")
+	require.NoError(t, os.MkdirAll(fakeBin, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "go"), []byte("#!/bin/sh\nsleep 2\nexit 1\n"), 0o755))
+
+	t.Setenv("GO111MODULE", "on")
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	done := make(chan string, 1)
+	go func() {
+		done <- _ImportPackageName("github.com/aws/aws-sdk-go-v2/config", root, nil, &sync.Map{})
+	}()
+
+	select {
+	case got := <-done:
+		assert.Equal(t, "config", got)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("_ImportPackageName invoked go list for an external package alias")
+	}
+}
+
+func TestImportPackageNameCachesParsedPackage(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/mod\n\ngo 1.26\n"), 0o644))
+
+	pkgDir := filepath.Join(root, "pkg", "large")
+	require.NoError(t, os.MkdirAll(pkgDir, 0o755))
+	for fileIdx := 0; fileIdx < 60; fileIdx++ {
+		var src strings.Builder
+		src.WriteString("package custompkg\n\n")
+		for typeIdx := 0; typeIdx < 40; typeIdx++ {
+			src.WriteString("type T")
+			src.WriteString(strconv.Itoa(fileIdx))
+			src.WriteString("_")
+			src.WriteString(strconv.Itoa(typeIdx))
+			src.WriteString(" struct {\n")
+			for fieldIdx := 0; fieldIdx < 30; fieldIdx++ {
+				src.WriteString("F")
+				src.WriteString(strconv.Itoa(fieldIdx))
+				src.WriteString(" string\n")
+			}
+			src.WriteString("}\n")
+		}
+
+		require.NoError(t, os.WriteFile(filepath.Join(pkgDir, "file"+strconv.Itoa(fileIdx)+".go"), []byte(src.String()), 0o644))
+	}
+
+	start := time.Now()
+	cache := &sync.Map{}
+	for i := 0; i < 20; i++ {
+		assert.Equal(t, "custompkg", _ImportPackageName("example.com/mod/pkg/large", root, nil, cache))
+	}
+
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Fatalf("_ImportPackageName reparsed the same package too often: %s", elapsed)
+	}
 }
 
 // _DocstringSpecHandler keeps common OpenAPI metadata on the handler type.
