@@ -50,24 +50,26 @@ Use `schemaType=SomeStruct` for local DTOs and `schemaType=alias.SomeStruct` for
 
 ## Multiple Endpoints
 
-Use repeated `@goai.endpoint` lines when the same method serves multiple API paths. Put shared metadata on the normal directives and path-specific metadata on `@goai.endpoint.<directive>`.
+Use repeated `@goai.endpoint` lines when the same method serves multiple API paths. Put only truly shared metadata on the normal directives. Put path-specific metadata, including summary, description, params, request bodies, responses, and nested descriptions, on `@goai.<directive>[index]`.
 
 ```go
 // List returns songs.
 //
-// @goai.endpoint GET /api/v1/organizations/{organizations_id}/albums/songs
-// @goai.endpoint GET /mgmt/v1/songs
-// @goai.summary 列出歌曲
-// @goai.description 依照可存取範圍回傳歌曲清單。
+// @goai.endpoint GET /api/v1/organizations/{organizations_id}/albums/songs/{songs_id}
+// @goai.endpoint GET /api/v1/organizations/{organizations_id}/songs/{songs_id}
+// @goai.summary[0] 取得組織專輯歌曲
+// @goai.description[0] 回傳指定組織專輯底下的歌曲。
+// @goai.summary[1] 取得組織歌曲
+// @goai.description[1] 回傳指定組織底下的歌曲。
 // @goai.param query limit integer optional "Page size."
-// @goai.endpoint.param GET /api/v1/organizations/{organizations_id}/albums/songs path organizations_id string required "Organization ID."
+// @goai.param[0] query include_album_context boolean optional "Include album context."
 // @goai.response 200 "OK" mediaType=application/json schemaType=SongListResponse
 func (h *SongsHandler) Index(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
 	return nil
 }
 ```
 
-In this example `organizations_id` is emitted only for `/api/v1/organizations/{organizations_id}/albums/songs`; it must not appear on `/mgmt/v1/songs`. For Soundrise docs, write `summary` and `description` in Traditional Chinese and keep HTTP status descriptions such as `OK`, `Created`, `Bad Request`, and `Unauthorized` in English.
+In this example `summary[0]`, `description[0]`, and `param[0]` apply only to the first declared endpoint, while `summary[1]` and `description[1]` apply only to the second. Plain `@goai.summary` or `@goai.description` remains shared by all declared endpoints. Use the longer `@goai.endpoint.<directive> METHOD /path ...` form when the endpoint index would be unclear. For Soundrise docs, write `summary` and `description` in Traditional Chinese and keep HTTP status descriptions such as `OK`, `Created`, `Bad Request`, and `Unauthorized` in English.
 
 ## Struct Tags
 
@@ -123,13 +125,15 @@ func (h *BillingHandler) Create(ctx channel.HandlerContext, req *ghttp.Request, 
 - Every parsed line starts with `@goai.`; no swaggo annotation remains.
 - Shared metadata is on the handler struct; endpoint-specific metadata is on the method.
 - Every mounted route that should receive method-level docs has its own `@goai.endpoint METHOD /path` line.
-- Every `@goai.endpoint.<directive>` repeats the exact method and path from a declared `@goai.endpoint` line.
+- Endpoint-specific metadata uses `@goai.<directive>[index]` when the endpoint order is clear; the index is zero-based and follows the repeated `@goai.endpoint` lines.
+- Use `@goai.endpoint.<directive> METHOD /path ...` only when the endpoint index would be unclear; it must repeat the exact method and path from a declared `@goai.endpoint` line.
 - Each request/response body references the full DTO with `schemaType` or explicit `schema`, not a single JSON field as a body param.
 - Path params in `@goai.param path ... required` match the route template names.
-- Path params that exist on only one mounted endpoint use `@goai.endpoint.param`, not shared `@goai.param`.
+- Path params that exist on only one mounted endpoint use `@goai.param[index]` or long-form `@goai.endpoint.param`, not shared `@goai.param`.
 - DTO fields have correct `json` tags; optional fields use `omitempty` only when optional in the API.
 - DTO field constraints use supported `goai:"..."` keys only; add representative examples where useful, and remember unknown keys are ignored.
 - Docstring extraction is enabled with `OperationDocExtractor: goai.DefaultOperationDocExtractor()` or `enableDocstringExtraction: true` in `goai.yaml`.
+- `goai.yaml` is optional for simple single-output generators because `goai.RunCLI` can receive `RunOptions` directly. Prefer `goai.yaml` with `RunCLIFromConfig` when the project needs multiple profile outputs, base-spec merge settings, security schemes, servers, path exclusions, or non-code-owned generation policy.
 - Generate the spec, then inspect YAML for path, method, operationId, tags, security, requestBody, responses, examples, and component schema names.
 
 ## Verification

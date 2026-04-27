@@ -461,6 +461,64 @@ func TestParseOpenAPIDocCommentExtractsEndpointScopedOperationDirectives(t *test
 	assert.Equal(t, "object", op.Responses["201"].Content["application/json"].Schema.Type)
 }
 
+func TestParseOpenAPIDocCommentExtractsEndpointIndexedOperationDirectives(t *testing.T) {
+	text := `
+@goai.endpoint GET /items/{items_id}/details
+@goai.endpoint GET /items/{items_id}
+@goai.summary Shared item
+@goai.description Shared item description.
+@goai.summary[0] Get item details
+@goai.description[0] Returns item details.
+@goai.description[0] Includes detail-only fields.
+@goai.param[0] query include_audit boolean optional "Include audit fields."
+@goai.response[0] 400 "Bad Request" mediaType=application/json type=object
+@goai.response.description[0] 400 Detail validation failed.
+@goai.tag[0] ItemDetails
+@goai.summary[1] Get item
+@goai.description[1] Returns the base item.
+@goai.response[1] 200 "OK" mediaType=application/json type=object
+@goai.security[1] OAuth2 items:read
+@goai.endpoint.summary GET /items/{items_id} Get item by path
+`
+
+	doc, ok := _ParseOpenAPIDocCommentWithContext(text, "Get", nil)
+	require.True(t, ok)
+	require.NotNil(t, doc)
+	require.Len(t, doc.EndpointOperations, 2)
+
+	first := doc.EndpointOperations[0]
+	assert.Equal(t, OperationEndpoint{Method: "GET", Path: "/items/{items_id}/details"}, first.Endpoint)
+	assert.Equal(t, "Get item details", first.Operation.Summary)
+	assert.Equal(t, "Returns item details.\nIncludes detail-only fields.", first.Operation.Description)
+	assert.Equal(t, []string{"ItemDetails"}, first.Operation.Tags)
+	assert.Equal(t, "Include audit fields.", _FindParameter(t, first.Operation.Parameters, "query", "include_audit").Description)
+	require.Contains(t, first.Operation.Responses, "400")
+	assert.Equal(t, "Bad Request\nDetail validation failed.", first.Operation.Responses["400"].Description)
+
+	second := doc.EndpointOperations[1]
+	assert.Equal(t, OperationEndpoint{Method: "GET", Path: "/items/{items_id}"}, second.Endpoint)
+	assert.Equal(t, "Get item by path", second.Operation.Summary)
+	assert.Equal(t, "Returns the base item.", second.Operation.Description)
+	require.Contains(t, second.Operation.Responses, "200")
+	assert.Equal(t, "OK", second.Operation.Responses["200"].Description)
+	require.NotNil(t, second.Operation.Security)
+	assert.Equal(t, []map[string][]string{{"OAuth2": {"items:read"}}}, *second.Operation.Security)
+}
+
+func TestParseOpenAPIDocCommentIgnoresOutOfRangeEndpointIndexedDirective(t *testing.T) {
+	text := `
+@goai.endpoint GET /items/{items_id}
+@goai.summary Shared item
+@goai.summary[1] Missing endpoint
+`
+
+	doc, ok := _ParseOpenAPIDocCommentWithContext(text, "Get", nil)
+	require.True(t, ok)
+	require.NotNil(t, doc)
+	assert.Equal(t, "Shared item", doc.Operation.Summary)
+	assert.Empty(t, doc.EndpointOperations)
+}
+
 func TestDefaultOperationDocExtractorReadsNamespacedDirectives(t *testing.T) {
 	extractor := DefaultOperationDocExtractor()
 
@@ -1527,6 +1585,8 @@ func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
 			{
 				Endpoint: OperationEndpoint{Method: "GET", Path: "/api/v1/organizations/{organizations_id}/projects/{projects_id}"},
 				Operation: Operation{
+					Summary:     "Get organization project",
+					Description: "Returns one project in the organization scope.",
 					Parameters: []*Parameter{
 						{
 							Name:        "organizations_id",
@@ -1535,6 +1595,13 @@ func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
 							Schema:      &Schema{Type: "string"},
 						},
 					},
+				},
+			},
+			{
+				Endpoint: OperationEndpoint{Method: "GET", Path: "/mgmt/v1/projects/{projects_id}"},
+				Operation: Operation{
+					Summary:     "Get management project",
+					Description: "Returns one project in the management scope.",
 				},
 			},
 		},
@@ -1595,16 +1662,16 @@ func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
 
 	apiOp := doc.Paths["/api/v1/organizations/{organizations_id}/projects/{projects_id}"].Get
 	require.NotNil(t, apiOp)
-	assert.Equal(t, "Get item", apiOp.Summary)
-	assert.Equal(t, "Returns an item.", apiOp.Description)
+	assert.Equal(t, "Get organization project", apiOp.Summary)
+	assert.Equal(t, "Returns one project in the organization scope.", apiOp.Description)
 	assert.Equal(t, "Route organization ID.", _FindParameter(t, apiOp.Parameters, "path", "organizations_id").Description)
 	assert.Equal(t, "Route project ID.", _FindParameter(t, apiOp.Parameters, "path", "projects_id").Description)
 	assert.Equal(t, "Related resources to include.", _FindParameter(t, apiOp.Parameters, "query", "include").Description)
 
 	mgmtOp := doc.Paths["/mgmt/v1/projects/{projects_id}"].Get
 	require.NotNil(t, mgmtOp)
-	assert.Equal(t, "Get item", mgmtOp.Summary)
-	assert.Equal(t, "Returns an item.", mgmtOp.Description)
+	assert.Equal(t, "Get management project", mgmtOp.Summary)
+	assert.Equal(t, "Returns one project in the management scope.", mgmtOp.Description)
 	assert.Equal(t, "Route project ID.", _FindParameter(t, mgmtOp.Parameters, "path", "projects_id").Description)
 	assert.Nil(t, _FindOperationParameter(mgmtOp.Parameters, "path", "organizations_id"))
 	assert.Equal(t, "Related resources to include.", _FindParameter(t, mgmtOp.Parameters, "query", "include").Description)
@@ -1614,6 +1681,55 @@ func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
 	assert.Empty(t, internalOp.Summary)
 	assert.Empty(t, internalOp.Description)
 	assert.Nil(t, _FindOperationParameter(internalOp.Parameters, "query", "include"))
+}
+
+func TestBuildOperationAppliesEndpointIndexedDocstringDirectives(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /api/v1/organizations/{organizations_id}/albums/songs/{songs_id}
+@goai.endpoint GET /api/v1/organizations/{organizations_id}/songs/{songs_id}
+@goai.summary Get song
+@goai.description Returns a song.
+@goai.summary[0] Get album song
+@goai.description[0] Returns a song through the album-scoped route.
+@goai.param[0] query include_album_context boolean optional "Include album context."
+@goai.summary[1] Get organization song
+@goai.description[1] Returns a song through the organization-scoped route.
+@goai.param[1] query include_usage boolean optional "Include usage context."
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/api/v1/organizations/{organizations_id}/albums/songs/{songs_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+		{
+			Path:          "/api/v1/organizations/{organizations_id}/songs/{songs_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	albumOp := doc.Paths["/api/v1/organizations/{organizations_id}/albums/songs/{songs_id}"].Get
+	require.NotNil(t, albumOp)
+	assert.Equal(t, "Get album song", albumOp.Summary)
+	assert.Equal(t, "Returns a song through the album-scoped route.", albumOp.Description)
+	assert.Equal(t, "Include album context.", _FindParameter(t, albumOp.Parameters, "query", "include_album_context").Description)
+	assert.Nil(t, _FindOperationParameter(albumOp.Parameters, "query", "include_usage"))
+
+	orgOp := doc.Paths["/api/v1/organizations/{organizations_id}/songs/{songs_id}"].Get
+	require.NotNil(t, orgOp)
+	assert.Equal(t, "Get organization song", orgOp.Summary)
+	assert.Equal(t, "Returns a song through the organization-scoped route.", orgOp.Description)
+	assert.Equal(t, "Include usage context.", _FindParameter(t, orgOp.Parameters, "query", "include_usage").Description)
+	assert.Nil(t, _FindOperationParameter(orgOp.Parameters, "query", "include_album_context"))
 }
 
 func TestBuildProfileIgnoresEndpointScopedTagsWhenDocstringEndpointDoesNotMatch(t *testing.T) {

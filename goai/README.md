@@ -316,6 +316,7 @@ Directive format:
 | --- | --- |
 | `@goai.endpoint` | `METHOD /path` |
 | `@goai.endpoint.<directive>` | `METHOD /path <directive payload>` |
+| `@goai.<directive>[index]` | `<directive payload>` scoped to the zero-based `@goai.endpoint` index |
 | `@goai.summary` | `summary text` |
 | `@goai.description` | `description line`; repeat to append lines |
 | `@goai.operationId` | `operation.id` |
@@ -360,15 +361,22 @@ Conventions:
 - Repeat `@goai.endpoint` when one handler method is mounted on multiple
   route paths. These endpoint lines are the only docstring declarations that
   decide which walked routes may receive method-level operation metadata.
-- Use `@goai.endpoint.<directive>` when metadata belongs only to one declared
-  endpoint, for example
-  `@goai.endpoint.param GET /api/v1/orgs/{orgs_id}/songs path orgs_id string required "Organization ID"`.
-  Endpoint-scoped directives do not declare routes by themselves; the method
-  and path must also appear in a `@goai.endpoint` line. Scoped path parameters,
-  request bodies, responses, schemas, tags, security, and descriptions are
-  merged only into matching route candidates, so one endpoint's variables or
-  operation metadata do not leak into another endpoint that uses the same
-  handler method.
+- Use `@goai.<directive>[index]` when metadata belongs only to one declared
+  endpoint. The index is zero-based and follows the order of repeated
+  `@goai.endpoint` lines, for example `@goai.summary[0] List album songs`,
+  `@goai.description[0] Returns songs under a specific album context.`, and
+  `@goai.param[1] query include string optional "Related resources"`.
+  Plain directives such as `@goai.summary` remain shared by every declared
+  endpoint. The indexed form works for operation-level directives such as
+  summary, description, operationId, tags, deprecated, params, request bodies,
+  responses, headers, links, examples, security, servers, external docs,
+  callbacks, extensions, and nested description directives.
+- Use the longer `@goai.endpoint.<directive> METHOD /path ...` form when the
+  endpoint index would be unclear or fragile. Endpoint-scoped directives do not
+  declare routes by themselves; the method and path must also appear in a
+  `@goai.endpoint` line. Scoped operation metadata is merged only into matching
+  route candidates, so one endpoint's variables or operation metadata do not
+  leak into another endpoint that uses the same handler method.
 - Put shared operation metadata such as tags and security on the handler
   struct doc comment; put `@goai.endpoint`, summary, operationId,
   parameters, request bodies, responses, examples, and per-method overrides
@@ -505,6 +513,12 @@ policy in `goai.yaml` and call `RunCLIFromConfig` from the project-side
 binary. The route tree is walked once; each configured profile gets its
 own `Build` + `EmitYAML` pass.
 
+The file is not required when a project has one output and can express the
+policy directly in Go with `RunCLI` / `RunOptions`. Prefer `goai.yaml` when
+non-code owners need to adjust metadata, when the project emits multiple
+profiles, or when generation policy includes servers, security schemes,
+base-spec merging, path exclusions, and docstring extraction settings.
+
 ```go
 func main() {
     goai.RunCLIFromConfig(
@@ -545,6 +559,13 @@ output:
   internal: docs/openapi/openapi.internal.yaml
   all: docs/openapi/openapi.yaml
 ```
+
+See [`examples/config/goai.yaml`](./examples/config/goai.yaml) for a
+commented sample that documents the available fields and relative-path
+behavior. Relative paths in `goai.yaml` are resolved from the directory that
+contains the config file, so `baseSpecPath: openapi.yaml` next to
+`goai.yaml` and `baseSpecPath: docs/openapi/openapi.yaml` at the project
+root are both valid.
 
 Config fields map to the corresponding `RunOptions` / `BuildOptions`
 fields: `title`, `description`, `version`, `termsOfService`, `contact`,

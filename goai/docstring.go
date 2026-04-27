@@ -437,6 +437,10 @@ func _Directive(line string) (string, string, bool) {
 }
 
 func _ApplyDirective(doc *OperationDoc, ctx *_DocParseContext, name, payload string) bool {
+	if indexedName, index, ok := _IndexedDirectiveName(name); ok {
+		return _ApplyEndpointIndexedDirective(doc, ctx, indexedName, index, payload)
+	}
+
 	if target, ok := strings.CutPrefix(name, "endpoint."); ok {
 		return _ApplyEndpointScopedDirective(doc, ctx, target, payload)
 	}
@@ -485,6 +489,24 @@ func _ApplyDirective(doc *OperationDoc, ctx *_DocParseContext, name, payload str
 	}
 
 	return true
+}
+
+func _IndexedDirectiveName(name string) (string, int, bool) {
+	if !strings.HasSuffix(name, "]") {
+		return "", 0, false
+	}
+
+	open := strings.LastIndex(name, "[")
+	if open <= 0 || open == len(name)-2 {
+		return "", 0, false
+	}
+
+	index, err := strconv.Atoi(name[open+1 : len(name)-1])
+	if err != nil || index < 0 {
+		return "", 0, false
+	}
+
+	return name[:open], index, true
 }
 
 func _ApplyTargetDescription(doc *OperationDoc, target string, payload string) bool {
@@ -586,6 +608,23 @@ func _ApplyEndpointScopedDirective(doc *OperationDoc, ctx *_DocParseContext, nam
 		Path:   path,
 	}
 
+	return _ApplyEndpointScopedOperation(doc, ctx, endpoint, name, rest)
+}
+
+func _ApplyEndpointIndexedDirective(doc *OperationDoc, ctx *_DocParseContext, name string, index int, payload string) bool {
+	if name == "endpoint" || strings.HasPrefix(name, "endpoint.") {
+		return false
+	}
+
+	endpoint, ok := _OperationEndpointAt(doc, index)
+	if !ok {
+		return false
+	}
+
+	return _ApplyEndpointScopedOperation(doc, ctx, endpoint, name, payload)
+}
+
+func _ApplyEndpointScopedOperation(doc *OperationDoc, ctx *_DocParseContext, endpoint OperationEndpoint, name string, payload string) bool {
 	var base OperationEndpointDoc
 	if endpointDoc := _FindEndpointOperationDoc(doc, endpoint); endpointDoc != nil {
 		base = *endpointDoc
@@ -596,7 +635,7 @@ func _ApplyEndpointScopedDirective(doc *OperationDoc, ctx *_DocParseContext, nam
 		Schemas:        _CloneSchemaMap(base.Schemas),
 		SchemaPackages: _CloneSchemaPackageMap(base.SchemaPackages),
 	}
-	if !_ApplyDirective(scoped, ctx, name, rest) {
+	if !_ApplyDirective(scoped, ctx, name, payload) {
 		return false
 	}
 
@@ -610,6 +649,26 @@ func _ApplyEndpointScopedDirective(doc *OperationDoc, ctx *_DocParseContext, nam
 	endpointDoc.SchemaPackages = scoped.SchemaPackages
 
 	return true
+}
+
+func _OperationEndpointAt(doc *OperationDoc, index int) (OperationEndpoint, bool) {
+	if doc == nil || index < 0 {
+		return OperationEndpoint{}, false
+	}
+
+	if len(doc.Endpoints) > 0 {
+		if index >= len(doc.Endpoints) {
+			return OperationEndpoint{}, false
+		}
+
+		return doc.Endpoints[index], true
+	}
+
+	if index == 0 && doc.Endpoint.Method != "" && doc.Endpoint.Path != "" {
+		return doc.Endpoint, true
+	}
+
+	return OperationEndpoint{}, false
 }
 
 func _EndpointOperationDoc(doc *OperationDoc, endpoint OperationEndpoint) *OperationEndpointDoc {

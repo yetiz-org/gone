@@ -1,0 +1,68 @@
+# Example goai.yaml for projects that prefer configuration-driven emission.
+# Use RunCLIFromConfig("goai.yaml", routeFactory) from your project-side
+# cmd/goaispec binary. For one simple output, you can skip this file and pass
+# the same values through goai.RunCLI(..., goai.RunOptions{...}) in Go code.
+
+title: Example API
+description: |
+  Generated from the route tree by goai.
+version: 1.0.0
+
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Public
+    description: Public endpoints
+  - name: Management
+    description: Back-office endpoints
+
+security:
+  - OAuth2: []
+
+securitySchemes:
+  OAuth2:
+    type: oauth2
+    description: OAuth2 Authorization Code Flow with PKCE.
+    flows:
+      authorizationCode:
+        authorizationUrl: https://api.example.com/authorize
+        tokenUrl: https://api.example.com/token
+        scopes:
+          openid: OpenID Connect identity claim
+          profile: Read user profile
+
+# Relative paths resolve from the directory containing this goai.yaml file.
+defaultOutput: openapi.generated.yaml
+baseSpecPath: openapi.yaml
+restrictToBaseSpecPaths: false
+
+enableDocstringExtraction: true
+docstringBuildTags:
+  - api
+
+excludePaths:
+  - /static/**
+  - /favicon.ico
+
+profiles:
+  public:
+    include:
+      paths:
+        - /api/**
+    exclude:
+      paths:
+        - /api/internal/**
+  mgmt:
+    include:
+      paths:
+        - /mgmt/**
+  all: {}
+
+output:
+  public: openapi.public.yaml
+  mgmt: openapi.mgmt.yaml
+  all: openapi.generated.yaml
