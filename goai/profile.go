@@ -24,9 +24,9 @@ type Profile struct {
 //     any number of segments.
 //   - Packages match by literal prefix.
 //   - Tags match the OpenAPI operation tags declared via Spec WithTag /
-//     handler-level SpecProvider.GOAISpec / per-method providers, or via
-//     goai.Register. This is what the README "tag-based filtering" copy
-//     actually refers to.
+//     handler-level SpecProvider.GOAISpec / per-method providers,
+//     docstring @goai.tag directives, or via goai.Register. This is what
+//     the README "tag-based filtering" copy actually refers to.
 //   - Profiles match the names returned by ProfileScope.GOAIProfileScope
 //     (handler or acceptance level). Use this to attach an operation to
 //     one of the profile buckets defined in goai.yaml when the operation

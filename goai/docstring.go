@@ -147,11 +147,11 @@ func (c *_DocstringCache) _ExtractOperationDoc(handler any, methodName string) (
 	}
 
 	methodDoc := _FindMethodDoc([]*ast.File{parsed}, recvType, methodName)
-	if methodDoc == "" {
+	typeDoc := _FindTypeDoc(files, recvType)
+	if methodDoc == "" && typeDoc == "" {
 		return nil, false
 	}
 
-	typeDoc := _FindTypeDoc(files, recvType)
 	combinedDoc := methodDoc
 	if typeDoc != "" {
 		combinedDoc = typeDoc + "\n" + methodDoc
@@ -161,9 +161,11 @@ func (c *_DocstringCache) _ExtractOperationDoc(handler any, methodName string) (
 		_SchemaBuilder: _NewASTSchemaBuilderWithPrimaryFileAndCache(files, _ReceiverPkgPath(t), filepath.Dir(file), c.buildTags, parsed, &c.packageNames),
 	}
 
-	methodOnlyDoc, ok := _ParseOpenAPIDocCommentWithContext(methodDoc, methodName, ctx)
-	if !ok {
-		return nil, false
+	var methodOnlyDoc *OperationDoc
+	if methodDoc != "" {
+		if parsedMethodDoc, ok := _ParseOpenAPIDocCommentWithContext(methodDoc, methodName, ctx); ok {
+			methodOnlyDoc = parsedMethodDoc
+		}
 	}
 
 	doc, ok := _ParseOpenAPIDocCommentWithContext(combinedDoc, methodName, ctx)
@@ -171,8 +173,12 @@ func (c *_DocstringCache) _ExtractOperationDoc(handler any, methodName string) (
 		return nil, false
 	}
 
-	doc.Endpoint = methodOnlyDoc.Endpoint
-	if len(methodOnlyDoc.Operation.Tags) > 0 {
+	doc.Endpoint = OperationEndpoint{}
+	if methodOnlyDoc != nil {
+		doc.Endpoint = methodOnlyDoc.Endpoint
+	}
+
+	if methodOnlyDoc != nil && len(methodOnlyDoc.Operation.Tags) > 0 {
 		doc.Operation.Tags = methodOnlyDoc.Operation.Tags
 	}
 	doc.Operation.Tags = _DeduplicateStrings(doc.Operation.Tags)

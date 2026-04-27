@@ -191,6 +191,14 @@ type _DocstringTagOverrideHandler struct {
 	ghttp.DefaultHTTPHandlerTask
 }
 
+// _DocstringTagFallbackHandler keeps fallback OpenAPI tags on the handler
+// type for operations that do not have endpoint-matched method docs.
+//
+// @goai.tag Organization
+type _DocstringTagFallbackHandler struct {
+	ghttp.DefaultHTTPHandlerTask
+}
+
 // _DocstringEndpointOnStructHandler keeps a misleading endpoint directive on
 // the handler type; endpoint directives must stay method-local.
 //
@@ -221,6 +229,11 @@ func (h *_DocstringTagOverrideHandler) Get(ctx channel.HandlerContext, req *ghtt
 // @goai.endpoint POST /tag-override
 // @goai.tag Management
 func (h *_DocstringTagOverrideHandler) Post(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
+	return nil
+}
+
+// Get intentionally has no endpoint directive.
+func (h *_DocstringTagFallbackHandler) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
 	return nil
 }
 
@@ -1402,6 +1415,46 @@ func TestBuildOperationIgnoresDocFallbackWithoutEndpointDirective(t *testing.T) 
 	op := doc.Paths["/items/{id}"].Get
 	require.NotNil(t, op)
 	assert.Empty(t, op.Summary)
+}
+
+func TestBuildOperationUsesHandlerDocTagsWithoutEndpointDirective(t *testing.T) {
+	handler := &_DocstringTagFallbackHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/fallback",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: DefaultOperationDocExtractor(),
+	})
+
+	op := doc.Paths["/fallback"].Get
+	require.NotNil(t, op)
+	assert.Equal(t, []string{"Organization"}, op.Tags)
+}
+
+func TestBuildProfileMatchesHandlerDocTagsWithoutEndpointDirective(t *testing.T) {
+	handler := &_DocstringTagFallbackHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/fallback",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, &Profile{
+		Name:    "organizations",
+		Include: Selector{Tags: []string{"Organization"}},
+	}, BuildOptions{
+		OperationDocExtractor: DefaultOperationDocExtractor(),
+	})
+
+	require.Contains(t, doc.Paths, "/fallback")
+	op := doc.Paths["/fallback"].Get
+	require.NotNil(t, op)
+	assert.Equal(t, []string{"Organization"}, op.Tags)
 }
 
 func TestBuildOperationMergesDocExamplesIntoGeneratedContent(t *testing.T) {

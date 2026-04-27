@@ -117,7 +117,8 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 //  1. Spec from goai.Register (if registered).
 //  2. Spec from SpecProvider catch-all.
 //  3. Spec from per-method SpecProvider override.
-//  4. Path-based fallback from the project Classifier.
+//  4. Handler or method docstring tags.
+//  5. Path-based fallback from the project Classifier.
 func candidateOperationTags(c OperationCandidate, classifier *Classifier, docExtractor OperationDocExtractor) []string {
 	var spec Spec
 	if entry, ok := Lookup(c.Handler, c.Method); ok {
@@ -134,7 +135,7 @@ func candidateOperationTags(c OperationCandidate, classifier *Classifier, docExt
 
 	tags := _DeduplicateStrings(spec.Tags())
 	if len(tags) == 0 && docExtractor != nil {
-		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok && _OperationDocMatches(doc, c) {
+		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok {
 			tags = _DeduplicateStrings(doc.Operation.Tags)
 		}
 	}
@@ -196,6 +197,18 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	op.ExternalDocs = spec.ExternalDocs()
 	op.Callbacks = spec.Callbacks()
 	op.Servers = spec.OperationServers()
+
+	var operationDoc *OperationDoc
+	operationDocMatches := false
+	if docExtractor != nil {
+		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok {
+			operationDoc = doc
+			operationDocMatches = _OperationDocMatches(doc, c)
+			if len(op.Tags) == 0 && len(doc.Operation.Tags) > 0 {
+				op.Tags = _DeduplicateStrings(doc.Operation.Tags)
+			}
+		}
+	}
 
 	// Tag fallback via classifier when handler/spec gave none.
 	if len(op.Tags) == 0 && classifier != nil {
@@ -326,11 +339,9 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	// doc parameters and response headers can only fill missing names.
 	_ApplySpecExtraHeaders(op, successResp, spec)
 
-	if docExtractor != nil {
-		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok && _OperationDocMatches(doc, c) {
-			_MergeOperationDocSchemas(schemaBld, doc)
-			_MergeOperationDocFallback(op, &doc.Operation, spec, c.Method)
-		}
+	if operationDocMatches {
+		_MergeOperationDocSchemas(schemaBld, operationDoc)
+		_MergeOperationDocFallback(op, &operationDoc.Operation, spec, c.Method)
 	}
 
 	if needsDefaultSuccessContent && len(successResp.Content) == 0 {
