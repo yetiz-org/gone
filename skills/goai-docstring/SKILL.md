@@ -1,18 +1,18 @@
 ---
 name: goai-docstring
-description: Use when documenting gone framework Go handlers, handler methods or functions, request or response DTO structs, or OpenAPI metadata with goai doc comments, @goai directives, goai struct tags, schemaType, requestBody, response, param, and generated spec checks.
+description: Use when documenting gone framework Go handlers, handler receiver methods, request or response DTO structs, or OpenAPI metadata with goai doc comments, @goai directives, goai struct tags, schemaType, requestBody, response, param, and generated spec checks.
 ---
 
 # Goai Docstring
 
 ## Overview
 
-goai docstrings are OpenAPI metadata embedded in Go comments. Only `@goai.*` directives are parsed; ordinary comments remain private source documentation. Do not use swaggo annotations such as `@Summary`, `@Param`, `@Success`, `@Failure`, `@Router`, `@Accept`, or `@Produce`.
+goai docstrings are OpenAPI metadata embedded in Go comments. Only `@goai.*` directives are parsed; ordinary comments remain private source documentation. The default extractor reads handler receiver method comments plus the handler type doc; package-level functions are not parsed. Do not use swaggo annotations such as `@Summary`, `@Param`, `@Success`, `@Failure`, `@Router`, `@Accept`, or `@Produce`.
 
 ## When to Use
 
 - Adding or reviewing OpenAPI docs for `ghttp` handlers.
-- Writing handler struct comments, handler method/function comments, DTO structs, or `goai:"..."` schema tags.
+- Writing handler struct comments, handler receiver method comments, DTO structs, or `goai:"..."` schema tags.
 - Checking generated `goai` YAML for route, schema, request, response, parameter, tag, security, or example drift.
 
 Do not use when the project documents operations through `goai.Register` or `SpecProvider` only.
@@ -22,8 +22,8 @@ Do not use when the project documents operations through `goai.Register` or `Spe
 | Location | Put Here |
 | --- | --- |
 | Handler struct doc | Shared `@goai.tag`, `@goai.security`, `@goai.server`, `@goai.externalDocs`. |
-| Handler method/function doc | Endpoint-specific `@goai.endpoint`, `summary`, `description`, `operationId`, `param`, `requestBody`, `response`, examples, links, callbacks. |
-| DTO struct doc | Go type comment plus optional `@goai.schemaName PublicComponentName`. |
+| Handler receiver method doc | Endpoint-specific `@goai.endpoint`, `summary`, `description`, `operationId`, `param`, `requestBody`, `response`, examples, links, callbacks. |
+| DTO struct doc | Go type comment plus optional `@goai.schemaName PublicComponentName` or `@goai.componentName PublicComponentName`. |
 | DTO fields | `json` tags and `goai:"description=...;example=...;minLength=...;maximum=..."` schema metadata. |
 
 Route walking remains authoritative. `@goai.endpoint METHOD /path` documents and validates intent, but it does not replace the actual route tree.
@@ -39,10 +39,19 @@ Route walking remains authoritative. `@goai.endpoint METHOD /path` documents and
 | JSON request body | `@goai.requestBody required application/json object "Invoice payload." schemaType=CreateInvoiceRequest` |
 | JSON response | `@goai.response 201 "Invoice created." mediaType=application/json schemaType=CreateInvoiceResponse` |
 | Error response | `@goai.response 400 "Invalid invoice payload." mediaType=application/json schemaType=ErrorResponse` |
+| Header | `@goai.header 201 X-Request-ID string "Request trace ID." required` |
 | Example | `@goai.example response 201 application/json created example={"summary":"Created","value":{"id":"inv_123"}}` |
 | Security | `@goai.security OAuth2 invoices:write` or `@goai.security none` |
+| Link/callback/extension | `@goai.link ...`, `@goai.callback name {...}`, `@goai.extension x-key {...}` |
+| Long descriptions | repeat `@goai.requestBody.description`, `@goai.response.description`, `@goai.header.description`, `@goai.link.description`, `@goai.example.description`, `@goai.server.description`, `@goai.externalDocs.description` |
 
-Use `schemaType=SomeStruct` for local DTOs and `schemaType=alias.SomeStruct` for imported DTOs. The alias must match the handler file import alias. Use compact one-line JSON for `schema=...`, `example=...`, callbacks, and extensions.
+Use `schemaType=SomeStruct` for local DTOs and `schemaType=alias.SomeStruct` for imported DTOs. Generics such as `Page[Item]` and `alias.Page[alias.Item]` are supported. The alias must match the handler file import alias. Explicit `schema={...}` wins over struct resolution. Use compact one-line JSON for `schema=...`, `example=...`, callbacks, and extensions.
+
+## Struct Tags
+
+Supported `goai:"..."` keys: `title`, `description`/`desc`, `example`, `default`, `format`, `enum`, `pattern`, `minLength`, `maxLength`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minItems`, `maxItems`, `uniqueItems`, `minProperties`, `maxProperties`, `readOnly`, `writeOnly`, `deprecated`, `nullable`.
+
+Unknown keys are silently ignored, so typo checks must inspect generated YAML, not just Go source.
 
 ## Example
 
@@ -92,8 +101,20 @@ func (h *BillingHandler) Create(ctx channel.HandlerContext, req *ghttp.Request, 
 - Each request/response body references the full DTO with `schemaType` or explicit `schema`, not a single JSON field as a body param.
 - Path params in `@goai.param path ... required` match the route template names.
 - DTO fields have correct `json` tags; optional fields use `omitempty` only when optional in the API.
-- DTO field constraints live in `goai:"..."` tags using supported keys: `description`, `example`, `format`, `enum`, `minLength`, `maxLength`, `minimum`, `maximum`, `uniqueItems`, `nullable`, `deprecated`, `readOnly`, `writeOnly`.
-- Generate the spec with docstring extraction enabled, then inspect YAML for path, method, operationId, tags, security, requestBody, responses, examples, and component schema names.
+- DTO field constraints use supported `goai:"..."` keys only; remember unknown keys are ignored.
+- Docstring extraction is enabled with `OperationDocExtractor: goai.DefaultOperationDocExtractor()` or `enableDocstringExtraction: true` in `goai.yaml`.
+- Generate the spec, then inspect YAML for path, method, operationId, tags, security, requestBody, responses, examples, and component schema names.
+
+## Verification
+
+For this repo's smoke test:
+
+```bash
+go run ./goai/examples/docstring > /tmp/goai-docstring.yaml
+rg -n "operationId: books.list|BookPage|requestBody|responses:" /tmp/goai-docstring.yaml
+```
+
+For a project handler, run its goai generator, for example `go run ./cmd/goaispec -o /tmp/openapi.yaml` or `goai emit --root . -o /tmp/openapi.yaml`, then inspect the exact generated operation and component schema.
 
 ## Common Mistakes
 
@@ -103,4 +124,6 @@ func (h *BillingHandler) Create(ctx channel.HandlerContext, req *ghttp.Request, 
 | Documenting a JSON body field as `@goai.param body customer_id ...`. | Use one `@goai.requestBody ... schemaType=RequestDTO`. |
 | Putting all directives on the method. | Move shared tag/security/server docs to the handler struct. |
 | Relying on Go field comments for schema descriptions. | Add `goai:"description=..."` tags to DTO fields. |
+| Placing docs on package-level helper functions. | Put parsed directives on the handler receiver method. |
+| Misspelling `goai` tag keys. | Check generated YAML because unknown keys are ignored. |
 | Assuming comments changed routing or status codes. | Check actual route registration and handler response behavior. |
