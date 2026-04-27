@@ -1683,6 +1683,89 @@ func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
 	assert.Nil(t, _FindOperationParameter(internalOp.Parameters, "query", "include"))
 }
 
+func TestBuildUsesDocstringEndpointPathAsCanonicalPath(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docOp := &OperationDoc{
+		Endpoint: OperationEndpoint{Method: "GET", Path: "/api/v1/organizations/{organizations_id}/documents/{file_type}"},
+		Operation: Operation{
+			Summary:     "Get organization document",
+			Description: "Returns one document file by type.",
+			Parameters: []*Parameter{
+				{
+					Name:        "file_type",
+					In:          "path",
+					Description: "Document file type.",
+					Schema:      &Schema{Type: "string"},
+				},
+			},
+		},
+	}
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/api/v1/organizations/{organizations_id}/documents/{documents_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "organizations_id", Required: true, Description: "Route organization ID."},
+				{Name: "documents_id", Required: true, Description: "Route document ID."},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return docOp, true
+		},
+	})
+
+	assert.NotContains(t, doc.Paths, "/api/v1/organizations/{organizations_id}/documents/{documents_id}")
+	require.Contains(t, doc.Paths, "/api/v1/organizations/{organizations_id}/documents/{file_type}")
+
+	op := doc.Paths["/api/v1/organizations/{organizations_id}/documents/{file_type}"].Get
+	require.NotNil(t, op)
+	assert.Equal(t, "Get organization document", op.Summary)
+	assert.Equal(t, "Returns one document file by type.", op.Description)
+	assert.NotNil(t, _FindOperationParameter(op.Parameters, "path", "organizations_id"))
+	assert.Equal(t, "Document file type.", _FindParameter(t, op.Parameters, "path", "file_type").Description)
+	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "documents_id"))
+}
+
+func TestBuildCanonicalPathDoesNotMergeEquivalentEndpointOverrides(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /items/{id}
+@goai.endpoint GET /items/{slug}
+@goai.summary List item
+@goai.summary[0] Get item by ID
+@goai.param[0] path id string required "Item ID."
+@goai.summary[1] Get item by slug
+@goai.param[1] path slug string required "Item slug."
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/items/{items_id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "items_id", Required: true, Description: "Generated item identifier."},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	require.Contains(t, doc.Paths, "/items/{id}")
+	op := doc.Paths["/items/{id}"].Get
+	require.NotNil(t, op)
+	assert.Equal(t, "Get item by ID", op.Summary)
+	assert.Equal(t, "Item ID.", _FindParameter(t, op.Parameters, "path", "id").Description)
+	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "slug"))
+}
+
 func TestBuildOperationAppliesEndpointIndexedDocstringDirectives(t *testing.T) {
 	handler := &_DocstringTestHandler{}
 	docText := `

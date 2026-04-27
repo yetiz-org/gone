@@ -26,7 +26,7 @@ Do not use when the project documents operations through `goai.Register` or `Spe
 | DTO struct doc | Go type comment plus optional `@goai.schemaName PublicComponentName` or `@goai.componentName PublicComponentName`. |
 | DTO fields | `json` tags and `goai:"description=...;example=...;minLength=...;maximum=..."` schema metadata. |
 
-Route walking remains authoritative. `@goai.endpoint METHOD /path` documents and validates intent, but it does not replace the actual route tree. When one handler method is mounted on multiple paths, repeat `@goai.endpoint` for every documented route and use `@goai.endpoint.<directive> METHOD /path ...` for metadata that belongs to only one of those declared endpoints. Endpoint-scoped directives do not declare routes by themselves.
+Route walking remains authoritative for method and path topology. `@goai.endpoint METHOD /path` documents and validates intent; when its static path segments match a walked route but path parameter names differ, goai emits the docstring endpoint path as the canonical OpenAPI path. Use this for public contract names such as `{id}` or semantic names such as `{file_type}` without changing runtime routing. When one handler method is mounted on multiple paths, repeat `@goai.endpoint` for every documented route and use `@goai.endpoint.<directive> METHOD /path ...` for metadata that belongs to only one of those declared endpoints. Endpoint-scoped directives do not declare routes by themselves.
 
 ## Quick Reference
 
@@ -129,6 +129,7 @@ func (h *BillingHandler) Create(ctx channel.HandlerContext, req *ghttp.Request, 
 - Use `@goai.endpoint.<directive> METHOD /path ...` only when the endpoint index would be unclear; it must repeat the exact method and path from a declared `@goai.endpoint` line.
 - Each request/response body references the full DTO with `schemaType` or explicit `schema`, not a single JSON field as a body param.
 - Path params in `@goai.param path ... required` match the route template names.
+- If the generated route uses implementation-derived names but the public API contract uses names such as `{id}` or `{file_type}`, write the public names in `@goai.endpoint`; goai will canonicalize matching route candidates to those names.
 - Path params that exist on only one mounted endpoint use `@goai.param[index]` or long-form `@goai.endpoint.param`, not shared `@goai.param`.
 - DTO fields have correct `json` tags; optional fields use `omitempty` only when optional in the API.
 - DTO field constraints use supported `goai:"..."` keys only; add representative examples where useful, and remember unknown keys are ignored.

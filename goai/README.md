@@ -357,7 +357,12 @@ Conventions:
 
 - Only lines starting with `@goai.` are parsed.
 - `@goai.endpoint` documents and validates intent; the walked route method
-  and path remain authoritative.
+  and path topology remain authoritative. When a declared endpoint has the
+  same method and same static path segments as a walked route but different
+  path parameter names, goai emits the docstring endpoint path as the
+  canonical OpenAPI path. Use this to preserve public contract names such as
+  `{id}` or semantic names such as `{file_type}` without changing runtime
+  routing.
 - Repeat `@goai.endpoint` when one handler method is mounted on multiple
   route paths. These endpoint lines are the only docstring declarations that
   decide which walked routes may receive method-level operation metadata.

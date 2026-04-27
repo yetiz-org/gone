@@ -85,6 +85,8 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 	schemaBld := newSchemaBuilder(doc.Components)
 
 	for _, c := range candidates {
+		c = _CanonicalizeCandidatePathFromDocstring(c, opts.OperationDocExtractor)
+
 		profiles := c.Profiles
 		if len(profiles) == 0 {
 			profiles = classifier(c)
@@ -742,13 +744,18 @@ func _MergeOperationDocSchemasForCandidate(schemaBld *schemaBuilder, doc *Operat
 		return
 	}
 
+	selectedEndpoint, ok := _OperationDocEndpointForCandidate(doc, c)
+	if !ok {
+		return
+	}
+
 	tmp := &OperationDoc{
 		Operation:      *op,
 		Schemas:        _CloneSchemaMap(doc.Schemas),
 		SchemaPackages: _CloneSchemaPackageMap(doc.SchemaPackages),
 	}
 	for _, endpointOperation := range doc.EndpointOperations {
-		if !_OperationEndpointMatchesCandidate(endpointOperation.Endpoint, c) {
+		if !_OperationEndpointEqual(endpointOperation.Endpoint, selectedEndpoint) {
 			continue
 		}
 
@@ -924,28 +931,8 @@ func _RewriteSchemaRef(schema *Schema, oldRef string, newRef string) {
 }
 
 func _OperationDocMatches(doc *OperationDoc, c OperationCandidate) bool {
-	if doc == nil {
-		return false
-	}
-
-	endpoints := _OperationDocEndpoints(doc)
-	if len(endpoints) == 0 {
-		return false
-	}
-
-	for _, endpoint := range endpoints {
-		if !strings.EqualFold(endpoint.Method, c.Method) {
-			continue
-		}
-
-		if endpoint.Path != c.Path {
-			continue
-		}
-
-		return true
-	}
-
-	return false
+	_, ok := _OperationDocEndpointForCandidate(doc, c)
+	return ok
 }
 
 func _OperationDocHasEndpointDirectives(doc *OperationDoc) bool {
@@ -961,13 +948,14 @@ func _OperationDocOperationForCandidate(doc *OperationDoc, c OperationCandidate)
 		return &doc.Operation
 	}
 
-	if !_OperationDocMatches(doc, c) {
+	selectedEndpoint, ok := _OperationDocEndpointForCandidate(doc, c)
+	if !ok {
 		return nil
 	}
 
 	operation := _CloneOperation(doc.Operation)
 	for _, endpointOperation := range doc.EndpointOperations {
-		if !_OperationEndpointMatchesCandidate(endpointOperation.Endpoint, c) {
+		if !_OperationEndpointEqual(endpointOperation.Endpoint, selectedEndpoint) {
 			continue
 		}
 
@@ -994,8 +982,146 @@ func _OperationDocEndpoints(doc *OperationDoc) []OperationEndpoint {
 	return nil
 }
 
-func _OperationEndpointMatchesCandidate(endpoint OperationEndpoint, c OperationCandidate) bool {
-	return strings.EqualFold(endpoint.Method, c.Method) && endpoint.Path == c.Path
+func _CanonicalizeCandidatePathFromDocstring(c OperationCandidate, docExtractor OperationDocExtractor) OperationCandidate {
+	if docExtractor == nil {
+		return c
+	}
+
+	doc, ok := docExtractor(c.Handler, c.HandlerMethod)
+	if !ok {
+		return c
+	}
+
+	endpoint, ok := _OperationDocEndpointForCandidate(doc, c)
+	if !ok || endpoint.Path == "" || endpoint.Path == c.Path {
+		return c
+	}
+
+	return _CandidateWithCanonicalPath(c, endpoint.Path)
+}
+
+func _OperationDocEndpointForCandidate(doc *OperationDoc, c OperationCandidate) (OperationEndpoint, bool) {
+	if doc == nil {
+		return OperationEndpoint{}, false
+	}
+
+	endpoints := _OperationDocEndpoints(doc)
+	if len(endpoints) == 0 {
+		return OperationEndpoint{}, false
+	}
+
+	for _, endpoint := range endpoints {
+		if !strings.EqualFold(endpoint.Method, c.Method) {
+			continue
+		}
+
+		if endpoint.Path == c.Path {
+			return endpoint, true
+		}
+	}
+
+	for _, endpoint := range endpoints {
+		if !strings.EqualFold(endpoint.Method, c.Method) {
+			continue
+		}
+
+		if _PathTemplatesEquivalent(endpoint.Path, c.Path) {
+			return endpoint, true
+		}
+	}
+
+	return OperationEndpoint{}, false
+}
+
+func _CandidateWithCanonicalPath(c OperationCandidate, path string) OperationCandidate {
+	renames := _PathTemplateParamRenameMap(c.Path, path)
+	c.Path = path
+	if len(renames) == 0 {
+		return c
+	}
+
+	params := append([]PathParam(nil), c.PathParams...)
+	for i := range params {
+		if name, ok := renames[params[i].Name]; ok {
+			params[i].Name = name
+			params[i].Description = ""
+			params[i].Style = ""
+			params[i].Example = ""
+		}
+	}
+
+	c.PathParams = params
+	return c
+}
+
+func _PathTemplateParamRenameMap(from string, to string) map[string]string {
+	fromParams := _PathTemplateParamNames(from)
+	toParams := _PathTemplateParamNames(to)
+	if len(fromParams) == 0 || len(fromParams) != len(toParams) {
+		return nil
+	}
+
+	renames := map[string]string{}
+	for i, fromName := range fromParams {
+		toName := toParams[i]
+		if fromName == "" || toName == "" || fromName == toName {
+			continue
+		}
+
+		renames[fromName] = toName
+	}
+
+	if len(renames) == 0 {
+		return nil
+	}
+
+	return renames
+}
+
+func _PathTemplatesEquivalent(a string, b string) bool {
+	aParts := _PathTemplateParts(a)
+	bParts := _PathTemplateParts(b)
+	if len(aParts) != len(bParts) {
+		return false
+	}
+
+	for i := range aParts {
+		if aParts[i].Param && bParts[i].Param {
+			continue
+		}
+
+		if aParts[i] != bParts[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+type _PathTemplatePart struct {
+	Value string
+	Param bool
+}
+
+func _PathTemplateParts(path string) []_PathTemplatePart {
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return nil
+	}
+
+	segments := strings.Split(trimmed, "/")
+	parts := make([]_PathTemplatePart, 0, len(segments))
+	for _, segment := range segments {
+		part := _PathTemplatePart{Value: segment}
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			part.Param = true
+			part.Value = "{}"
+		}
+
+		parts = append(parts, part)
+	}
+
+	return parts
 }
 
 func _CloneOperation(op Operation) Operation {
