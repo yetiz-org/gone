@@ -632,8 +632,8 @@ ignored.
 ```go
 type CreateAlbumRequest struct {
     Title       string   `json:"title" goai:"description=The album title;example=Greatest Hits;minLength=1;maxLength=200"`
-    ReleaseYear int      `json:"release_year" goai:"description=Year of release;minimum=1900;maximum=2100"`
-    Genres      []string `json:"genres,omitempty" goai:"minItems=1;uniqueItems=true"`
+    ReleaseYear int      `json:"release_year" goai:"description=Year of release;example=1998;minimum=1900;maximum=2100"`
+    Genres      []string `json:"genres,omitempty" goai:"example=[\"pop\",\"rock\"];minItems=1;uniqueItems=true"`
 }
 ```
 
@@ -641,7 +641,7 @@ type CreateAlbumRequest struct {
 | ------------------ | -------------------- | ------------------- | ------------------------------------------------------ |
 | `title`            | `title`              | string              |                                                        |
 | `description`,`desc` | `description`      | string              |                                                        |
-| `example`          | `example`            | string              |                                                        |
+| `example`          | `example`            | typed value         | Parsed by schema type: string stays string; integer, number, boolean, array, and object become OpenAPI example values. |
 | `default`          | `default`            | string              |                                                        |
 | `format`           | `format`             | string              | `date-time`, `uuid`, `email`, ...                      |
 | `enum`             | `enum`               | comma-separated     | `enum=red,green,blue`.                                 |

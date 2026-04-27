@@ -1,7 +1,9 @@
 package goai
 
 import (
+	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -333,7 +335,7 @@ func splitJSONTag(tag, fallback string) (string, bool) {
 //
 //   - title             — schema title.
 //   - description, desc — schema description.
-//   - example           — example value (string).
+//   - example           — example value parsed according to the schema type.
 //   - default           — default value (string).
 //   - format            — format hint (date-time, uuid, email, ...).
 //   - enum              — comma-separated allowed values.
@@ -372,7 +374,7 @@ func applyGoaiTag(s *Schema, tag string) {
 		case "description", "desc":
 			s.Description = value
 		case "example":
-			s.Example = value
+			s.Example = parseSchemaExample(s, value)
 		case "default":
 			s.Default = value
 		case "format":
@@ -416,6 +418,61 @@ func applyGoaiTag(s *Schema, tag string) {
 		case "multipleOf":
 			s.MultipleOf = parseFloat(value)
 		}
+	}
+}
+
+func parseSchemaExample(s *Schema, value string) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	if s == nil {
+		return value
+	}
+
+	switch s.Type {
+	case "boolean":
+		if v, ok := parseExampleBool(value); ok {
+			return v
+		}
+	case "integer":
+		if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return v
+		}
+
+		if v, err := strconv.ParseUint(value, 10, 64); err == nil {
+			return v
+		}
+	case "number":
+		if v, err := strconv.ParseFloat(value, 64); err == nil {
+			return v
+		}
+	case "object", "array":
+		var v any
+		if err := json.Unmarshal([]byte(value), &v); err == nil {
+			return v
+		}
+	case "string":
+		return value
+	default:
+		var v any
+		if err := json.Unmarshal([]byte(value), &v); err == nil {
+			return v
+		}
+	}
+
+	return value
+}
+
+func parseExampleBool(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
 	}
 }
 

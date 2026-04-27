@@ -51,6 +51,8 @@ Use `schemaType=SomeStruct` for local DTOs and `schemaType=alias.SomeStruct` for
 
 Supported `goai:"..."` keys: `title`, `description`/`desc`, `example`, `default`, `format`, `enum`, `pattern`, `minLength`, `maxLength`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minItems`, `maxItems`, `uniqueItems`, `minProperties`, `maxProperties`, `readOnly`, `writeOnly`, `deprecated`, `nullable`.
 
+Prefer adding `example=...` to DTO fields whenever the OpenAPI contract has a clear representative value. Struct tag examples are parsed by the generated schema type: string values stay strings, integers become JSON numbers, number fields become JSON numbers, booleans become JSON booleans, and array/object examples must be compact JSON.
+
 Unknown keys are silently ignored, so typo checks must inspect generated YAML, not just Go source.
 
 ## Example
@@ -61,8 +63,8 @@ Unknown keys are silently ignored, so typo checks must inspect generated YAML, n
 // @goai.schemaName CreateInvoiceRequest
 type CreateInvoiceRequest struct {
 	CustomerID  string `json:"customer_id" goai:"description=Stable customer identifier;example=cus_123;minLength=1"`
-	AmountCents int    `json:"amount_cents" goai:"description=Invoice amount in cents;minimum=1"`
-	CallbackURL string `json:"callback_url,omitempty" goai:"description=Webhook URL called after creation;format=uri"`
+	AmountCents int    `json:"amount_cents" goai:"description=Invoice amount in cents;example=1200;minimum=1"`
+	CallbackURL string `json:"callback_url,omitempty" goai:"description=Webhook URL called after creation;example=https://example.com/callback;format=uri"`
 }
 
 // CreateInvoiceResponse is returned after an invoice is created.
@@ -101,7 +103,7 @@ func (h *BillingHandler) Create(ctx channel.HandlerContext, req *ghttp.Request, 
 - Each request/response body references the full DTO with `schemaType` or explicit `schema`, not a single JSON field as a body param.
 - Path params in `@goai.param path ... required` match the route template names.
 - DTO fields have correct `json` tags; optional fields use `omitempty` only when optional in the API.
-- DTO field constraints use supported `goai:"..."` keys only; remember unknown keys are ignored.
+- DTO field constraints use supported `goai:"..."` keys only; add representative examples where useful, and remember unknown keys are ignored.
 - Docstring extraction is enabled with `OperationDocExtractor: goai.DefaultOperationDocExtractor()` or `enableDocstringExtraction: true` in `goai.yaml`.
 - Generate the spec, then inspect YAML for path, method, operationId, tags, security, requestBody, responses, examples, and component schema names.
 
