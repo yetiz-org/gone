@@ -867,6 +867,60 @@ type Handler struct{}
 	assert.Equal(t, "invalid_token", errorName.Example)
 }
 
+func TestBuildOperationUsesDocOnlySchemaTypeImportFromSiblingPackageFile(t *testing.T) {
+	handler := &_DocstringSchemaHandler{}
+
+	fset := token.NewFileSet()
+	primary, err := parser.ParseFile(fset, "handler.go", `package docstringsource
+
+type Handler struct{}
+`, parser.ParseComments)
+	require.NoError(t, err)
+
+	sibling, err := parser.ParseFile(fset, "errors.go", `package docstringsource
+
+import "github.com/yetiz-org/gone/erresponse"
+
+var _ = erresponse.ServerError
+`, parser.ParseComments)
+	require.NoError(t, err)
+
+	schemaBuilder := _NewASTSchemaBuilderWithPrimaryFile(
+		[]*ast.File{primary, sibling},
+		"github.com/yetiz-org/gone/goai",
+		".",
+		nil,
+		primary,
+	)
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/schema",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(`
+@goai.endpoint GET /schema
+@goai.response 401 "Unauthorized." mediaType=application/json schemaType=erresponse.DefaultErrorResponse
+`, methodName, &_DocParseContext{
+				_SchemaBuilder: schemaBuilder,
+			})
+		},
+	})
+
+	op := doc.Paths["/schema"].Get
+	require.NotNil(t, op)
+	mt := op.Responses["401"].Content["application/json"]
+	require.NotNil(t, mt)
+	require.NotNil(t, mt.Schema)
+	assert.Equal(t, "#/components/schemas/erresponse.DefaultErrorResponse", mt.Schema.Ref)
+	assert.Empty(t, mt.Schema.Type)
+	require.Contains(t, doc.Components.Schemas, "erresponse.DefaultErrorResponse")
+}
+
 func TestBuildOperationUsesDocstringAliasImportedGenericSchemaType(t *testing.T) {
 	handler := &_DocstringSchemaHandler{}
 	doc := Build([]OperationCandidate{

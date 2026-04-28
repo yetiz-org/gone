@@ -1764,16 +1764,26 @@ func _ASTSchemaName(gen *ast.GenDecl, typeSpec *ast.TypeSpec) string {
 }
 
 func _ASTImportsFromPrimary(files []*ast.File, primary *ast.File, dir string, buildTags []string, importNames *sync.Map) map[string]string {
-	if primary != nil {
-		return _ASTImports(primary, dir, buildTags, importNames)
-	}
-
 	out := map[string]string{}
+	conflicts := map[string]bool{}
 	for _, file := range files {
 		for alias, importPath := range _ASTImports(file, dir, buildTags, importNames) {
-			if _, exists := out[alias]; !exists {
+			if existing, exists := out[alias]; exists && existing != importPath {
+				delete(out, alias)
+				conflicts[alias] = true
+
+				continue
+			}
+
+			if !conflicts[alias] {
 				out[alias] = importPath
 			}
+		}
+	}
+
+	if primary != nil {
+		for alias, importPath := range _ASTImports(primary, dir, buildTags, importNames) {
+			out[alias] = importPath
 		}
 	}
 
