@@ -379,6 +379,7 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	for _, r := range spec.Security() {
 		securityRefs = append(securityRefs, r)
 	}
+	securityRefs = dedupeSecurityRefs(securityRefs)
 
 	if len(securityRefs) == 0 && classifier != nil {
 		securityRefs = classifier.ClassifySecurity(c.Acceptances)

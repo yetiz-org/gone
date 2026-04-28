@@ -2922,6 +2922,70 @@ func TestBuildOperationDocSecurityOverridesRouteSecurityWhenSpecHasNoSecurity(t 
 	assert.NotContains(t, (*op.Security)[0], "OAuth2")
 }
 
+func TestBuildOperationDedupesDuplicateSecurityRefs(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	handler := &_DocstringTestHandler{}
+	Register(handler, "GET", nil, nil,
+		WithSecurity("OAuth2"),
+		WithSecurity("OAuth2"),
+		WithSecurity("OAuth2", "read"),
+		WithSecurity("OAuth2", "read"),
+	)
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/items",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			SecurityRefs: []SecurityRef{
+				{Scheme: "OAuth2"},
+				{Scheme: "OAuth2"},
+			},
+		},
+	}, nil, BuildOptions{})
+
+	op := doc.Paths["/items"].Get
+	require.NotNil(t, op)
+	require.NotNil(t, op.Security)
+	require.Len(t, *op.Security, 2)
+	assert.Empty(t, (*op.Security)[0]["OAuth2"])
+	assert.Equal(t, []string{"read"}, (*op.Security)[1]["OAuth2"])
+}
+
+func TestBuildOperationDedupesDocstringSecurityRequirements(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /items
+@goai.security OAuth2
+@goai.security OAuth2
+@goai.security OAuth2 read
+@goai.security OAuth2 read
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/items",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	op := doc.Paths["/items"].Get
+	require.NotNil(t, op)
+	require.NotNil(t, op.Security)
+	require.Len(t, *op.Security, 2)
+	assert.Empty(t, (*op.Security)[0]["OAuth2"])
+	assert.Equal(t, []string{"read"}, (*op.Security)[1]["OAuth2"])
+}
+
 func TestBuildOperationAppliesResponseSpecOptions(t *testing.T) {
 	Reset()
 	defer Reset()

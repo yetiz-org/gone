@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"encoding/json"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -690,6 +691,7 @@ func normalizeOperationSchemas(op *Operation, components *Components) {
 		return
 	}
 
+	normalizeOperationSecurity(op)
 	for _, parameter := range op.Parameters {
 		normalizeParameterSchemas(parameter, components)
 	}
@@ -702,6 +704,76 @@ func normalizeOperationSchemas(op *Operation, components *Components) {
 			normalizePathItemSchemas(item, components)
 		}
 	}
+}
+
+func normalizeOperationSecurity(op *Operation) {
+	if op == nil || op.Security == nil {
+		return
+	}
+
+	security := dedupeSecurityRequirements(*op.Security)
+	op.Security = &security
+}
+
+func dedupeSecurityRefs(refs []SecurityRef) []SecurityRef {
+	if len(refs) < 2 {
+		return refs
+	}
+
+	out := make([]SecurityRef, 0, len(refs))
+	seen := map[string]struct{}{}
+	for _, ref := range refs {
+		key := securityRequirementKey(ref.Scheme, ref.Scopes)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		out = append(out, ref)
+	}
+
+	return out
+}
+
+func dedupeSecurityRequirements(requirements []map[string][]string) []map[string][]string {
+	if len(requirements) < 2 {
+		return requirements
+	}
+
+	out := make([]map[string][]string, 0, len(requirements))
+	seen := map[string]struct{}{}
+	for _, requirement := range requirements {
+		key := securityRequirementMapKey(requirement)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		out = append(out, requirement)
+	}
+
+	return out
+}
+
+func securityRequirementMapKey(requirement map[string][]string) string {
+	if len(requirement) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(requirement))
+	for scheme, scopes := range requirement {
+		parts = append(parts, securityRequirementKey(scheme, scopes))
+	}
+	sort.Strings(parts)
+
+	return strings.Join(parts, "|")
+}
+
+func securityRequirementKey(scheme string, scopes []string) string {
+	sortedScopes := append([]string(nil), scopes...)
+	sort.Strings(sortedScopes)
+
+	return scheme + "\x00" + strings.Join(sortedScopes, "\x00")
 }
 
 func normalizeRequestBodySchemas(requestBody *RequestBody, components *Components) {
