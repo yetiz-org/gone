@@ -108,12 +108,21 @@ func Walk(route ghttp.RouteEntriesProvider) []OperationCandidate {
 				if !strings.HasSuffix(path, "}") || !strings.Contains(path, "/{") {
 					itemIDName := itemIDNameFor(handler, path)
 					path = strings.TrimRight(path, "/") + "/{" + itemIDName + "}"
-					pathParams = append(pathParams, PathParam{
-						Name:        itemIDName,
-						In:          "path",
-						Required:    true,
-						Description: "Resource identifier",
-					})
+					// Skip the auto-append when an injector already
+					// contributed a PathParam with this name. Happens when
+					// an injector's AnchorAfter is the last path segment:
+					// expandPathWithParams drops the placeholder from the
+					// path but leaves the entry in pathParams, and the
+					// item-level branch would otherwise produce a second
+					// entry under the same name.
+					if !pathParamsHasName(pathParams, itemIDName) {
+						pathParams = append(pathParams, PathParam{
+							Name:        itemIDName,
+							In:          "path",
+							Required:    true,
+							Description: "Resource identifier",
+						})
+					}
 				}
 			}
 
@@ -255,6 +264,22 @@ func emissionsFromOverrides(overrides map[string]bool) []emission {
 	}
 
 	return out
+}
+
+// pathParamsHasName reports whether any PathParam in the slice already
+// declares the given name on the path.
+func pathParamsHasName(params []PathParam, name string) bool {
+	for _, p := range params {
+		if p.In != "" && p.In != "path" {
+			continue
+		}
+
+		if p.Name == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // injectedHasItemID reports whether the injected PathParam slice
