@@ -69,7 +69,7 @@ func (h *SongsHandler) Index(ctx channel.HandlerContext, req *ghttp.Request, res
 }
 ```
 
-In this example `summary[0]`, `description[0]`, and `param[0]` apply only to the first declared endpoint, while `summary[1]` and `description[1]` apply only to the second. Plain `@goai.summary` or `@goai.description` remains shared by all declared endpoints. Use the longer `@goai.endpoint.<directive> METHOD /path ...` form when the endpoint index would be unclear. For Soundrise docs, write `summary` and `description` in Traditional Chinese and keep HTTP status descriptions such as `OK`, `Created`, `Bad Request`, and `Unauthorized` in English.
+In this example `summary[0]`, `description[0]`, and `param[0]` apply only to the first declared endpoint, while `summary[1]` and `description[1]` apply only to the second. Plain `@goai.summary` or `@goai.description` remains shared by all declared endpoints. Use the longer `@goai.endpoint.<directive> METHOD /path ...` form when the endpoint index would be unclear.
 
 ## Struct Tags
 

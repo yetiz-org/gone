@@ -289,6 +289,32 @@ func _ReceiverTypeName(t reflect.Type) string {
 	return name
 }
 
+func _ReceiverTypeNameFromFieldList(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) == 0 {
+		return ""
+	}
+
+	expr := recv.List[0].Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.IndexExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	case *ast.IndexListExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+
+	return ""
+}
+
 func _ReceiverPkgPath(t reflect.Type) string {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -1204,7 +1230,7 @@ func _ExampleFromFields(fields []string, start int) (*Example, bool) {
 	opts := _OptionMap(fields[start:])
 	if raw := opts["example"]; raw != "" {
 		var ex Example
-		if _DecodeStructured(raw, &ex) {
+		if _DecodeStructured(raw, &ex) && _ExampleHasExplicitValue(&ex) {
 			return &ex, true
 		}
 
@@ -1222,6 +1248,14 @@ func _ExampleFromFields(fields []string, start int) (*Example, bool) {
 	_ApplyExampleOptions(ex, _OptionMap(fields[start+2:]))
 
 	return ex, true
+}
+
+func _ExampleHasExplicitValue(ex *Example) bool {
+	if ex == nil {
+		return false
+	}
+
+	return ex.Value != nil || ex.ExternalValue != ""
 }
 
 func _ApplyExampleDescription(doc *OperationDoc, fields []string) bool {
@@ -1568,6 +1602,7 @@ func _SchemaFrom(typeToken string, opts map[string]string) *Schema {
 	}
 
 	_ApplySchemaOptions(schema, opts)
+	normalizeSchemaRefSiblings(schema)
 
 	return schema
 }
@@ -1578,21 +1613,29 @@ func _ApplySchemaOptions(schema *Schema, opts map[string]string) {
 	}
 
 	if raw := opts["format"]; raw != "" {
+		prepareSchemaRefForSiblings(schema)
 		schema.Format = raw
 	}
 
 	if raw := opts["default"]; raw != "" {
+		prepareSchemaRefForSiblings(schema)
 		schema.Default = _ParseValue(raw)
 	}
 
 	if raw := opts["enum"]; raw != "" {
+		prepareSchemaRefForSiblings(schema)
 		for _, item := range strings.Split(raw, ",") {
 			schema.Enum = append(schema.Enum, _ParseValue(strings.TrimSpace(item)))
 		}
 	}
 
 	if raw := opts["nullable"]; raw != "" {
-		schema.Nullable = _ParseBool(raw)
+		if parsed := _ParseBool(raw); parsed {
+			prepareSchemaRefForSiblings(schema)
+			schema.Nullable = parsed
+		} else {
+			schema.Nullable = parsed
+		}
 	}
 }
 
@@ -1628,6 +1671,8 @@ type _ASTSchemaBuilder struct {
 	_TypeSpecs       map[string]*ast.TypeSpec
 	_TypeSpecImports map[*ast.TypeSpec]map[string]string
 	_TypeSpecNames   map[*ast.TypeSpec]string
+	_TextMarshalers  map[string]bool
+	_JSONValueTypes  map[string]bool
 	_Components      map[string]*Schema
 	_ComponentPkgs   map[string]string
 	_ComponentOwners map[string]string
@@ -1699,6 +1744,8 @@ func _NewASTSchemaBuilderWithState(
 		_TypeSpecs:       map[string]*ast.TypeSpec{},
 		_TypeSpecImports: map[*ast.TypeSpec]map[string]string{},
 		_TypeSpecNames:   map[*ast.TypeSpec]string{},
+		_TextMarshalers:  map[string]bool{},
+		_JSONValueTypes:  map[string]bool{},
 		_Components:      components,
 		_ComponentPkgs:   componentPkgs,
 		_ComponentOwners: componentOwners,
@@ -1719,6 +1766,21 @@ func _NewASTSchemaBuilderWithState(
 		fileImports := _ASTImports(file, b._Dir, b._BuildTags, b._ImportNames)
 
 		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name != nil {
+				switch fn.Name.Name {
+				case "MarshalText":
+					if receiver := _ReceiverTypeNameFromFieldList(fn.Recv); receiver != "" && _ASTFuncHasTextMarshalerSignature(fn) {
+						b._TextMarshalers[receiver] = true
+					}
+				case "UnmarshalJSON":
+					if receiver := _ReceiverTypeNameFromFieldList(fn.Recv); receiver != "" && _ASTFuncHasJSONUnmarshalerSignature(fn) {
+						b._JSONValueTypes[receiver] = true
+					}
+				}
+
+				continue
+			}
+
 			gen, ok := decl.(*ast.GenDecl)
 			if !ok || gen.Tok != token.TYPE {
 				continue
@@ -1738,6 +1800,79 @@ func _NewASTSchemaBuilderWithState(
 	}
 
 	return b
+}
+
+func _ASTFuncHasTextMarshalerSignature(fn *ast.FuncDecl) bool {
+	results := _ASTFieldTypes(fn.Type.Results)
+	if fn == nil || fn.Type == nil || _ASTFieldListLen(fn.Type.Params) != 0 || len(results) != 2 {
+		return false
+	}
+
+	return _ASTExprIsByteSlice(results[0]) && _ASTExprIsError(results[1])
+}
+
+func _ASTFuncHasJSONUnmarshalerSignature(fn *ast.FuncDecl) bool {
+	params := _ASTFieldTypes(fn.Type.Params)
+	results := _ASTFieldTypes(fn.Type.Results)
+	if fn == nil || fn.Type == nil || len(params) != 1 || len(results) != 1 {
+		return false
+	}
+
+	return _ASTExprIsByteSlice(params[0]) && _ASTExprIsError(results[0])
+}
+
+func _ASTFieldListLen(fields *ast.FieldList) int {
+	if fields == nil {
+		return 0
+	}
+
+	count := 0
+	for _, field := range fields.List {
+		if len(field.Names) == 0 {
+			count++
+
+			continue
+		}
+
+		count += len(field.Names)
+	}
+
+	return count
+}
+
+func _ASTFieldTypes(fields *ast.FieldList) []ast.Expr {
+	if fields == nil {
+		return nil
+	}
+
+	types := []ast.Expr{}
+	for _, field := range fields.List {
+		count := len(field.Names)
+		if count == 0 {
+			count = 1
+		}
+
+		for range count {
+			types = append(types, field.Type)
+		}
+	}
+
+	return types
+}
+
+func _ASTExprIsByteSlice(expr ast.Expr) bool {
+	array, ok := expr.(*ast.ArrayType)
+	if !ok {
+		return false
+	}
+
+	ident, ok := array.Elt.(*ast.Ident)
+	return ok && ident.Name == "byte"
+}
+
+func _ASTExprIsError(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "error"
 }
 
 func _ASTSchemaName(gen *ast.GenDecl, typeSpec *ast.TypeSpec) string {
@@ -2025,7 +2160,27 @@ func (b *_ASTSchemaBuilder) _SchemaFromTypeSpecWithEnv(typeName string, typeSpec
 		return b._SchemaFromExpr(typeSpec.Type, env, b._TypeSpecImports[typeSpec])
 	}
 
+	if b._JSONValueTypes[typeSpec.Name.Name] {
+		if schema := b._JSONValueWrapperSchema(typeSpec, env); schema != nil {
+			return schema
+		}
+	}
+
 	componentName := b._ComponentName(typeName, typeSpec)
+	if b._TypeSpecImplementsTextMarshaler(typeSpec) {
+		if componentName == "" {
+			return &Schema{Type: "string"}
+		}
+
+		componentName = b._DisambiguatedComponentName(componentName, typeName)
+		if _, exists := b._Components[componentName]; !exists {
+			b._Components[componentName] = &Schema{Type: "string"}
+			b._ComponentPkgs[componentName] = b._PkgPath
+		}
+
+		return &Schema{Ref: "#/components/schemas/" + componentName}
+	}
+
 	if componentName == "" {
 		return b._SchemaFromExpr(typeSpec.Type, env, b._TypeSpecImports[typeSpec])
 	}
@@ -2046,6 +2201,121 @@ func (b *_ASTSchemaBuilder) _SchemaFromTypeSpecWithEnv(typeName string, typeSpec
 	delete(b._Visiting, componentName)
 
 	return &Schema{Ref: "#/components/schemas/" + componentName}
+}
+
+func (b *_ASTSchemaBuilder) _JSONValueWrapperSchema(typeSpec *ast.TypeSpec, env map[string]_ASTSchemaArg) *Schema {
+	st, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return nil
+	}
+
+	var hasSet bool
+	var valueExpr ast.Expr
+	for _, field := range st.Fields.List {
+		for _, name := range field.Names {
+			if name == nil {
+				continue
+			}
+
+			switch name.Name {
+			case "Set":
+				if ident, ok := field.Type.(*ast.Ident); ok && ident.Name == "bool" {
+					hasSet = true
+				}
+			case "Value":
+				valueExpr = field.Type
+			}
+		}
+	}
+
+	if !hasSet || valueExpr == nil {
+		return nil
+	}
+
+	schema := b._SchemaFromExpr(valueExpr, env, b._TypeSpecImports[typeSpec])
+	if schema == nil {
+		return nil
+	}
+
+	if schema.Ref != "" {
+		return &Schema{
+			Nullable: true,
+			AllOf:    []*Schema{schema},
+		}
+	}
+
+	schema.Nullable = true
+
+	return schema
+}
+
+func (b *_ASTSchemaBuilder) _TypeSpecImplementsTextMarshaler(typeSpec *ast.TypeSpec) bool {
+	if typeSpec == nil || typeSpec.Name == nil {
+		return false
+	}
+
+	if b._TextMarshalers[typeSpec.Name.Name] {
+		return true
+	}
+
+	return b._StructPromotesTextMarshaler(typeSpec)
+}
+
+func (b *_ASTSchemaBuilder) _StructPromotesTextMarshaler(typeSpec *ast.TypeSpec) bool {
+	st, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return false
+	}
+
+	imports := b._TypeSpecImports[typeSpec]
+	for _, field := range st.Fields.List {
+		if len(field.Names) != 0 {
+			continue
+		}
+
+		if b._AnonymousFieldPromotesTextMarshaler(field.Type, imports) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *_ASTSchemaBuilder) _AnonymousFieldPromotesTextMarshaler(expr ast.Expr, imports map[string]string) bool {
+	expr = _ASTUnwrapStarExpr(expr)
+	switch t := expr.(type) {
+	case *ast.Ident:
+		if b._TextMarshalers[t.Name] {
+			return true
+		}
+
+		typeSpec := b._TypeSpecs[t.Name]
+		return typeSpec != nil && b._StructPromotesTextMarshaler(typeSpec)
+	case *ast.SelectorExpr:
+		if pkg, ok := t.X.(*ast.Ident); ok && t.Sel != nil && t.Sel.Name == "Time" && imports[pkg.Name] == "time" {
+			return true
+		}
+
+		typeName, builder, ok := b._SchemaTypeForSelector(t, imports)
+		if !ok {
+			return false
+		}
+
+		return builder._TypeSpecImplementsTextMarshaler(builder._TypeSpecs[typeName])
+	default:
+		return false
+	}
+}
+
+func _ASTUnwrapStarExpr(expr ast.Expr) ast.Expr {
+	for {
+		star, ok := expr.(*ast.StarExpr)
+		if !ok {
+			return expr
+		}
+
+		expr = star.X
+	}
 }
 
 func (b *_ASTSchemaBuilder) _SchemaFromExpr(expr ast.Expr, env map[string]_ASTSchemaArg, imports map[string]string) *Schema {
@@ -2112,6 +2382,7 @@ func (b *_ASTSchemaBuilder) _SchemaFromExpr(expr ast.Expr, env map[string]_ASTSc
 func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_ASTSchemaArg, imports map[string]string) *Schema {
 	props := map[string]*Schema{}
 	required := []string{}
+	embeddedSchemas := []*Schema{}
 
 	for _, field := range st.Fields.List {
 		if len(field.Names) == 0 {
@@ -2122,6 +2393,13 @@ func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_AS
 				}
 
 				required = append(required, embedded.Required...)
+			}
+
+			if embedded == nil {
+				fieldSchema := b._SchemaFromExpr(field.Type, env, imports)
+				if fieldSchema != nil && fieldSchema.Ref == "" && fieldSchema.Type != "object" {
+					embeddedSchemas = append(embeddedSchemas, fieldSchema)
+				}
 			}
 
 			continue
@@ -2145,13 +2423,45 @@ func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_AS
 			}
 
 			props[propName] = fieldSchema
-			if !omitempty && !fieldOmitempty && !_ASTFieldIsPointer(field.Type) {
+			if !omitempty && !fieldOmitempty && !_ASTFieldIsPointer(field.Type) && !b._ASTFieldIsJSONValueWrapper(field.Type, env, imports) {
 				required = append(required, propName)
 			}
 		}
 	}
 
+	if len(props) == 0 && len(required) == 0 && len(embeddedSchemas) == 1 {
+		return embeddedSchemas[0]
+	}
+
 	return &Schema{Type: "object", Properties: props, Required: required}
+}
+
+func (b *_ASTSchemaBuilder) _ASTFieldIsJSONValueWrapper(expr ast.Expr, env map[string]_ASTSchemaArg, imports map[string]string) bool {
+	typeName, builder, ok := b._SchemaTypeForJSONValueWrapperExpr(expr, env, imports)
+	if !ok {
+		return false
+	}
+
+	return builder._JSONValueTypes[typeName]
+}
+
+func (b *_ASTSchemaBuilder) _SchemaTypeForJSONValueWrapperExpr(expr ast.Expr, env map[string]_ASTSchemaArg, imports map[string]string) (string, *_ASTSchemaBuilder, bool) {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		if b._TypeSpecs[t.Name] != nil {
+			return t.Name, b, true
+		}
+	case *ast.SelectorExpr:
+		return b._SchemaTypeForSelector(t, imports)
+	case *ast.StarExpr:
+		return b._SchemaTypeForJSONValueWrapperExpr(t.X, env, imports)
+	case *ast.IndexExpr:
+		return b._SchemaTypeForJSONValueWrapperExpr(t.X, env, imports)
+	case *ast.IndexListExpr:
+		return b._SchemaTypeForJSONValueWrapperExpr(t.X, env, imports)
+	}
+
+	return "", nil, false
 }
 
 func (b *_ASTSchemaBuilder) _EmbeddedStructSchema(expr ast.Expr, env map[string]_ASTSchemaArg, imports map[string]string) *Schema {

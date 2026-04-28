@@ -1,13 +1,44 @@
 package goai
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/erresponse"
 )
+
+type _TextMarshalerSchemaID struct {
+	value uint64
+}
+
+func (_TextMarshalerSchemaID) MarshalText() ([]byte, error) {
+	return []byte("txt_123"), nil
+}
+
+type _OptionalSchemaValue[T any] struct {
+	Set   bool
+	Value *T
+}
+
+func (o *_OptionalSchemaValue[T]) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	if string(data) == "null" {
+		o.Value = nil
+		return nil
+	}
+
+	var value T
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+
+	o.Value = &value
+	return nil
+}
 
 func TestApplyGoaiTagParsesExampleBySchemaType(t *testing.T) {
 	tests := []struct {
@@ -71,6 +102,73 @@ func TestApplyGoaiTagParsesExampleBySchemaType(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.schema.Example)
 		})
 	}
+}
+
+func TestApplyGoaiTagWrapsRefBeforeAddingSiblingFields(t *testing.T) {
+	schema := &Schema{Ref: "#/components/schemas/Referenced"}
+
+	applyGoaiTag(schema, "description=Referenced field;example=abc")
+
+	assert.Empty(t, schema.Ref)
+	require.Len(t, schema.AllOf, 1)
+	assert.Equal(t, "#/components/schemas/Referenced", schema.AllOf[0].Ref)
+	assert.Equal(t, "Referenced field", schema.Description)
+	assert.Equal(t, "abc", schema.Example)
+}
+
+func TestApplyGoaiTagDoesNotWrapRefForNoOpOptions(t *testing.T) {
+	schema := &Schema{Ref: "#/components/schemas/Referenced"}
+
+	applyGoaiTag(schema, "nullable=false;deprecated=false;minLength=not-a-number")
+
+	assert.Equal(t, "#/components/schemas/Referenced", schema.Ref)
+	assert.Empty(t, schema.AllOf)
+	assert.False(t, schema.Nullable)
+	assert.False(t, schema.Deprecated)
+	assert.Nil(t, schema.MinLength)
+}
+
+func TestSchemaBuilderUsesStringSchemaForEmbeddedTextMarshalerStruct(t *testing.T) {
+	type TimeOfDay struct {
+		time.Time
+	}
+
+	components := NewComponents()
+	builder := newSchemaBuilder(components)
+
+	ref := builder.build(reflect.TypeOf(TimeOfDay{}))
+
+	require.NotNil(t, ref)
+	assert.Equal(t, "#/components/schemas/goai.TimeOfDay", ref.Ref)
+	schema := components.Schemas["goai.TimeOfDay"]
+	require.NotNil(t, schema)
+	assert.Equal(t, "string", schema.Type)
+	assert.Empty(t, schema.Format)
+}
+
+func TestSchemaBuilderUsesStringSchemaForTextMarshalerStruct(t *testing.T) {
+	components := NewComponents()
+	builder := newSchemaBuilder(components)
+
+	ref := builder.build(reflect.TypeOf(_TextMarshalerSchemaID{}))
+
+	require.NotNil(t, ref)
+	assert.Equal(t, "#/components/schemas/goai._TextMarshalerSchemaID", ref.Ref)
+	schema := components.Schemas["goai._TextMarshalerSchemaID"]
+	require.NotNil(t, schema)
+	assert.Equal(t, "string", schema.Type)
+}
+
+func TestSchemaBuilderUsesValueSchemaForJSONValueWrapper(t *testing.T) {
+	components := NewComponents()
+	builder := newSchemaBuilder(components)
+
+	schema := builder.build(reflect.TypeOf(_OptionalSchemaValue[string]{}))
+
+	require.NotNil(t, schema)
+	assert.Equal(t, "string", schema.Type)
+	assert.True(t, schema.Nullable)
+	assert.Empty(t, components.Schemas)
 }
 
 func TestSchemaBuilderUsesDefaultErrorResponseSchemaMetadata(t *testing.T) {

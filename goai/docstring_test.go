@@ -36,6 +36,10 @@ type _DocMergeResponse struct {
 	ID string `json:"id"`
 }
 
+type _NullableRefHolder struct {
+	Item *_DocMergeResponse `json:"item"`
+}
+
 type _ResponseSpecError struct {
 	Message string `json:"message"`
 }
@@ -921,6 +925,282 @@ var _ = erresponse.ServerError
 	require.Contains(t, doc.Components.Schemas, "erresponse.DefaultErrorResponse")
 }
 
+func TestSchemaFromNormalizesRawSchemaRefSiblings(t *testing.T) {
+	schema := _SchemaFrom("object", map[string]string{
+		"schema": `{"type":"object","properties":{"request":{"$ref":"#/components/schemas/Request","description":"Request payload"}}}`,
+	})
+
+	require.NotNil(t, schema)
+	request := schema.Properties["request"]
+	require.NotNil(t, request)
+	assert.Empty(t, request.Ref)
+	require.Len(t, request.AllOf, 1)
+	assert.Equal(t, "#/components/schemas/Request", request.AllOf[0].Ref)
+	assert.Equal(t, "Request payload", request.Description)
+}
+
+func TestSchemaFromDoesNotWrapRefForNoOpNullableOption(t *testing.T) {
+	schema := _SchemaFrom("#/components/schemas/Request", map[string]string{
+		"nullable": "false",
+	})
+
+	require.NotNil(t, schema)
+	assert.Equal(t, "#/components/schemas/Request", schema.Ref)
+	assert.Empty(t, schema.AllOf)
+	assert.False(t, schema.Nullable)
+}
+
+func TestSchemaFromWrapsRefForOutputNullableOptionOnce(t *testing.T) {
+	schema := _SchemaFrom("#/components/schemas/Request", map[string]string{
+		"nullable": "true",
+	})
+
+	require.NotNil(t, schema)
+	assert.Empty(t, schema.Ref)
+	require.Len(t, schema.AllOf, 1)
+	assert.Equal(t, "#/components/schemas/Request", schema.AllOf[0].Ref)
+	assert.True(t, schema.Nullable)
+}
+
+func TestASTSchemaBuilderUsesStringSchemaForStructPromotingTextMarshaler(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+import "time"
+
+// @goai.schemaName PublicTimeOfDay
+type TimeOfDay struct {
+	time.Time
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("TimeOfDay")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicTimeOfDay", schema.Ref)
+
+	component := builder._Components["PublicTimeOfDay"]
+	require.NotNil(t, component)
+	assert.Equal(t, "string", component.Type)
+	assert.Empty(t, component.Format)
+}
+
+func TestASTSchemaBuilderUsesStringSchemaForStructPromotingAliasedTimeTextMarshaler(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+import tm "time"
+
+// @goai.schemaName PublicTimeOfDay
+type TimeOfDay struct {
+	tm.Time
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("TimeOfDay")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicTimeOfDay", schema.Ref)
+
+	component := builder._Components["PublicTimeOfDay"]
+	require.NotNil(t, component)
+	assert.Equal(t, "string", component.Type)
+	assert.Empty(t, component.Format)
+}
+
+func TestASTSchemaBuilderUsesStringSchemaForTextMarshalerStruct(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+// @goai.schemaName PublicTimeOfDay
+type TimeOfDay struct{}
+
+func (t TimeOfDay) MarshalText() ([]byte, error) {
+	return []byte("00:00:00"), nil
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("TimeOfDay")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicTimeOfDay", schema.Ref)
+
+	component := builder._Components["PublicTimeOfDay"]
+	require.NotNil(t, component)
+	assert.Equal(t, "string", component.Type)
+	assert.Empty(t, component.Format)
+}
+
+func TestASTSchemaBuilderIgnoresInvalidMarshalTextSignature(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+// @goai.schemaName PublicID
+type ID struct {
+	Value string `+"`json:\"value\"`"+`
+}
+
+func (id ID) MarshalText() string {
+	return id.Value
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("ID")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicID", schema.Ref)
+
+	component := builder._Components["PublicID"]
+	require.NotNil(t, component)
+	assert.Equal(t, "object", component.Type)
+	require.Contains(t, component.Properties, "value")
+	assert.Equal(t, "string", component.Properties["value"].Type)
+}
+
+func TestASTSchemaBuilderIgnoresMultiValueMarshalTextSignature(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+// @goai.schemaName PublicID
+type ID struct {
+	Value string `+"`json:\"value\"`"+`
+}
+
+func (id ID) MarshalText() (a, b []byte, err error) {
+	return nil, nil, nil
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("ID")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicID", schema.Ref)
+
+	component := builder._Components["PublicID"]
+	require.NotNil(t, component)
+	assert.Equal(t, "object", component.Type)
+	require.Contains(t, component.Properties, "value")
+	assert.Equal(t, "string", component.Properties["value"].Type)
+}
+
+func TestASTSchemaBuilderIgnoresMultiValueMarshalTextSignatureInOneResultField(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+// @goai.schemaName PublicID
+type ID struct {
+	Value string `+"`json:\"value\"`"+`
+}
+
+func (id ID) MarshalText() (a, b []byte) {
+	return nil, nil
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("ID")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicID", schema.Ref)
+
+	component := builder._Components["PublicID"]
+	require.NotNil(t, component)
+	assert.Equal(t, "object", component.Type)
+	require.Contains(t, component.Properties, "value")
+	assert.Equal(t, "string", component.Properties["value"].Type)
+}
+
+func TestASTSchemaBuilderUsesValueSchemaForJSONValueWrapper(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+type Optional[T any] struct {
+	Set bool
+	Value *T
+}
+
+func (o *Optional[T]) UnmarshalJSON(data []byte) error {
+	return nil
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("Optional[string]")
+	require.True(t, ok)
+	assert.Equal(t, "string", schema.Type)
+	assert.True(t, schema.Nullable)
+	assert.Empty(t, schema.Ref)
+}
+
+func TestASTSchemaBuilderDoesNotRequireJSONValueWrapperFields(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+type Optional[T any] struct {
+	Set bool
+	Value *T
+}
+
+func (o *Optional[T]) UnmarshalJSON(data []byte) error {
+	return nil
+}
+
+// @goai.schemaName PublicPatchRequest
+type PatchRequest struct {
+	Name Optional[string] `+"`json:\"name\"`"+`
+	Count Optional[int] `+"`json:\"count\"`"+`
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("PatchRequest")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicPatchRequest", schema.Ref)
+
+	component := builder._Components["PublicPatchRequest"]
+	require.NotNil(t, component)
+	assert.Empty(t, component.Required)
+	require.Contains(t, component.Properties, "name")
+	assert.Equal(t, "string", component.Properties["name"].Type)
+	assert.True(t, component.Properties["name"].Nullable)
+	require.Contains(t, component.Properties, "count")
+	assert.Equal(t, "integer", component.Properties["count"].Type)
+	assert.True(t, component.Properties["count"].Nullable)
+}
+
+func TestASTSchemaBuilderIgnoresInvalidUnmarshalJSONSignature(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+// @goai.schemaName PublicOptional
+type Optional[T any] struct {
+	Set bool
+	Value *T `+"`json:\"value\"`"+`
+}
+
+func (o *Optional[T]) UnmarshalJSON() error {
+	return nil
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("Optional[string]")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicOptional.string", schema.Ref)
+
+	component := builder._Components["PublicOptional.string"]
+	require.NotNil(t, component)
+	assert.Equal(t, "object", component.Type)
+	require.Contains(t, component.Properties, "value")
+	assert.Equal(t, "string", component.Properties["value"].Type)
+}
+
+func TestASTSchemaBuilderIgnoresMultiValueUnmarshalJSONSignature(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+// @goai.schemaName PublicOptional
+type Optional[T any] struct {
+	Set bool
+	Value *T `+"`json:\"value\"`"+`
+}
+
+func (o *Optional[T]) UnmarshalJSON(a, b []byte) error {
+	return nil
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("Optional[string]")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicOptional.string", schema.Ref)
+
+	component := builder._Components["PublicOptional.string"]
+	require.NotNil(t, component)
+	assert.Equal(t, "object", component.Type)
+	require.Contains(t, component.Properties, "value")
+	assert.Equal(t, "string", component.Properties["value"].Type)
+}
+
 func TestBuildOperationUsesDocstringAliasImportedGenericSchemaType(t *testing.T) {
 	handler := &_DocstringSchemaHandler{}
 	doc := Build([]OperationCandidate{
@@ -1255,6 +1535,26 @@ func TestParseOpenAPIDocCommentKeepsRequestExampleBeforeRequestBody(t *testing.T
 	require.Contains(t, mt.Examples, "default")
 	assert.Equal(t, "Default request", mt.Examples["default"].Summary)
 	assert.Equal(t, map[string]any{"name": "Alice"}, mt.Examples["default"].Value)
+}
+
+func TestParseOpenAPIDocCommentWrapsExampleOptionPayloadAsValue(t *testing.T) {
+	text := `Post documents an example option payload.
+
+@goai.endpoint POST /items
+@goai.requestBody required application/json object "Create payload." schema={"type":"object","properties":{"name":{"type":"string"}}}
+@goai.example request application/json default example={"name":"Alice"}
+`
+
+	doc, ok := _ParseOpenAPIDocComment(text, "Post")
+	require.True(t, ok)
+	require.NotNil(t, doc)
+	require.NotNil(t, doc.Operation.RequestBody)
+
+	mt := doc.Operation.RequestBody.Content["application/json"]
+	require.NotNil(t, mt)
+	require.Contains(t, mt.Examples, "default")
+	assert.Equal(t, map[string]any{"name": "Alice"}, mt.Examples["default"].Value)
+	assert.Empty(t, mt.Examples["default"].Extensions)
 }
 
 func TestParseOpenAPIDocCommentKeepsParamExampleBeforeParam(t *testing.T) {
@@ -1899,6 +2199,155 @@ func TestBuildCanonicalPathCanInsertAndRemovePathParams(t *testing.T) {
 	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "assets_id"))
 }
 
+func TestBuildRemovesPathParamsWhenPathTemplateHasNoParams(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /api/v1/organizations
+@goai.summary List organizations
+@goai.param path organizations_id string required "Organization ID."
+@goai.param query limit integer optional "Page size."
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/api/v1/organizations",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "organizations_id", Required: true, Description: "Injected organization ID."},
+				{Name: "projects_id", Required: true, Description: "Injected project ID."},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	op := doc.Paths["/api/v1/organizations"].Get
+	require.NotNil(t, op)
+	assert.Equal(t, "List organizations", op.Summary)
+	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "organizations_id"))
+	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "projects_id"))
+	assert.Equal(t, "Page size.", _FindParameter(t, op.Parameters, "query", "limit").Description)
+}
+
+func TestBuildRemovesSpecPathParamsWhenPathTemplateHasNoParams(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	handler := &_DocstringTestHandler{}
+	Register(handler, "GET", nil, nil,
+		WithParam(PathParam{Name: "organizations_id", Required: true, Description: "Organization ID."}),
+		WithParam(PathParam{Name: "limit", In: "query", Description: "Page size."}),
+	)
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/api/v1/organizations",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{})
+
+	op := doc.Paths["/api/v1/organizations"].Get
+	require.NotNil(t, op)
+	assert.Nil(t, _FindOperationParameter(op.Parameters, "path", "organizations_id"))
+	assert.Equal(t, "Page size.", _FindParameter(t, op.Parameters, "query", "limit").Description)
+}
+
+func TestBuildAddsTypeToNullableRefSchemas(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	handler := &_DocstringTestHandler{}
+	Register(handler, "GET", nil, (*_NullableRefHolder)(nil))
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/items/{id}",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			PathParams: []PathParam{
+				{Name: "id", Required: true},
+			},
+		},
+	}, nil, BuildOptions{})
+
+	op := doc.Paths["/items/{id}"].Get
+	require.NotNil(t, op)
+	holderRef := op.Responses["200"].Content["application/json"].Schema.Ref
+	require.NotEmpty(t, holderRef)
+	holder := doc.Components.Schemas[strings.TrimPrefix(holderRef, "#/components/schemas/")]
+	require.NotNil(t, holder)
+	item := holder.Properties["item"]
+	require.NotNil(t, item)
+	assert.True(t, item.Nullable)
+	assert.Equal(t, "object", item.Type)
+	require.Len(t, item.AllOf, 1)
+	assert.NotEmpty(t, item.AllOf[0].Ref)
+}
+
+func TestBuildRemovesDefaultPostCreatedResponseWhenDocDeclaresOK(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/items",
+			Method:        "POST",
+			Handler:       handler,
+			HandlerMethod: "Post",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(`
+@goai.endpoint POST /items
+@goai.response 200 "OK." mediaType=application/json schema={"type":"object","properties":{"id":{"type":"string"}}}
+@goai.response 400 "Invalid request." mediaType=application/json schema={"type":"object"}
+`, methodName, nil)
+		},
+	})
+
+	op := doc.Paths["/items"].Post
+	require.NotNil(t, op)
+	require.Contains(t, op.Responses, "200")
+	assert.Equal(t, "OK.", op.Responses["200"].Description)
+	assert.NotContains(t, op.Responses, "201")
+	require.Contains(t, op.Responses, "400")
+}
+
+func TestBuildRemovesDefaultPostCreatedResponseWithRegisteredResponseTypeWhenDocDeclaresOK(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	handler := &_DocstringTestHandler{}
+	Register(handler, "POST", (*_DocMergeRequest)(nil), (*_DocMergeResponse)(nil))
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/items",
+			Method:        "POST",
+			Handler:       handler,
+			HandlerMethod: "Post",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(`
+@goai.endpoint POST /items
+@goai.response 200 "OK." mediaType=application/json schemaType=_DocMergeResponse
+`, methodName, nil)
+		},
+	})
+
+	op := doc.Paths["/items"].Post
+	require.NotNil(t, op)
+	require.Contains(t, op.Responses, "200")
+	assert.Equal(t, "OK.", op.Responses["200"].Description)
+	assert.NotContains(t, op.Responses, "201")
+}
+
 func TestBuildOperationAppliesEndpointIndexedDocstringDirectives(t *testing.T) {
 	handler := &_DocstringTestHandler{}
 	docText := `
@@ -2317,8 +2766,8 @@ func TestBuildOperationMergesDocResponseHeadersAndLinksByName(t *testing.T) {
 	require.NotNil(t, op)
 	require.NotNil(t, op.Security)
 	require.Len(t, *op.Security, 1)
-	assert.Equal(t, []string{"read"}, (*op.Security)[0]["RouteAuth"])
-	assert.NotContains(t, (*op.Security)[0], "DocAuth")
+	assert.Contains(t, (*op.Security)[0], "DocAuth")
+	assert.NotContains(t, (*op.Security)[0], "RouteAuth")
 
 	resp400 := op.Responses["400"]
 	require.NotNil(t, resp400)
@@ -2440,6 +2889,39 @@ func TestBuildOperationUsesDocSchemaInsteadOfDefaultPlaceholderSchema(t *testing
 	assert.Equal(t, "string", mt.Schema.Items.Type)
 }
 
+func TestBuildOperationDocSecurityOverridesRouteSecurityWhenSpecHasNoSecurity(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/mgmt/items",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+			SecurityRefs: []SecurityRef{
+				{Scheme: "OAuth2"},
+			},
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return &OperationDoc{
+				Endpoint: OperationEndpoint{Method: "GET", Path: "/mgmt/items"},
+				Operation: Operation{
+					Security: &[]map[string][]string{
+						{"SiteToken": {}},
+					},
+				},
+			}, true
+		},
+	})
+
+	op := doc.Paths["/mgmt/items"].Get
+	require.NotNil(t, op)
+	require.NotNil(t, op.Security)
+	require.Len(t, *op.Security, 1)
+	assert.Contains(t, (*op.Security)[0], "SiteToken")
+	assert.NotContains(t, (*op.Security)[0], "OAuth2")
+}
+
 func TestBuildOperationAppliesResponseSpecOptions(t *testing.T) {
 	Reset()
 	defer Reset()
@@ -2468,10 +2950,8 @@ func TestBuildOperationAppliesResponseSpecOptions(t *testing.T) {
 		WithResponse("418", "",
 			WithResponseMediaType("application/problem+json"),
 			WithResponseSchemaPrebuilt(&Schema{
-				Type: "object",
-				Properties: map[string]*Schema{
-					"teapot": {Type: "boolean"},
-				},
+				Ref:         "#/components/schemas/TeapotError",
+				Description: "Teapot error.",
 			}),
 			WithResponseExample(map[string]any{"teapot": true}),
 		),
@@ -2518,8 +2998,10 @@ func TestBuildOperationAppliesResponseSpecOptions(t *testing.T) {
 	mt418 := resp418.Content["application/problem+json"]
 	require.NotNil(t, mt418)
 	require.NotNil(t, mt418.Schema)
-	assert.Equal(t, "object", mt418.Schema.Type)
-	assert.Equal(t, "boolean", mt418.Schema.Properties["teapot"].Type)
+	assert.Empty(t, mt418.Schema.Ref)
+	require.Len(t, mt418.Schema.AllOf, 1)
+	assert.Equal(t, "#/components/schemas/TeapotError", mt418.Schema.AllOf[0].Ref)
+	assert.Equal(t, "Teapot error.", mt418.Schema.Description)
 	assert.Equal(t, map[string]any{"teapot": true}, mt418.Example)
 }
 

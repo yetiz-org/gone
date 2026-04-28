@@ -1,6 +1,7 @@
 package goai
 
 import (
+	"encoding"
 	"encoding/json"
 	"reflect"
 	"strconv"
@@ -106,6 +107,14 @@ func (b *schemaBuilder) build(t reflect.Type) *Schema {
 
 		return &Schema{Type: "object", AdditionalProperties: valueSchema}
 	case reflect.Struct:
+		if schema := b.jsonValueWrapperSchema(t); schema != nil {
+			return schema
+		}
+
+		if schema := b.textMarshalerStructSchema(t); schema != nil {
+			return schema
+		}
+
 		return b.buildStruct(t)
 	case reflect.Interface:
 		// Empty interface → free-form object.
@@ -113,6 +122,67 @@ func (b *schemaBuilder) build(t reflect.Type) *Schema {
 	default:
 		return &Schema{}
 	}
+}
+
+func (b *schemaBuilder) jsonValueWrapperSchema(t reflect.Type) *Schema {
+	if !typeImplementsJSONUnmarshaler(t) {
+		return nil
+	}
+
+	setField, ok := t.FieldByName("Set")
+	if !ok || setField.Type.Kind() != reflect.Bool {
+		return nil
+	}
+
+	valueField, ok := t.FieldByName("Value")
+	if !ok {
+		return nil
+	}
+
+	schema := b.build(valueField.Type)
+	if schema == nil {
+		return nil
+	}
+
+	if schema.Ref != "" {
+		return &Schema{
+			Nullable: true,
+			AllOf:    []*Schema{schema},
+		}
+	}
+
+	schema.Nullable = true
+
+	return schema
+}
+
+func (b *schemaBuilder) textMarshalerStructSchema(t reflect.Type) *Schema {
+	if t == reflect.TypeOf(time.Time{}) || !typeImplementsTextMarshaler(t) {
+		return nil
+	}
+
+	name := b.componentName(t)
+	if name == "" {
+		return &Schema{Type: "string"}
+	}
+
+	if _, exists := b.components.Schemas[name]; !exists {
+		b.components.Schemas[name] = &Schema{Type: "string"}
+	}
+
+	return &Schema{Ref: "#/components/schemas/" + name}
+}
+
+func typeImplementsTextMarshaler(t reflect.Type) bool {
+	textMarshaler := reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+
+	return t.Implements(textMarshaler) || reflect.PointerTo(t).Implements(textMarshaler)
+}
+
+func typeImplementsJSONUnmarshaler(t reflect.Type) bool {
+	jsonUnmarshaler := reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
+
+	return t.Implements(jsonUnmarshaler) || reflect.PointerTo(t).Implements(jsonUnmarshaler)
 }
 
 // buildStruct registers (if not already) and returns either a $ref to a
@@ -146,6 +216,7 @@ func (b *schemaBuilder) buildStruct(t reflect.Type) *Schema {
 func (b *schemaBuilder) structSchema(t reflect.Type) *Schema {
 	props := map[string]*Schema{}
 	var required []string
+	var embeddedSchemas []*Schema
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -155,7 +226,14 @@ func (b *schemaBuilder) structSchema(t reflect.Type) *Schema {
 
 		// Embedded struct: flatten its fields up.
 		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			inner := b.structSchema(field.Type)
+			inner := b.build(field.Type)
+			if inner != nil && inner.Ref == "" && inner.Type != "object" {
+				embeddedSchemas = append(embeddedSchemas, inner)
+
+				continue
+			}
+
+			inner = b.structSchema(field.Type)
 			for k, v := range inner.Properties {
 				props[k] = v
 			}
@@ -183,6 +261,10 @@ func (b *schemaBuilder) structSchema(t reflect.Type) *Schema {
 		if !omitempty && field.Type.Kind() != reflect.Pointer {
 			required = append(required, name)
 		}
+	}
+
+	if len(props) == 0 && len(required) == 0 && len(embeddedSchemas) == 1 {
+		return embeddedSchemas[0]
 	}
 
 	return &Schema{Type: "object", Properties: props, Required: required}
@@ -370,55 +452,467 @@ func applyGoaiTag(s *Schema, tag string) {
 
 		switch key {
 		case "title":
+			if value != "" {
+				prepareSchemaRefForSiblings(s)
+			}
 			s.Title = value
 		case "description", "desc":
+			if value != "" {
+				prepareSchemaRefForSiblings(s)
+			}
 			s.Description = value
 		case "example":
+			if value != "" {
+				prepareSchemaRefForSiblings(s)
+			}
 			s.Example = parseSchemaExample(s, value)
 		case "default":
+			if value != "" {
+				prepareSchemaRefForSiblings(s)
+			}
 			s.Default = value
 		case "format":
+			if value != "" {
+				prepareSchemaRefForSiblings(s)
+			}
 			s.Format = value
 		case "enum":
+			if value != "" {
+				prepareSchemaRefForSiblings(s)
+			}
 			for _, v := range strings.Split(value, ",") {
 				s.Enum = append(s.Enum, strings.TrimSpace(v))
 			}
 		case "nullable":
-			s.Nullable = boolFlag(value)
+			if parsed := boolFlag(value); parsed {
+				prepareSchemaRefForSiblings(s)
+				s.Nullable = parsed
+			} else {
+				s.Nullable = parsed
+			}
 		case "deprecated":
-			s.Deprecated = boolFlag(value)
+			if parsed := boolFlag(value); parsed {
+				prepareSchemaRefForSiblings(s)
+				s.Deprecated = parsed
+			} else {
+				s.Deprecated = parsed
+			}
 		case "readOnly":
-			s.ReadOnly = boolFlag(value)
+			if parsed := boolFlag(value); parsed {
+				prepareSchemaRefForSiblings(s)
+				s.ReadOnly = parsed
+			} else {
+				s.ReadOnly = parsed
+			}
 		case "writeOnly":
-			s.WriteOnly = boolFlag(value)
+			if parsed := boolFlag(value); parsed {
+				prepareSchemaRefForSiblings(s)
+				s.WriteOnly = parsed
+			} else {
+				s.WriteOnly = parsed
+			}
 		case "uniqueItems":
-			s.UniqueItems = boolFlag(value)
+			if parsed := boolFlag(value); parsed {
+				prepareSchemaRefForSiblings(s)
+				s.UniqueItems = parsed
+			} else {
+				s.UniqueItems = parsed
+			}
 		case "exclusiveMinimum":
-			s.ExclusiveMinimum = boolFlag(value)
+			if parsed := boolFlag(value); parsed {
+				prepareSchemaRefForSiblings(s)
+				s.ExclusiveMinimum = parsed
+			} else {
+				s.ExclusiveMinimum = parsed
+			}
 		case "exclusiveMaximum":
-			s.ExclusiveMaximum = boolFlag(value)
+			if parsed := boolFlag(value); parsed {
+				prepareSchemaRefForSiblings(s)
+				s.ExclusiveMaximum = parsed
+			} else {
+				s.ExclusiveMaximum = parsed
+			}
 		case "pattern":
+			if value != "" {
+				prepareSchemaRefForSiblings(s)
+			}
 			s.Pattern = value
 		case "minLength":
-			s.MinLength = parseUint(value)
+			if parsed := parseUint(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.MinLength = parsed
+			} else {
+				s.MinLength = parsed
+			}
 		case "maxLength":
-			s.MaxLength = parseUint(value)
+			if parsed := parseUint(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.MaxLength = parsed
+			} else {
+				s.MaxLength = parsed
+			}
 		case "minItems":
-			s.MinItems = parseUint(value)
+			if parsed := parseUint(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.MinItems = parsed
+			} else {
+				s.MinItems = parsed
+			}
 		case "maxItems":
-			s.MaxItems = parseUint(value)
+			if parsed := parseUint(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.MaxItems = parsed
+			} else {
+				s.MaxItems = parsed
+			}
 		case "minProperties":
-			s.MinProperties = parseUint(value)
+			if parsed := parseUint(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.MinProperties = parsed
+			} else {
+				s.MinProperties = parsed
+			}
 		case "maxProperties":
-			s.MaxProperties = parseUint(value)
+			if parsed := parseUint(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.MaxProperties = parsed
+			} else {
+				s.MaxProperties = parsed
+			}
 		case "minimum":
-			s.Minimum = parseFloat(value)
+			if parsed := parseFloat(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.Minimum = parsed
+			} else {
+				s.Minimum = parsed
+			}
 		case "maximum":
-			s.Maximum = parseFloat(value)
+			if parsed := parseFloat(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.Maximum = parsed
+			} else {
+				s.Maximum = parsed
+			}
 		case "multipleOf":
-			s.MultipleOf = parseFloat(value)
+			if parsed := parseFloat(value); parsed != nil {
+				prepareSchemaRefForSiblings(s)
+				s.MultipleOf = parsed
+			} else {
+				s.MultipleOf = parsed
+			}
 		}
 	}
+}
+
+func prepareSchemaRefForSiblings(s *Schema) {
+	if s == nil || s.Ref == "" {
+		return
+	}
+
+	ref := s.Ref
+	s.Ref = ""
+	s.AllOf = append([]*Schema{{Ref: ref}}, s.AllOf...)
+}
+
+func normalizeSchemaRefSiblings(s *Schema) {
+	if s == nil {
+		return
+	}
+
+	if s.Ref != "" && schemaHasRefSiblings(s) {
+		prepareSchemaRefForSiblings(s)
+	}
+
+	normalizeSchemaRefSiblings(s.Items)
+	normalizeSchemaRefSiblings(s.Not)
+	for _, item := range s.OneOf {
+		normalizeSchemaRefSiblings(item)
+	}
+	for _, item := range s.AllOf {
+		normalizeSchemaRefSiblings(item)
+	}
+	for _, item := range s.AnyOf {
+		normalizeSchemaRefSiblings(item)
+	}
+	for _, prop := range s.Properties {
+		normalizeSchemaRefSiblings(prop)
+	}
+	if additional, ok := s.AdditionalProperties.(*Schema); ok {
+		normalizeSchemaRefSiblings(additional)
+	}
+}
+
+func normalizeDocumentSchemas(doc *Document) {
+	if doc == nil {
+		return
+	}
+
+	for _, item := range doc.Paths {
+		normalizePathItemSchemas(item, doc.Components)
+	}
+
+	if doc.Components == nil {
+		return
+	}
+
+	for _, schema := range doc.Components.Schemas {
+		normalizeSchemaForDocument(schema, doc.Components)
+	}
+	for _, response := range doc.Components.Responses {
+		normalizeResponseSchemas(response, doc.Components)
+	}
+	for _, parameter := range doc.Components.Parameters {
+		normalizeParameterSchemas(parameter, doc.Components)
+	}
+	for _, requestBody := range doc.Components.RequestBodies {
+		normalizeRequestBodySchemas(requestBody, doc.Components)
+	}
+	for _, header := range doc.Components.Headers {
+		normalizeHeaderSchemas(header, doc.Components)
+	}
+}
+
+func normalizePathItemSchemas(item *PathItem, components *Components) {
+	if item == nil {
+		return
+	}
+
+	for _, parameter := range item.Parameters {
+		normalizeParameterSchemas(parameter, components)
+	}
+	for _, op := range []*Operation{item.Get, item.Put, item.Post, item.Delete, item.Options, item.Head, item.Patch, item.Trace} {
+		normalizeOperationSchemas(op, components)
+	}
+}
+
+func normalizeOperationSchemas(op *Operation, components *Components) {
+	if op == nil {
+		return
+	}
+
+	for _, parameter := range op.Parameters {
+		normalizeParameterSchemas(parameter, components)
+	}
+	normalizeRequestBodySchemas(op.RequestBody, components)
+	for _, response := range op.Responses {
+		normalizeResponseSchemas(response, components)
+	}
+	for _, callback := range op.Callbacks {
+		for _, item := range callback {
+			normalizePathItemSchemas(item, components)
+		}
+	}
+}
+
+func normalizeRequestBodySchemas(requestBody *RequestBody, components *Components) {
+	if requestBody == nil {
+		return
+	}
+
+	normalizeMediaTypeSchemas(requestBody.Content, components)
+}
+
+func normalizeResponseSchemas(response *Response, components *Components) {
+	if response == nil {
+		return
+	}
+
+	normalizeMediaTypeSchemas(response.Content, components)
+	for _, header := range response.Headers {
+		normalizeHeaderSchemas(header, components)
+	}
+}
+
+func normalizeParameterSchemas(parameter *Parameter, components *Components) {
+	if parameter == nil {
+		return
+	}
+
+	normalizeSchemaForDocument(parameter.Schema, components)
+	normalizeMediaTypeSchemas(parameter.Content, components)
+}
+
+func normalizeHeaderSchemas(header *Header, components *Components) {
+	if header == nil {
+		return
+	}
+
+	normalizeSchemaForDocument(header.Schema, components)
+	normalizeMediaTypeSchemas(header.Content, components)
+}
+
+func normalizeMediaTypeSchemas(content map[string]*MediaType, components *Components) {
+	for _, mediaType := range content {
+		if mediaType == nil {
+			continue
+		}
+
+		normalizeSchemaForDocument(mediaType.Schema, components)
+	}
+}
+
+func normalizeSchemaForDocument(s *Schema, components *Components) {
+	if s == nil {
+		return
+	}
+
+	normalizeSchemaRefSiblings(s)
+	applyNullableRefType(s, components)
+	normalizeSchemaForDocument(s.Items, components)
+	normalizeSchemaForDocument(s.Not, components)
+	for _, item := range s.OneOf {
+		normalizeSchemaForDocument(item, components)
+	}
+	for _, item := range s.AllOf {
+		normalizeSchemaForDocument(item, components)
+	}
+	for _, item := range s.AnyOf {
+		normalizeSchemaForDocument(item, components)
+	}
+	for _, prop := range s.Properties {
+		normalizeSchemaForDocument(prop, components)
+	}
+	if additional, ok := s.AdditionalProperties.(*Schema); ok {
+		normalizeSchemaForDocument(additional, components)
+	}
+}
+
+func applyNullableRefType(s *Schema, components *Components) {
+	if s == nil || !s.Nullable || s.Type != "" || len(s.AllOf) != 1 || s.AllOf[0] == nil || s.AllOf[0].Ref == "" {
+		return
+	}
+
+	if typ := schemaTypeForRef(s.AllOf[0].Ref, components, map[string]bool{}); typ != "" {
+		s.Type = typ
+	}
+}
+
+func schemaTypeForRef(ref string, components *Components, seen map[string]bool) string {
+	const prefix = "#/components/schemas/"
+	if components == nil || !strings.HasPrefix(ref, prefix) {
+		return ""
+	}
+
+	name := strings.TrimPrefix(ref, prefix)
+	if seen[name] {
+		return ""
+	}
+	seen[name] = true
+
+	schema := components.Schemas[name]
+	if schema == nil {
+		return ""
+	}
+
+	if schema.Type != "" {
+		return schema.Type
+	}
+	if schema.Ref != "" {
+		return schemaTypeForRef(schema.Ref, components, seen)
+	}
+	if len(schema.Properties) > 0 || len(schema.Required) > 0 || schema.AdditionalProperties != nil {
+		return "object"
+	}
+	if schema.Items != nil {
+		return "array"
+	}
+	if len(schema.AllOf) == 1 && schema.AllOf[0] != nil && schema.AllOf[0].Ref != "" {
+		return schemaTypeForRef(schema.AllOf[0].Ref, components, seen)
+	}
+
+	return ""
+}
+
+func cloneSchema(schema *Schema) *Schema {
+	if schema == nil {
+		return nil
+	}
+
+	clone := *schema
+	clone.Enum = append([]any(nil), schema.Enum...)
+	clone.OneOf = cloneSchemaSlice(schema.OneOf)
+	clone.AllOf = cloneSchemaSlice(schema.AllOf)
+	clone.AnyOf = cloneSchemaSlice(schema.AnyOf)
+	clone.Not = cloneSchema(schema.Not)
+	clone.Properties = cloneSchemaMap(schema.Properties)
+	clone.Required = append([]string(nil), schema.Required...)
+	clone.Items = cloneSchema(schema.Items)
+	if additional, ok := schema.AdditionalProperties.(*Schema); ok {
+		clone.AdditionalProperties = cloneSchema(additional)
+	}
+	if schema.Extensions != nil {
+		clone.Extensions = map[string]any{}
+		for key, value := range schema.Extensions {
+			clone.Extensions[key] = value
+		}
+	}
+
+	return &clone
+}
+
+func cloneSchemaSlice(schemas []*Schema) []*Schema {
+	if len(schemas) == 0 {
+		return nil
+	}
+
+	out := make([]*Schema, len(schemas))
+	for i, schema := range schemas {
+		out[i] = cloneSchema(schema)
+	}
+
+	return out
+}
+
+func cloneSchemaMap(schemas map[string]*Schema) map[string]*Schema {
+	if len(schemas) == 0 {
+		return nil
+	}
+
+	out := make(map[string]*Schema, len(schemas))
+	for name, schema := range schemas {
+		out[name] = cloneSchema(schema)
+	}
+
+	return out
+}
+
+func schemaHasRefSiblings(s *Schema) bool {
+	return s.Title != "" ||
+		s.Type != "" ||
+		s.Format != "" ||
+		s.Description != "" ||
+		s.MultipleOf != nil ||
+		s.Maximum != nil ||
+		s.ExclusiveMaximum ||
+		s.Minimum != nil ||
+		s.ExclusiveMinimum ||
+		s.MaxLength != nil ||
+		s.MinLength != nil ||
+		s.Pattern != "" ||
+		s.MaxItems != nil ||
+		s.MinItems != nil ||
+		s.UniqueItems ||
+		s.MaxProperties != nil ||
+		s.MinProperties != nil ||
+		len(s.Enum) > 0 ||
+		s.Default != nil ||
+		len(s.OneOf) > 0 ||
+		len(s.AllOf) > 0 ||
+		len(s.AnyOf) > 0 ||
+		s.Not != nil ||
+		len(s.Properties) > 0 ||
+		len(s.Required) > 0 ||
+		s.AdditionalProperties != nil ||
+		s.Items != nil ||
+		s.Nullable ||
+		s.Discriminator != nil ||
+		s.ReadOnly ||
+		s.WriteOnly ||
+		s.XML != nil ||
+		s.ExternalDocs != nil ||
+		s.Example != nil ||
+		s.Deprecated ||
+		len(s.Extensions) > 0
 }
 
 func parseSchemaExample(s *Schema, value string) any {

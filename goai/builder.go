@@ -88,6 +88,7 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 
 	for _, c := range candidates {
 		c = _CanonicalizeCandidatePathFromDocstring(c, docExtractor)
+		c = _CandidateWithPathTemplateParams(c)
 
 		profiles := c.Profiles
 		if len(profiles) == 0 {
@@ -110,6 +111,8 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 		op := buildOperation(c, schemaBld, tsClassifier, opts.SuppressEmptySchemas, docExtractor)
 		doc.Paths[c.Path].SetOperation(c.Method, op)
 	}
+
+	normalizeDocumentSchemas(doc)
 
 	return doc
 }
@@ -217,6 +220,8 @@ func ensurePathItem(doc *Document, path string) {
 // buildOperation assembles a single Operation from a walker candidate and
 // its registered Spec/types (if any).
 func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *Classifier, suppressEmpty bool, docExtractor OperationDocExtractor) *Operation {
+	c = _CandidateWithPathTemplateParams(c)
+
 	op := &Operation{
 		OperationID: synthesiseOperationID(c),
 	}
@@ -284,7 +289,18 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 
 	// Extra parameters from spec
 	for _, p := range spec.ExtraParams() {
-		op.Parameters = append(op.Parameters, paramFromPathParam(p, p.In))
+		in := p.In
+		if in == "" {
+			in = "path"
+		}
+
+		if in == "path" {
+			if _, ok := _PathParamNamesForCandidate(c)[p.Name]; !ok {
+				continue
+			}
+		}
+
+		op.Parameters = append(op.Parameters, paramFromPathParam(p, in))
 	}
 
 	// Request body
@@ -402,6 +418,7 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	if operationDocMatches {
 		_MergeOperationDocSchemasForCandidate(schemaBld, operationDoc, operationDocOp, c)
 		_MergeOperationDocFallback(op, operationDocOp, spec, c)
+		_RemoveDefaultSuccessResponseWhenDocDeclaresAlternateSuccess(op, operationDocOp, spec, c.Method)
 	}
 
 	if needsDefaultSuccessContent && len(successResp.Content) == 0 {
@@ -411,6 +428,45 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 	}
 
 	return op
+}
+
+func _RemoveDefaultSuccessResponseWhenDocDeclaresAlternateSuccess(op *Operation, docOp *Operation, spec Spec, method string) {
+	if op == nil || docOp == nil || len(docOp.Responses) == 0 {
+		return
+	}
+
+	defaultStatus := successStatus(method)
+	if docOp.Responses[defaultStatus] != nil || !_OperationDocHasAlternateSuccessResponse(docOp.Responses, defaultStatus) {
+		return
+	}
+
+	resp := op.Responses[defaultStatus]
+	if resp == nil || !_IsDefaultResponseDescription(defaultStatus, resp.Description) || len(resp.Headers) > 0 {
+		return
+	}
+
+	if _SpecHasResponseDescription(spec, defaultStatus, method) {
+		return
+	}
+	if rs := spec.Responses()[defaultStatus]; rs != nil {
+		return
+	}
+
+	delete(op.Responses, defaultStatus)
+}
+
+func _OperationDocHasAlternateSuccessResponse(responses map[string]*Response, defaultStatus string) bool {
+	for status := range responses {
+		if status == defaultStatus {
+			continue
+		}
+
+		if len(status) == 3 && status[0] == '2' {
+			return true
+		}
+	}
+
+	return false
 }
 
 // perMethodSpec dispatches to the matching per-Go-method SpecProvider
@@ -624,7 +680,7 @@ func _ApplyResponseSpec(op *Operation, status string, rs *ResponseSpec, schemaBl
 	var schema *Schema
 	switch {
 	case rs.Schema != nil:
-		schema = rs.Schema
+		schema = cloneSchema(rs.Schema)
 	case rs.SchemaType != nil && schemaBld != nil:
 		schema = schemaBld.build(rs.SchemaType)
 	}
@@ -641,6 +697,7 @@ func _ApplyResponseSpec(op *Operation, status string, rs *ResponseSpec, schemaBl
 		}
 
 		if schema != nil {
+			normalizeSchemaRefSiblings(schema)
 			mt.Schema = schema
 		}
 
@@ -714,7 +771,7 @@ func _MergeOperationDocFallback(op *Operation, docOp *Operation, spec Spec, c Op
 	_MergeOperationDocRequestBody(op, docOp.RequestBody)
 	_MergeOperationDocResponses(op, docOp.Responses, spec, c.Method)
 
-	if op.Security == nil && docOp.Security != nil {
+	if docOp.Security != nil && len(spec.Security()) == 0 {
 		op.Security = docOp.Security
 	}
 
@@ -1132,6 +1189,10 @@ func _CandidateWithCanonicalPath(c OperationCandidate, path string) OperationCan
 	return c
 }
 
+func _CandidateWithPathTemplateParams(c OperationCandidate) OperationCandidate {
+	return _CandidateWithCanonicalPath(c, c.Path)
+}
+
 func _PathTemplateParamRenameMap(from string, to string) map[string]string {
 	fromParams := _PathTemplateParamNames(from)
 	toParams := _PathTemplateParamNames(to)
@@ -1340,12 +1401,6 @@ func _MergeDocParameterOverrides(base []*Parameter, scoped []*Parameter) []*Para
 
 func _PathParamNamesForCandidate(c OperationCandidate) map[string]struct{} {
 	names := map[string]struct{}{}
-	for _, param := range c.PathParams {
-		if param.Name != "" {
-			names[param.Name] = struct{}{}
-		}
-	}
-
 	for _, name := range _PathTemplateParamNames(c.Path) {
 		names[name] = struct{}{}
 	}
