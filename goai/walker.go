@@ -16,8 +16,8 @@ type OperationCandidate struct {
 	Method      string
 	Handler     ghttp.HandlerTask
 	Acceptances []ghttp.Acceptance
-	// HandlerMethod is the Go method name (Index/Get/Post/Patch/Put/Delete/
-	// Options/Create) that produced this candidate. Builder uses it together
+	// HandlerMethod is the Go method name (Index/Get/Head/Post/Patch/Put/Delete/
+	// Options/Create/Trace) that produced this candidate. Builder uses it together
 	// with Method to choose registry lookup keys and operationId components.
 	HandlerMethod string
 	// PathParams collected from upstream PathParamInjectors plus any leaf id
@@ -51,14 +51,14 @@ type OperationCandidate struct {
 //   - Index → bare path (collection list)
 //   - Create → bare path (collection create)
 //   - Post → bare path (collection / leaf action)
-//   - Get → bare path + "/{id}" when the handler is collection-style;
+//   - Get / Head → bare path + "/{id}" when the handler is collection-style;
 //     otherwise the bare path (singleton-style)
 //   - Patch / Put / Delete → bare path + "/{id}" when collection-style;
 //     otherwise the bare path
 //   - Options → bare path
 //
 // "Collection-style" means the handler overrides Index AND at least one of
-// Get / Patch / Put / Delete. Handlers that only override item-level methods
+// Get / Head / Patch / Put / Delete. Handlers that only override item-level methods
 // (a singleton resource exposing Get only, for example) are treated as
 // singleton-style and emitted on the bare path.
 func Walk(route ghttp.RouteEntriesProvider) []OperationCandidate {
@@ -216,7 +216,7 @@ func emissionsFromOverrides(overrides map[string]bool) []emission {
 	}
 
 	hasIndex := overrides["Index"]
-	hasItem := overrides["Get"] || overrides["Patch"] || overrides["Put"] || overrides["Delete"]
+	hasItem := overrides["Get"] || overrides["Head"] || overrides["Patch"] || overrides["Put"] || overrides["Delete"]
 	collectionStyle := hasIndex && hasItem
 
 	var out []emission
@@ -230,6 +230,10 @@ func emissionsFromOverrides(overrides map[string]bool) []emission {
 		// methods present). Singleton-style handlers — including Me-like
 		// resources — emit Get on the bare path.
 		out = append(out, emission{Go: "Get", HTTP: "GET", ItemLevel: collectionStyle})
+	}
+
+	if overrides["Head"] {
+		out = append(out, emission{Go: "Head", HTTP: "HEAD", ItemLevel: collectionStyle})
 	}
 
 	if overrides["Create"] {
@@ -371,11 +375,11 @@ func dedupeEmissions(in []emission) []emission {
 	return out
 }
 
-// goMethodNames lists every handler-side method goai recognises. Connect is
-// deliberately omitted — gone supports it but it is rarely meaningful in API
-// documentation.
+// goMethodNames lists every OpenAPI PathItem handler-side method goai
+// recognises. Connect is deliberately omitted because OpenAPI 3.0 PathItem
+// has no CONNECT operation slot.
 var goMethodNames = []string{
-	"Index", "Get", "Create", "Post", "Patch", "Put", "Delete", "Options", "Trace",
+	"Index", "Get", "Head", "Create", "Post", "Patch", "Put", "Delete", "Options", "Trace",
 }
 
 // detectOverrides returns a set keyed by Go method name indicating which of

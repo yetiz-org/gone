@@ -512,6 +512,16 @@ func TestMockHttpHandlerTask_HttpTaskMethods(t *testing.T) {
 	result = mockTask.Get(mockCtx, mockReq, mockResp, params)
 	assert.Nil(t, result, "Get should return nil")
 
+	// Test Head method
+	mockTask.On("Head", mockCtx, mockReq, mockResp, params).Return(nil).Once()
+	result = mockTask.Head(mockCtx, mockReq, mockResp, params)
+	assert.Nil(t, result, "Head should return nil")
+
+	// Test Create method
+	mockTask.On("Create", mockCtx, mockReq, mockResp, params).Return(nil).Once()
+	result = mockTask.Create(mockCtx, mockReq, mockResp, params)
+	assert.Nil(t, result, "Create should return nil")
+
 	// Test Post method
 	mockTask.On("Post", mockCtx, mockReq, mockResp, params).Return(expectedError).Once()
 	result = mockTask.Post(mockCtx, mockReq, mockResp, params)
@@ -526,6 +536,26 @@ func TestMockHttpHandlerTask_HttpTaskMethods(t *testing.T) {
 	mockTask.On("Delete", mockCtx, mockReq, mockResp, params).Return(expectedError).Once()
 	result = mockTask.Delete(mockCtx, mockReq, mockResp, params)
 	assert.Equal(t, expectedError, result, "Delete should return expected error")
+
+	// Test Options method
+	mockTask.On("Options", mockCtx, mockReq, mockResp, params).Return(nil).Once()
+	result = mockTask.Options(mockCtx, mockReq, mockResp, params)
+	assert.Nil(t, result, "Options should return nil")
+
+	// Test Patch method
+	mockTask.On("Patch", mockCtx, mockReq, mockResp, params).Return(nil).Once()
+	result = mockTask.Patch(mockCtx, mockReq, mockResp, params)
+	assert.Nil(t, result, "Patch should return nil")
+
+	// Test Trace method
+	mockTask.On("Trace", mockCtx, mockReq, mockResp, params).Return(nil).Once()
+	result = mockTask.Trace(mockCtx, mockReq, mockResp, params)
+	assert.Nil(t, result, "Trace should return nil")
+
+	// Test Connect method
+	mockTask.On("Connect", mockCtx, mockReq, mockResp, params).Return(nil).Once()
+	result = mockTask.Connect(mockCtx, mockReq, mockResp, params)
+	assert.Nil(t, result, "Connect should return nil")
 
 	// Verify all expectations
 	mockTask.AssertExpectations(t)

@@ -25,6 +25,14 @@ func (h *_WalkerItemHandler) Get(ctx channel.HandlerContext, req *ghttp.Request,
 	return nil
 }
 
+type _WalkerHeadHandler struct {
+	ghttp.DefaultHTTPHandlerTask
+}
+
+func (h *_WalkerHeadHandler) Head(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
+	return nil
+}
+
 // _WalkerAnchorAfterInjector is an Acceptance that contributes one PathParam
 // whose AnchorAfter equals the *last* segment of the route the handler is
 // mounted on. This mirrors a common production pattern where a permission
@@ -83,4 +91,19 @@ func TestWalkDoesNotDuplicatePathParamWhenInjectorAnchorIsLastSegment(t *testing
 
 	assert.Equal(t, 1, names["things_id"], "expected one PathParam named things_id, got %d (params: %+v)", names["things_id"], itemCandidate.PathParams)
 	assert.Len(t, itemCandidate.PathParams, 1)
+}
+
+func TestWalkEmitsHeadHandlerMethod(t *testing.T) {
+	prev := ghttp.SetSkipHandlerRegister(true)
+	defer ghttp.SetSkipHandlerRegister(prev)
+
+	route := ghttp.NewSimpleRoute()
+	route.SetEndpoint("/probe", &_WalkerHeadHandler{})
+
+	candidates := Walk(route)
+
+	require.Len(t, candidates, 1)
+	assert.Equal(t, "/probe", candidates[0].Path)
+	assert.Equal(t, "HEAD", candidates[0].Method)
+	assert.Equal(t, "Head", candidates[0].HandlerMethod)
 }

@@ -469,6 +469,12 @@ type GetSpecProvider interface {
 	GOAIGetSpec() Spec
 }
 
+// HeadSpecProvider supplies the Spec for the handler's Head() method (HTTP
+// HEAD).
+type HeadSpecProvider interface {
+	GOAIHeadSpec() Spec
+}
+
 // CreateSpecProvider supplies the Spec for the handler's Create() method
 // (HTTP POST that creates a collection member).
 type CreateSpecProvider interface {

@@ -1,12 +1,13 @@
 package ghttp
 
 const (
-	GET     string = "GET"
-	POST    string = "POST"
-	PUT     string = "PUT"
-	DELETE  string = "DELETE"
-	OPTIONS string = "OPTIONS"
-	PATCH   string = "PATCH"
-	TRACE   string = "TRACE"
-	CONNECT string = "CONNECT"
+	MethodGet     = "GET"
+	MethodHead    = "HEAD"
+	MethodPost    = "POST"
+	MethodPut     = "PUT"
+	MethodPatch   = "PATCH"
+	MethodDelete  = "DELETE"
+	MethodConnect = "CONNECT"
+	MethodOptions = "OPTIONS"
+	MethodTrace   = "TRACE"
 )

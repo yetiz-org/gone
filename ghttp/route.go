@@ -1,6 +1,7 @@
 package ghttp
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -23,7 +24,8 @@ type RouteEntriesProvider interface {
 }
 
 type DefaultRoute struct {
-	root RouteNode
+	root            RouteNode
+	rootEndpointSet bool
 }
 
 func NewRoute() *DefaultRoute {
@@ -96,8 +98,13 @@ func (r *DefaultRoute) RouteEntries() []RouteEntry {
 }
 
 func (r *DefaultRoute) SetRoot(point *_EndPoint) *DefaultRoute {
+	if r.rootEndpointSet {
+		panic("ghttp: duplicate root endpoint")
+	}
+
 	point.routeType = RouteTypeRootEndPoint
 	r.root = point
+	r.rootEndpointSet = true
 	return r
 }
 
@@ -108,8 +115,18 @@ func (r *DefaultRoute) AddRecursivePoint(point *_EndPoint) *DefaultRoute {
 	}
 
 	if r.root.Resources()[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddRecursivePoint#add_recursive!duplicate_name", "add same name endpoint")
-		return nil
+		if group, ok := r.root.Resources()[point.Name()].(*_RouteGroup); ok {
+			r.root.Resources()[point.Name()] = point
+			point.parent = r.root
+			point.routeType = RouteTypeRecursiveEndPoint
+			point.setEndpointAcceptances(point.acceptances)
+			point.inheritGroup(group)
+			if point.handler != nil && !SkipHandlerRegister() {
+				point.handler.Register()
+			}
+			return r
+		}
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", point.Name()))
 	}
 
 	r.root.Resources()[point.Name()] = point
@@ -129,8 +146,8 @@ func (r *DefaultRoute) AddGroup(group *_RouteGroup) *DefaultRoute {
 	}
 
 	if r.root.Resources()[group.Name()] != nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddGroup#add_group!duplicate_name", "add same name group")
-		return nil
+		mergeGroupIntoNode(r.root.Resources()[group.Name()], group)
+		return r
 	}
 
 	r.root.Resources()[group.Name()] = group
@@ -145,8 +162,17 @@ func (r *DefaultRoute) AddEndPoint(point *_EndPoint) *DefaultRoute {
 	}
 
 	if r.root.Resources()[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:DefaultRoute.AddEndPoint#add_endpoint!duplicate_name", "add same name endpoint")
-		return nil
+		if group, ok := r.root.Resources()[point.Name()].(*_RouteGroup); ok {
+			r.root.Resources()[point.Name()] = point
+			point.parent = r.root
+			point.setEndpointAcceptances(point.acceptances)
+			point.inheritGroup(group)
+			if point.handler != nil && !SkipHandlerRegister() {
+				point.handler.Register()
+			}
+			return r
+		}
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", point.Name()))
 	}
 
 	r.root.Resources()[point.Name()] = point
@@ -169,13 +195,14 @@ type RouteNode interface {
 }
 
 type _Node struct {
-	parent      RouteNode
-	handler     HandlerTask
-	name        string
-	paramKey    string
-	acceptances []Acceptance
-	resources   map[string]RouteNode
-	routeType   RouteType
+	parent               RouteNode
+	handler              HandlerTask
+	name                 string
+	paramKey             string
+	acceptances          []Acceptance
+	groupAcceptanceCount int
+	resources            map[string]RouteNode
+	routeType            RouteType
 }
 
 // defaultParamKey is the "[gone-http]<name>_id" key used when no custom
@@ -219,6 +246,26 @@ func (n *_Node) Resources() map[string]RouteNode {
 
 func (n *_Node) RouteType() RouteType {
 	return n.routeType
+}
+
+func (n *_Node) appendGroupAcceptances(acceptances []Acceptance) {
+	if len(acceptances) == 0 {
+		return
+	}
+
+	merged := make([]Acceptance, 0, len(n.acceptances)+len(acceptances))
+	merged = append(merged, n.acceptances[:n.groupAcceptanceCount]...)
+	merged = append(merged, acceptances...)
+	merged = append(merged, n.acceptances[n.groupAcceptanceCount:]...)
+	n.acceptances = merged
+	n.groupAcceptanceCount += len(acceptances)
+}
+
+func (n *_Node) setEndpointAcceptances(acceptances []Acceptance) {
+	merged := make([]Acceptance, 0, n.groupAcceptanceCount+len(acceptances))
+	merged = append(merged, n.acceptances[:n.groupAcceptanceCount]...)
+	merged = append(merged, acceptances...)
+	n.acceptances = merged
 }
 
 type RouteType int
@@ -289,8 +336,69 @@ func routeNodePath(node RouteNode) string {
 	return "/" + strings.Join(parts, "/")
 }
 
+func routeNodeCore(node RouteNode) *_Node {
+	switch typed := node.(type) {
+	case *_EndPoint:
+		return &typed._Node
+	case *_RouteGroup:
+		return &typed._Node
+	case *_SimpleNode:
+		return &typed._Node
+	default:
+		panic(fmt.Sprintf("ghttp: unsupported route node %T", node))
+	}
+}
+
+func mergeGroupIntoNode(node RouteNode, group *_RouteGroup) {
+	switch existing := node.(type) {
+	case *_EndPoint:
+		existing.inheritGroup(group)
+	case *_RouteGroup:
+		existing.appendGroupAcceptances(group.acceptances[:group.groupAcceptanceCount])
+		mergeRouteResources(existing, group.resources)
+	default:
+		panic(fmt.Sprintf("ghttp: unsupported route node %T", node))
+	}
+}
+
+func mergeRouteResources(parent RouteNode, resources map[string]RouteNode) {
+	target := parent.Resources()
+	for name, incoming := range resources {
+		if existing := target[name]; existing != nil {
+			target[name] = mergeRouteNode(parent, existing, incoming)
+			continue
+		}
+
+		routeNodeCore(incoming).parent = parent
+		target[name] = incoming
+	}
+}
+
+func mergeRouteNode(parent RouteNode, existing RouteNode, incoming RouteNode) RouteNode {
+	switch incomingNode := incoming.(type) {
+	case *_RouteGroup:
+		mergeGroupIntoNode(existing, incomingNode)
+		return existing
+	case *_EndPoint:
+		if existingGroup, ok := existing.(*_RouteGroup); ok {
+			incomingNode.parent = parent
+			incomingNode.setEndpointAcceptances(incomingNode.acceptances)
+			incomingNode.inheritGroup(existingGroup)
+			return incomingNode
+		}
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", incomingNode.Name()))
+	default:
+		panic(fmt.Sprintf("ghttp: unsupported route node %T", incoming))
+	}
+}
+
 type _EndPoint struct {
 	_Node
+}
+
+func (ep *_EndPoint) inheritGroup(group *_RouteGroup) {
+	ep.appendGroupAcceptances(group.acceptances[:group.groupAcceptanceCount])
+	mergeRouteResources(ep, group.resources)
 }
 
 func NewEndPoint(name string, task HandlerTask, acceptances []Acceptance) *_EndPoint {
@@ -323,8 +431,17 @@ func (ep *_EndPoint) AddEndPoint(point *_EndPoint) *_EndPoint {
 	}
 
 	if ep.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddEndPoint#add_endpoint!duplicate_name", "add same name endpoint")
-		return nil
+		if group, ok := ep.resources[point.Name()].(*_RouteGroup); ok {
+			ep.resources[point.Name()] = point
+			point.parent = ep
+			point.setEndpointAcceptances(point.acceptances)
+			point.inheritGroup(group)
+			if point.handler != nil && !SkipHandlerRegister() {
+				point.handler.Register()
+			}
+			return ep
+		}
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", point.Name()))
 	}
 
 	point.parent = ep
@@ -343,8 +460,8 @@ func (ep *_EndPoint) AddGroup(group *_RouteGroup) *_EndPoint {
 	}
 
 	if ep.resources[group.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddGroup#add_group!duplicate_name", "add same name group")
-		return nil
+		mergeGroupIntoNode(ep.resources[group.Name()], group)
+		return ep
 	}
 
 	group.parent = ep
@@ -359,8 +476,18 @@ func (ep *_EndPoint) AddRecursiveEndPoint(point *_EndPoint) *_EndPoint {
 	}
 
 	if ep.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_EndPoint.AddRecursiveEndPoint#add_recursive!duplicate_name", "add same name endpoint")
-		return nil
+		if group, ok := ep.resources[point.Name()].(*_RouteGroup); ok {
+			ep.resources[point.Name()] = point
+			point.parent = ep
+			point.routeType = RouteTypeRecursiveEndPoint
+			point.setEndpointAcceptances(point.acceptances)
+			point.inheritGroup(group)
+			if point.handler != nil && !SkipHandlerRegister() {
+				point.handler.Register()
+			}
+			return ep
+		}
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", point.Name()))
 	}
 
 	point.parent = ep
@@ -389,6 +516,7 @@ func NewGroup(name string, acceptances []Acceptance) *_RouteGroup {
 
 	if acceptances != nil {
 		group.acceptances = acceptances
+		group.groupAcceptanceCount = len(acceptances)
 	}
 
 	return &group
@@ -401,8 +529,8 @@ func (rg *_RouteGroup) AddGroup(group *_RouteGroup) *_RouteGroup {
 	}
 
 	if rg.resources[group.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddGroup#add_group!duplicate_name", "add same name group")
-		return nil
+		mergeGroupIntoNode(rg.resources[group.Name()], group)
+		return rg
 	}
 
 	group.parent = rg
@@ -417,8 +545,17 @@ func (rg *_RouteGroup) AddEndPoint(point *_EndPoint) *_RouteGroup {
 	}
 
 	if rg.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddEndPoint#add_endpoint!duplicate_name", "add same name endpoint")
-		return nil
+		if group, ok := rg.resources[point.Name()].(*_RouteGroup); ok {
+			rg.resources[point.Name()] = point
+			point.parent = rg
+			point.setEndpointAcceptances(point.acceptances)
+			point.inheritGroup(group)
+			if point.handler != nil && !SkipHandlerRegister() {
+				point.handler.Register()
+			}
+			return rg
+		}
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", point.Name()))
 	}
 
 	point.parent = rg
@@ -437,8 +574,18 @@ func (rg *_RouteGroup) AddRecursiveEndPoint(point *_EndPoint) *_RouteGroup {
 	}
 
 	if rg.resources[point.Name()] != nil {
-		kklogger.ErrorJ("ghttp:_RouteGroup.AddRecursiveEndPoint#add_recursive!duplicate_name", "add same name endpoint")
-		return nil
+		if group, ok := rg.resources[point.Name()].(*_RouteGroup); ok {
+			rg.resources[point.Name()] = point
+			point.parent = rg
+			point.routeType = RouteTypeRecursiveEndPoint
+			point.setEndpointAcceptances(point.acceptances)
+			point.inheritGroup(group)
+			if point.handler != nil && !SkipHandlerRegister() {
+				point.handler.Register()
+			}
+			return rg
+		}
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", point.Name()))
 	}
 
 	point.parent = rg

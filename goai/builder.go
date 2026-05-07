@@ -472,7 +472,7 @@ func _OperationDocHasAlternateSuccessResponse(responses map[string]*Response, de
 
 // perMethodSpec dispatches to the matching per-Go-method SpecProvider
 // implementation. handlerMethod is the Go method name reported by the
-// walker (Index/Get/Create/Post/Patch/Put/Delete/Options/Trace). Returns
+// walker (Index/Get/Head/Create/Post/Patch/Put/Delete/Options/Trace). Returns
 // (spec, true) when the handler implements the corresponding interface;
 // otherwise (Spec{}, false).
 func perMethodSpec(handler any, handlerMethod string) (Spec, bool) {
@@ -484,6 +484,10 @@ func perMethodSpec(handler any, handlerMethod string) (Spec, bool) {
 	case "Get":
 		if d, ok := handler.(GetSpecProvider); ok {
 			return d.GOAIGetSpec(), true
+		}
+	case "Head":
+		if d, ok := handler.(HeadSpecProvider); ok {
+			return d.GOAIHeadSpec(), true
 		}
 	case "Create":
 		if d, ok := handler.(CreateSpecProvider); ok {

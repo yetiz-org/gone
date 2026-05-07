@@ -1,6 +1,7 @@
 package ghttp
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -21,15 +22,12 @@ Supported Features:
 Wildcard Behavior:
 - /static/* matches any path starting with /static/
 - Examples: /static/js/srp.js, /static/js/home/home.js, /static/css/main.css
-- The matched segment is stored in params with the node name as key
-
-Route Scope:
-- SimpleRoute uses endpoint names directly for parameter extraction
-- DefaultRoute handles explicit parameter syntax and complex nested scenarios
+- The remaining suffix is stored in params with "*" as key
 
 Parameter Extraction:
-- Wildcard params use the node name as key
-- Example: /static/* extracts params["static"] = "js" for /static/js/app.js
+- Wildcard params use "*" as key
+- Example: /static/* extracts params["*"] = "js/app.js" for /static/js/app.js
+- :param and {param} syntax can override default endpoint-derived ID names
 */
 
 type mockHandlerTask struct {
@@ -48,6 +46,27 @@ type mockAcceptance struct {
 
 func newMockAcceptance(name string) *mockAcceptance {
 	return &mockAcceptance{name: name}
+}
+
+func acceptanceNames(acceptances []Acceptance) []string {
+	names := make([]string, 0, len(acceptances))
+	for _, acceptance := range acceptances {
+		if acc, ok := acceptance.(*mockAcceptance); ok {
+			names = append(names, acc.name)
+		}
+	}
+	return names
+}
+
+func assertPanic(t *testing.T, fn func()) {
+	t.Helper()
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Expected panic")
+		}
+	}()
+	fn()
 }
 
 // TestBasicRouting tests basic endpoint routing
@@ -390,6 +409,58 @@ func TestFindNode(t *testing.T) {
 	}
 }
 
+func TestDuplicateEndpointPanics(t *testing.T) {
+	route := NewSimpleRoute()
+
+	route.SetEndpoint("/login", newMockHandler("first"))
+
+	assertPanic(t, func() {
+		route.SetEndpoint("/login/", newMockHandler("second"))
+	})
+}
+
+func TestDuplicateWildcardEndpointPanics(t *testing.T) {
+	route := NewSimpleRoute()
+
+	route.SetEndpoint("/static/*", newMockHandler("first"))
+
+	assertPanic(t, func() {
+		route.SetEndpoint("/static/*", newMockHandler("second"))
+	})
+}
+
+func TestDuplicateEndpointShapePanics(t *testing.T) {
+	route := NewSimpleRoute()
+
+	route.SetEndpoint("/users/:user_id/posts", newMockHandler("first"))
+
+	assertPanic(t, func() {
+		route.SetEndpoint("/users/{id}/posts", newMockHandler("second"))
+	})
+}
+
+func TestDuplicateRootEndpointPanics(t *testing.T) {
+	t.Run("SetRootTwice", func(t *testing.T) {
+		route := NewSimpleRoute()
+
+		route.SetRoot(newMockHandler("first"))
+
+		assertPanic(t, func() {
+			route.SetRoot(newMockHandler("second"))
+		})
+	})
+
+	t.Run("SetEndpointThenSetRoot", func(t *testing.T) {
+		route := NewSimpleRoute()
+
+		route.SetEndpoint("/", newMockHandler("first"))
+
+		assertPanic(t, func() {
+			route.SetRoot(newMockHandler("second"))
+		})
+	})
+}
+
 // TestAcceptanceAggregation tests acceptance aggregation through parent nodes
 func TestAcceptanceAggregation(t *testing.T) {
 	route := NewSimpleRoute()
@@ -417,6 +488,124 @@ func TestAcceptanceAggregation(t *testing.T) {
 		if acc.name != "level1" {
 			t.Errorf("Expected first acceptance to be 'level1', got '%s'", acc.name)
 		}
+	}
+}
+
+func TestEndpointOverridesSamePathGroupAndInheritsAcceptances(t *testing.T) {
+	route := NewSimpleRoute()
+
+	groupAcceptance := newMockAcceptance("group")
+	endpointAcceptance := newMockAcceptance("endpoint")
+	handler := newMockHandler("handler")
+
+	route.SetGroup("/t", groupAcceptance)
+	route.SetEndpoint("/t", handler, endpointAcceptance)
+
+	node, params, isLast := route.RouteNode("/t")
+	if node == nil {
+		t.Fatal("Expected node to be found")
+	}
+	if !isLast {
+		t.Fatal("Expected exact endpoint match")
+	}
+	if node.RouteType() != RouteTypeEndPoint {
+		t.Fatalf("Expected endpoint to replace group, got route type %d", node.RouteType())
+	}
+	if node.HandlerTask() != handler {
+		t.Fatal("Expected endpoint handler to be registered")
+	}
+	if len(params) != 0 {
+		t.Fatalf("Expected no params for exact endpoint, got %v", params)
+	}
+
+	names := acceptanceNames(node.AggregatedAcceptances())
+	expected := []string{"group", "endpoint"}
+	if !slices.Equal(names, expected) {
+		t.Fatalf("Expected acceptances %v, got %v", expected, names)
+	}
+
+	_, params, _ = route.RouteNode("/t/task-1")
+	if id := handler.GetID("t", params); id != "task-1" {
+		t.Fatalf("Expected endpoint id %q, got %q", "task-1", id)
+	}
+}
+
+func TestWildcardEndpointOverridesSamePathGroupAndInheritsAcceptances(t *testing.T) {
+	route := NewSimpleRoute()
+
+	groupAcceptance := newMockAcceptance("group")
+	endpointAcceptance := newMockAcceptance("endpoint")
+	handler := newMockHandler("handler")
+
+	route.SetGroup("/static/*", groupAcceptance)
+	route.SetEndpoint("/static/*", handler, endpointAcceptance)
+
+	node, params, _ := route.RouteNode("/static/js/app.js")
+	if node == nil {
+		t.Fatal("Expected node to be found")
+	}
+	if node.RouteType() != RouteTypeRecursiveEndPoint {
+		t.Fatalf("Expected recursive endpoint to replace group, got route type %d", node.RouteType())
+	}
+	if node.HandlerTask() != handler {
+		t.Fatal("Expected endpoint handler to be registered")
+	}
+	if params["*"] != "js/app.js" {
+		t.Fatalf("Expected wildcard param %q, got %v", "js/app.js", params["*"])
+	}
+
+	names := acceptanceNames(node.AggregatedAcceptances())
+	expected := []string{"group", "endpoint"}
+	if !slices.Equal(names, expected) {
+		t.Fatalf("Expected acceptances %v, got %v", expected, names)
+	}
+}
+
+func TestSamePathGroupAfterEndpointKeepsEndpointAndAddsAcceptance(t *testing.T) {
+	route := NewSimpleRoute()
+
+	endpointAcceptance := newMockAcceptance("endpoint")
+	groupAcceptance := newMockAcceptance("group")
+	handler := newMockHandler("handler")
+
+	route.SetEndpoint("/t", handler, endpointAcceptance)
+	route.SetGroup("/t", groupAcceptance)
+
+	node, _, _ := route.RouteNode("/t")
+	if node == nil {
+		t.Fatal("Expected node to be found")
+	}
+	if node.RouteType() != RouteTypeEndPoint {
+		t.Fatalf("Expected group declaration to keep endpoint route type, got %d", node.RouteType())
+	}
+	if node.HandlerTask() != handler {
+		t.Fatal("Expected group declaration to keep endpoint handler")
+	}
+
+	names := acceptanceNames(node.AggregatedAcceptances())
+	expected := []string{"group", "endpoint"}
+	if !slices.Equal(names, expected) {
+		t.Fatalf("Expected acceptances %v, got %v", expected, names)
+	}
+}
+
+func TestDuplicateGroupsMergeAcceptancesForDescendants(t *testing.T) {
+	route := NewSimpleRoute()
+
+	route.SetGroup("/api", newMockAcceptance("api-1"))
+	route.SetGroup("/api/v1", newMockAcceptance("v1"))
+	route.SetGroup("/api", newMockAcceptance("api-2"))
+	route.SetEndpoint("/api/v1/tasks", newMockHandler("tasks"), newMockAcceptance("endpoint"))
+
+	node, _, _ := route.RouteNode("/api/v1/tasks")
+	if node == nil {
+		t.Fatal("Expected node to be found")
+	}
+
+	names := acceptanceNames(node.AggregatedAcceptances())
+	expected := []string{"api-1", "api-2", "v1", "endpoint"}
+	if !slices.Equal(names, expected) {
+		t.Fatalf("Expected acceptances %v, got %v", expected, names)
 	}
 }
 

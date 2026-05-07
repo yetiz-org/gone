@@ -203,8 +203,10 @@ func (h *UserDetailTask) Get(ctx channel.HandlerContext, req *ghttp.Request, res
 Common HTTP task methods:
 
 - `Get`: handles normal GET requests.
+- `Head`: handles HEAD requests.
 - `Index`: for GET requests that hit the final index node. If it returns `NotImplemented`, dispatch falls back to `Get`.
 - `Post` and `Create`: for POST requests. On the final index node, `Create` is tried before `Post`.
+- `Put`, `Patch`, `Delete`, `Options`, `Trace`, and `Connect`: handle their matching HTTP methods.
 - `PreCheck`, `Before`, `After`, and `ErrorCaught`: request lifecycle hooks.
 
 ### HTTP Gzip

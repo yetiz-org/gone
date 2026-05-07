@@ -279,7 +279,7 @@ func (h *MeHandler) GOAIGetSpec() goai.Spec {
 ```
 
 Available per-method providers: `IndexSpecProvider`, `GetSpecProvider`,
-`CreateSpecProvider`, `PostSpecProvider`, `PatchSpecProvider`,
+`HeadSpecProvider`, `CreateSpecProvider`, `PostSpecProvider`, `PatchSpecProvider`,
 `PutSpecProvider`, `DeleteSpecProvider`, `OptionsSpecProvider`,
 `TraceSpecProvider`. Implement only the ones whose Go method the handler
 exposes.

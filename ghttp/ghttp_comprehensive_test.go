@@ -271,7 +271,7 @@ func TestServerChannel_IsActive(t *testing.T) {
 		t.Parallel()
 
 		serverCh := &ServerChannel{}
-			serverCh.active.Store(true)
+		serverCh.active.Store(true)
 		assert.True(t, serverCh.IsActive())
 	})
 }
@@ -297,6 +297,13 @@ func TestDefaultHTTPHandlerTask_HTTPMethods(t *testing.T) {
 		t.Parallel()
 
 		err := task.Get(ctx, req, resp, params)
+		assert.Nil(t, err)
+	})
+
+	t.Run("Head_ReturnsNil", func(t *testing.T) {
+		t.Parallel()
+
+		err := task.Head(ctx, req, resp, params)
 		assert.Nil(t, err)
 	})
 

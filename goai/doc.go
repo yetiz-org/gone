@@ -14,7 +14,7 @@
 //     the handler. Use for the common case where all
 //     methods share metadata.
 //   - <Method>SpecProvider — per-Go-method Spec providers (IndexSpecProvider,
-//     GetSpecProvider, CreateSpecProvider, PostSpecProvider,
+//     GetSpecProvider, HeadSpecProvider, CreateSpecProvider, PostSpecProvider,
 //     PatchSpecProvider, PutSpecProvider, DeleteSpecProvider,
 //     OptionsSpecProvider, TraceSpecProvider). Each method
 //     name mirrors the handler's Go method on the struct

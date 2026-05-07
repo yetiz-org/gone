@@ -69,7 +69,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 		defer task.CORSHelper(request, response, params)
 		timeMark = time.Now()
 		for _, acceptance := range node.AggregatedAcceptances() {
-			if request.Method() == OPTIONS && acceptance.SkipMethodOptions() {
+			if request.Method() == MethodOptions && acceptance.SkipMethodOptions() {
 				continue
 			}
 
@@ -262,7 +262,7 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 	// Default behavior: if task doesn't implement PreCheckSkipOptions, PreCheck will be executed
 	shouldSkipPreCheck := false
 	if skipper, ok := task.(PreCheckSkipOptions); ok {
-		shouldSkipPreCheck = skipper.SkipPreCheckForOptions() && request.Method() == OPTIONS
+		shouldSkipPreCheck = skipper.SkipPreCheckForOptions() && request.Method() == MethodOptions
 	}
 
 	if !shouldSkipPreCheck {
@@ -277,7 +277,7 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 
 	if invokeErr := func() ErrorResponse {
 		switch {
-		case request.Method() == GET:
+		case request.Method() == MethodGet:
 			if isLast {
 				if err := task.Index(ctx, request, response, params); err == nil {
 					return nil
@@ -287,7 +287,9 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 			}
 
 			return task.Get(ctx, request, response, params)
-		case request.Method() == POST:
+		case request.Method() == MethodHead:
+			return task.Head(ctx, request, response, params)
+		case request.Method() == MethodPost:
 			if isLast {
 				if err := task.Create(ctx, request, response, params); err == nil {
 					return nil
@@ -297,17 +299,17 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 			}
 
 			return task.Post(ctx, request, response, params)
-		case request.Method() == PUT:
+		case request.Method() == MethodPut:
 			return task.Put(ctx, request, response, params)
-		case request.Method() == DELETE:
+		case request.Method() == MethodDelete:
 			return task.Delete(ctx, request, response, params)
-		case request.Method() == OPTIONS:
+		case request.Method() == MethodOptions:
 			return task.Options(ctx, request, response, params)
-		case request.Method() == PATCH:
+		case request.Method() == MethodPatch:
 			return task.Patch(ctx, request, response, params)
-		case request.Method() == TRACE:
+		case request.Method() == MethodTrace:
 			return task.Trace(ctx, request, response, params)
-		case request.Method() == CONNECT:
+		case request.Method() == MethodConnect:
 			return task.Connect(ctx, request, response, params)
 		}
 

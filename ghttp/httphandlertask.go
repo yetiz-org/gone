@@ -15,6 +15,7 @@ import (
 type HttpTask interface {
 	Index(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse
 	Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse
+	Head(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse
 	Create(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse
 	Post(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse
 	Put(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse
@@ -67,6 +68,10 @@ func (h *DefaultHTTPHandlerTask) Index(ctx channel.HandlerContext, req *Request,
 }
 
 func (h *DefaultHTTPHandlerTask) Get(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse {
+	return nil
+}
+
+func (h *DefaultHTTPHandlerTask) Head(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse {
 	return nil
 }
 

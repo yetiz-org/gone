@@ -100,6 +100,7 @@ type SimpleRoute struct {
 	root             RouteNode
 	endpointMappings map[string]*endpointParamMapping // Key is the normalized endpoint path
 	endpointPaths    map[RouteNode]string
+	endpointPatterns map[string]struct{}
 }
 
 func NewSimpleRoute() *SimpleRoute {
@@ -115,6 +116,7 @@ func NewSimpleRoute() *SimpleRoute {
 		},
 		endpointMappings: make(map[string]*endpointParamMapping),
 		endpointPaths:    make(map[RouteNode]string),
+		endpointPatterns: make(map[string]struct{}),
 	}
 }
 
@@ -182,8 +184,9 @@ func (r *SimpleRoute) RouteEntries() []RouteEntry {
 }
 
 func (r *SimpleRoute) SetRoot(handler HandlerTask, acceptances ...Acceptance) *SimpleRoute {
+	r.panicOnDuplicateEndpoint("/")
 	r.root.(*_SimpleNode).handler = handler
-	r.root.(*_SimpleNode).acceptances = acceptances
+	r.setEndpointAcceptances(r.root, acceptances)
 	r.endpointPaths[r.root] = "/"
 	return r
 }
@@ -191,7 +194,7 @@ func (r *SimpleRoute) SetRoot(handler HandlerTask, acceptances ...Acceptance) *S
 func (r *SimpleRoute) SetGroup(path string, acceptances ...Acceptance) *SimpleRoute {
 	path = strings.TrimLeft(strings.TrimRight(path, "/"), "/")
 	if path == "" {
-		r.root.(*_SimpleNode).acceptances = acceptances
+		r.appendGroupAcceptances(r.root, acceptances)
 		return r
 	}
 
@@ -206,6 +209,9 @@ func (r *SimpleRoute) SetGroup(path string, acceptances ...Acceptance) *SimpleRo
 
 		if v, f := current.Resources()[part]; f {
 			current = v
+			if idx+1 == partsLen {
+				r.appendGroupAcceptances(current, acceptances)
+			}
 		} else {
 			node := &_SimpleNode{
 				_Node: _Node{
@@ -218,7 +224,7 @@ func (r *SimpleRoute) SetGroup(path string, acceptances ...Acceptance) *SimpleRo
 			}
 
 			if idx+1 == partsLen {
-				node.acceptances = acceptances
+				r.appendGroupAcceptances(node, acceptances)
 			}
 
 			current.Resources()[part] = node
@@ -232,8 +238,9 @@ func (r *SimpleRoute) SetGroup(path string, acceptances ...Acceptance) *SimpleRo
 func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances ...Acceptance) *SimpleRoute {
 	path = strings.TrimLeft(strings.TrimRight(path, "/"), "/")
 	if path == "" {
+		r.panicOnDuplicateEndpoint("/")
 		r.root.(*_SimpleNode).handler = handler
-		r.root.(*_SimpleNode).acceptances = acceptances
+		r.setEndpointAcceptances(r.root, acceptances)
 		r.endpointPaths[r.root] = "/"
 		return r
 	}
@@ -270,8 +277,9 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 
 			current.(*_SimpleNode).routeType = RouteTypeEndPoint
 			if idx+1 == partsLen {
+				r.panicOnDuplicateEndpoint(path)
 				current.(*_SimpleNode).handler = handler
-				current.(*_SimpleNode).acceptances = acceptances
+				r.setEndpointAcceptances(current, acceptances)
 				r.endpointPaths[current] = "/" + path
 			}
 
@@ -279,17 +287,18 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 		}
 
 		if part == "*" {
-			wildcardNode := &_SimpleNode{
-				_Node: _Node{
-					parent:      current,
-					name:        "*",
-					paramKey:    defaultParamKey("*"),
-					resources:   map[string]RouteNode{},
-					routeType:   RouteTypeRecursiveEndPoint,
-					handler:     handler,
-					acceptances: acceptances,
-				},
+			r.panicOnDuplicateEndpoint(path)
+			if wildcardNode, ok := current.Resources()["*"]; ok {
+				wildcardNode.(*_SimpleNode).routeType = RouteTypeRecursiveEndPoint
+				wildcardNode.(*_SimpleNode).handler = handler
+				r.setEndpointAcceptances(wildcardNode, acceptances)
+				r.endpointPaths[wildcardNode] = "/" + path
+				return r
 			}
+
+			wildcardNode := r.newSimpleNode(current, "*", RouteTypeRecursiveEndPoint)
+			wildcardNode.handler = handler
+			r.setEndpointAcceptances(wildcardNode, acceptances)
 			current.Resources()["*"] = wildcardNode
 			r.endpointPaths[wildcardNode] = "/" + path
 			return r
@@ -297,21 +306,23 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 
 		if v, f := current.Resources()[part]; f {
 			current = v
-		} else {
-			node := &_SimpleNode{
-				_Node: _Node{
-					parent:    current,
-					name:      part,
-					paramKey:  defaultParamKey(part),
-					resources: map[string]RouteNode{},
-					routeType: RouteTypeGroup,
-				},
+			if idx+1 == partsLen {
+				r.panicOnDuplicateEndpoint(path)
+				if current.RouteType() == RouteTypeGroup {
+					current.(*_SimpleNode).routeType = RouteTypeEndPoint
+					current.(*_SimpleNode).handler = handler
+					r.setEndpointAcceptances(current, acceptances)
+					r.endpointPaths[current] = "/" + path
+				}
 			}
+		} else {
+			node := r.newSimpleNode(current, part, RouteTypeGroup)
 
 			if idx+1 == partsLen {
+				r.panicOnDuplicateEndpoint(path)
 				node.routeType = RouteTypeEndPoint
 				node.handler = handler
-				node.acceptances = acceptances
+				r.setEndpointAcceptances(node, acceptances)
 				r.endpointPaths[node] = "/" + path
 			}
 
@@ -336,6 +347,50 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	}
 
 	return r
+}
+
+func (r *SimpleRoute) newSimpleNode(parent RouteNode, name string, routeType RouteType) *_SimpleNode {
+	return &_SimpleNode{
+		_Node: _Node{
+			parent:    parent,
+			name:      name,
+			paramKey:  defaultParamKey(name),
+			resources: map[string]RouteNode{},
+			routeType: routeType,
+		},
+	}
+}
+
+func (r *SimpleRoute) panicOnDuplicateEndpoint(path string) {
+	key := canonicalEndpointPattern(path)
+	if _, ok := r.endpointPatterns[key]; ok {
+		panic(fmt.Sprintf("ghttp: duplicate endpoint %q", path))
+	}
+
+	r.endpointPatterns[key] = struct{}{}
+}
+
+func canonicalEndpointPattern(path string) string {
+	path = strings.TrimLeft(strings.TrimRight(path, "/"), "/")
+	if path == "" {
+		return "/"
+	}
+
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if isParamPlaceholder(part) {
+			parts[i] = ":"
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+func (r *SimpleRoute) appendGroupAcceptances(node RouteNode, acceptances []Acceptance) {
+	routeNodeCore(node).appendGroupAcceptances(acceptances)
+}
+
+func (r *SimpleRoute) setEndpointAcceptances(node RouteNode, acceptances []Acceptance) {
+	routeNodeCore(node).setEndpointAcceptances(acceptances)
 }
 
 func (r *SimpleRoute) FindNode(path string) RouteNode {

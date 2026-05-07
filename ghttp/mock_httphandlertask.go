@@ -33,6 +33,14 @@ func (m *MockHttpHandlerTask) Get(ctx channel.HandlerContext, req *Request, resp
 	return args.Get(0).(ErrorResponse)
 }
 
+func (m *MockHttpHandlerTask) Head(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse {
+	args := m.Called(ctx, req, resp, params)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(ErrorResponse)
+}
+
 func (m *MockHttpHandlerTask) Create(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) ErrorResponse {
 	args := m.Called(ctx, req, resp, params)
 	if args.Get(0) == nil {
