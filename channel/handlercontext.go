@@ -192,6 +192,8 @@ func (c *wrapHandlerContext) WithValue(key, val any) HandlerContext {
 	}
 }
 
+type _handlerContextKey struct{}
+
 func _NewWrapHandlerContext(parent context.Context, handlerContext HandlerContext) HandlerContext {
 	if parent == nil {
 		parent = context.Background()
@@ -203,11 +205,9 @@ func _NewWrapHandlerContext(parent context.Context, handlerContext HandlerContex
 
 	return &wrapHandlerContext{
 		HandlerContext: handlerContext,
-		ctx:            context.WithValue(parent, "handlerContext", handlerContext),
+		ctx:            context.WithValue(parent, _handlerContextKey{}, handlerContext),
 	}
 }
-
-type ValueHandlerContext wrapHandlerContext
 
 // DefaultHandlerContext is a pipeline node. nextCtx/prevCtx are mutated only
 // on the goroutine currently running the pipeline — Bootstrap/serverChannel at
@@ -271,7 +271,7 @@ func (c *DefaultHandlerContext) Value(key any) any {
 }
 
 func (c *DefaultHandlerContext) WithValue(key, val any) HandlerContext {
-	return &ValueHandlerContext{
+	return &wrapHandlerContext{
 		HandlerContext: c,
 		ctx:            context.WithValue(c._Context(), key, val),
 	}
