@@ -86,30 +86,34 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 
 	schemaBld := newSchemaBuilder(doc.Components)
 
+	groupCounts := _CountCandidateGroups(candidates)
+
 	for _, c := range candidates {
-		c = _CanonicalizeCandidatePathFromDocstring(c, docExtractor)
-		c = _CandidateWithPathTemplateParams(c)
+		soleCandidate := groupCounts[_CandidateGroupKeyFor(c)] == 1
+		for _, ec := range _ExpandCandidateFromDocstringEndpoints(c, docExtractor, soleCandidate) {
+			ec = _CandidateWithPathTemplateParams(ec)
 
-		profiles := c.Profiles
-		if len(profiles) == 0 {
-			profiles = classifier(c)
+			profiles := ec.Profiles
+			if len(profiles) == 0 {
+				profiles = classifier(ec)
+			}
+
+			// Pre-compute the operation's OpenAPI tags so profile selectors
+			// keyed on Tags match what the README promises (e.g. handler
+			// declares WithTag("Public") and goai.yaml says
+			// `include: { tags: [Public] }`). Building the full Operation
+			// before profile filter would be wasteful, so we extract just
+			// the tag list here.
+			operationTags := candidateOperationTags(ec, tsClassifier, docExtractor)
+
+			if profile != nil && !profile.Matches(ec, profiles, operationTags) {
+				continue
+			}
+
+			ensurePathItem(doc, ec.Path)
+			op := buildOperation(ec, schemaBld, tsClassifier, opts.SuppressEmptySchemas, docExtractor)
+			doc.Paths[ec.Path].SetOperation(ec.Method, op)
 		}
-
-		// Pre-compute the operation's OpenAPI tags so profile selectors
-		// keyed on Tags match what the README promises (e.g. handler
-		// declares WithTag("Public") and goai.yaml says
-		// `include: { tags: [Public] }`). Building the full Operation
-		// before profile filter would be wasteful, so we extract just
-		// the tag list here.
-		operationTags := candidateOperationTags(c, tsClassifier, docExtractor)
-
-		if profile != nil && !profile.Matches(c, profiles, operationTags) {
-			continue
-		}
-
-		ensurePathItem(doc, c.Path)
-		op := buildOperation(c, schemaBld, tsClassifier, opts.SuppressEmptySchemas, docExtractor)
-		doc.Paths[c.Path].SetOperation(c.Method, op)
 	}
 
 	normalizeDocumentSchemas(doc)
@@ -1116,6 +1120,95 @@ func _CanonicalizeCandidatePathFromDocstring(c OperationCandidate, docExtractor 
 	return _CandidateWithCanonicalPath(c, endpoint.Path)
 }
 
+// _ExpandCandidateFromDocstringEndpoints fans out a single walker candidate
+// into one OperationCandidate per distinct `@goai.endpoint` directive that
+// matches the candidate's HTTP method. This supports handlers that serve
+// multiple URL variants under one route node — e.g. `/resource`,
+// `/resource/{id}`, `/resource/{id}/sub` collapsed onto one leaf via gone's
+// nodeId capture — so each variant emits its own OpenAPI operation with its
+// own operationId, summary, description, and indexed param overrides.
+//
+// Fan-out fires only when the walker produced exactly one candidate for this
+// (handler, HTTP method, Go method) group and the docstring declares two or
+// more endpoints with the same HTTP method. Other shapes preserve legacy
+// single-emission behaviour so callers that register multiple routes and
+// match each route to a scoped operation by exact path keep working.
+func _ExpandCandidateFromDocstringEndpoints(c OperationCandidate, docExtractor OperationDocExtractor, soleCandidate bool) []OperationCandidate {
+	if docExtractor == nil {
+		return []OperationCandidate{c}
+	}
+
+	doc, ok := docExtractor(c.Handler, c.HandlerMethod)
+	if !ok {
+		return []OperationCandidate{c}
+	}
+
+	matching := _OperationDocEndpointsForMethod(doc, c.Method)
+	if !soleCandidate || len(matching) <= 1 {
+		return []OperationCandidate{_CanonicalizeCandidatePathFromDocstring(c, docExtractor)}
+	}
+
+	out := make([]OperationCandidate, 0, len(matching))
+	for _, endpoint := range matching {
+		if endpoint.Path == "" {
+			continue
+		}
+
+		out = append(out, _CandidateWithCanonicalPath(c, endpoint.Path))
+	}
+
+	if len(out) == 0 {
+		return []OperationCandidate{c}
+	}
+
+	return out
+}
+
+func _OperationDocEndpointsForMethod(doc *OperationDoc, method string) []OperationEndpoint {
+	endpoints := _OperationDocEndpoints(doc)
+	if len(endpoints) == 0 {
+		return nil
+	}
+
+	out := make([]OperationEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if strings.EqualFold(endpoint.Method, method) {
+			out = append(out, endpoint)
+		}
+	}
+
+	return out
+}
+
+type _CandidateGroupKey struct {
+	HandlerType reflect.Type
+	HandlerPtr  uintptr
+	HTTPMethod  string
+	GoMethod    string
+}
+
+func _CandidateGroupKeyFor(c OperationCandidate) _CandidateGroupKey {
+	return _CandidateGroupKey{
+		HandlerType: reflect.TypeOf(c.Handler),
+		HandlerPtr:  operationDocHandlerPointer(c.Handler),
+		HTTPMethod:  c.Method,
+		GoMethod:    c.HandlerMethod,
+	}
+}
+
+func _CountCandidateGroups(candidates []OperationCandidate) map[_CandidateGroupKey]int {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	out := make(map[_CandidateGroupKey]int, len(candidates))
+	for _, c := range candidates {
+		out[_CandidateGroupKeyFor(c)]++
+	}
+
+	return out
+}
+
 func _OperationDocEndpointForCandidate(doc *OperationDoc, c OperationCandidate) (OperationEndpoint, bool) {
 	if doc == nil {
 		return OperationEndpoint{}, false
@@ -1182,11 +1275,14 @@ func _CandidateWithCanonicalPath(c OperationCandidate, path string) OperationCan
 			continue
 		}
 
+		// Leave Description empty so a downstream `_MergeOperationDocFallback`
+		// pass (driven by `@goai.param` directives) can supply the real
+		// description. The previous "Resource identifier" placeholder was
+		// non-empty and blocked that fallback.
 		filtered = append(filtered, PathParam{
-			Name:        name,
-			In:          "path",
-			Required:    true,
-			Description: "Resource identifier",
+			Name:     name,
+			In:       "path",
+			Required: true,
 		})
 	}
 
@@ -1328,7 +1424,17 @@ func _MergeEndpointOperationOverride(base *Operation, scoped *Operation) {
 		base.Summary = scoped.Summary
 	}
 	if scoped.Description != "" {
-		base.Description = scoped.Description
+		// Description merges as common-then-scoped: an un-indexed
+		// `@goai.description` line shared across all endpoint variants
+		// acts as the common preamble, and `@goai.description[N]` lines
+		// append the variant-specific tail. This avoids forcing authors
+		// to repeat the same boilerplate (permissions table, behaviour
+		// list) inside every indexed scope.
+		if base.Description != "" {
+			base.Description = base.Description + "\n\n" + scoped.Description
+		} else {
+			base.Description = scoped.Description
+		}
 	}
 	if len(scoped.Tags) > 0 {
 		base.Tags = _DeduplicateStrings(scoped.Tags)

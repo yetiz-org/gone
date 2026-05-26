@@ -2017,7 +2017,7 @@ func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
 	apiOp := doc.Paths["/api/v1/organizations/{organizations_id}/projects/{projects_id}"].Get
 	require.NotNil(t, apiOp)
 	assert.Equal(t, "Get organization project", apiOp.Summary)
-	assert.Equal(t, "Returns one project in the organization scope.", apiOp.Description)
+	assert.Equal(t, "Returns an item.\n\nReturns one project in the organization scope.", apiOp.Description)
 	assert.Equal(t, "Route organization ID.", _FindParameter(t, apiOp.Parameters, "path", "organizations_id").Description)
 	assert.Equal(t, "Route project ID.", _FindParameter(t, apiOp.Parameters, "path", "projects_id").Description)
 	assert.Equal(t, "Related resources to include.", _FindParameter(t, apiOp.Parameters, "query", "include").Description)
@@ -2025,7 +2025,7 @@ func TestBuildOperationMatchesAnyDeclaredDocstringEndpoint(t *testing.T) {
 	mgmtOp := doc.Paths["/mgmt/v1/projects/{projects_id}"].Get
 	require.NotNil(t, mgmtOp)
 	assert.Equal(t, "Get management project", mgmtOp.Summary)
-	assert.Equal(t, "Returns one project in the management scope.", mgmtOp.Description)
+	assert.Equal(t, "Returns an item.\n\nReturns one project in the management scope.", mgmtOp.Description)
 	assert.Equal(t, "Route project ID.", _FindParameter(t, mgmtOp.Parameters, "path", "projects_id").Description)
 	assert.Nil(t, _FindOperationParameter(mgmtOp.Parameters, "path", "organizations_id"))
 	assert.Equal(t, "Related resources to include.", _FindParameter(t, mgmtOp.Parameters, "query", "include").Description)
@@ -2385,14 +2385,14 @@ func TestBuildOperationAppliesEndpointIndexedDocstringDirectives(t *testing.T) {
 	albumOp := doc.Paths["/api/v1/organizations/{organizations_id}/albums/songs/{songs_id}"].Get
 	require.NotNil(t, albumOp)
 	assert.Equal(t, "Get album song", albumOp.Summary)
-	assert.Equal(t, "Returns a song through the album-scoped route.", albumOp.Description)
+	assert.Equal(t, "Returns a song.\n\nReturns a song through the album-scoped route.", albumOp.Description)
 	assert.Equal(t, "Include album context.", _FindParameter(t, albumOp.Parameters, "query", "include_album_context").Description)
 	assert.Nil(t, _FindOperationParameter(albumOp.Parameters, "query", "include_usage"))
 
 	orgOp := doc.Paths["/api/v1/organizations/{organizations_id}/songs/{songs_id}"].Get
 	require.NotNil(t, orgOp)
 	assert.Equal(t, "Get organization song", orgOp.Summary)
-	assert.Equal(t, "Returns a song through the organization-scoped route.", orgOp.Description)
+	assert.Equal(t, "Returns a song.\n\nReturns a song through the organization-scoped route.", orgOp.Description)
 	assert.Equal(t, "Include usage context.", _FindParameter(t, orgOp.Parameters, "query", "include_usage").Description)
 	assert.Nil(t, _FindOperationParameter(orgOp.Parameters, "query", "include_album_context"))
 }
@@ -2539,7 +2539,163 @@ func TestBuildOperationMergesOnlyMatchingEndpointScopedSchemas(t *testing.T) {
 	})
 
 	require.NotNil(t, doc.Components)
-	assert.NotContains(t, doc.Components.Schemas, "APIProjectResponse")
+	// Fan-out emits BOTH /api/v1/... and /mgmt/v1/... so the schema scoped
+	// to the /api/v1/... endpoint lands in Components alongside the
+	// candidate's own path.
+	assert.Contains(t, doc.Components.Schemas, "APIProjectResponse")
+	assert.Contains(t, doc.Paths, "/api/v1/projects/{projects_id}")
+	assert.Contains(t, doc.Paths, "/mgmt/v1/projects/{projects_id}")
+}
+
+func TestBuildFansOutSingleCandidateAcrossDeclaredEndpointVariants(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /api/v1/items/{items_id}/children
+@goai.endpoint GET /api/v1/items/{items_id}/children/{children_id}
+@goai.endpoint GET /api/v1/items/{items_id}/children/{children_id}/leaves/{leaves_id}
+@goai.summary List or fetch child resources
+@goai.description Walks the parent-child-leaf tree.
+@goai.param path items_id string required "Item id."
+@goai.summary[0] List children
+@goai.description[0] Returns every child of the item.
+@goai.operationId[0] items.children.index
+@goai.summary[1] Fetch one child
+@goai.description[1] Returns one child by id.
+@goai.operationId[1] items.children.get
+@goai.param[1] path children_id string required "Child id."
+@goai.summary[2] Fetch one leaf
+@goai.description[2] Returns a leaf node under a specific child.
+@goai.operationId[2] items.children.leaves.get
+@goai.param[2] path children_id string required "Owning child id."
+@goai.param[2] path leaves_id string required "Leaf id."
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/api/v1/items/children",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	v0 := doc.Paths["/api/v1/items/{items_id}/children"].Get
+	require.NotNil(t, v0)
+	assert.Equal(t, "items.children.index", v0.OperationID)
+	assert.Equal(t, "List children", v0.Summary)
+	assert.Equal(t, "Walks the parent-child-leaf tree.\n\nReturns every child of the item.", v0.Description)
+	assert.Equal(t, "Item id.", _FindParameter(t, v0.Parameters, "path", "items_id").Description)
+	assert.Nil(t, _FindOperationParameter(v0.Parameters, "path", "children_id"))
+	assert.Nil(t, _FindOperationParameter(v0.Parameters, "path", "leaves_id"))
+
+	v1 := doc.Paths["/api/v1/items/{items_id}/children/{children_id}"].Get
+	require.NotNil(t, v1)
+	assert.Equal(t, "items.children.get", v1.OperationID)
+	assert.Equal(t, "Fetch one child", v1.Summary)
+	assert.Equal(t, "Walks the parent-child-leaf tree.\n\nReturns one child by id.", v1.Description)
+	assert.Equal(t, "Item id.", _FindParameter(t, v1.Parameters, "path", "items_id").Description)
+	assert.Equal(t, "Child id.", _FindParameter(t, v1.Parameters, "path", "children_id").Description)
+	assert.Nil(t, _FindOperationParameter(v1.Parameters, "path", "leaves_id"))
+
+	v2 := doc.Paths["/api/v1/items/{items_id}/children/{children_id}/leaves/{leaves_id}"].Get
+	require.NotNil(t, v2)
+	assert.Equal(t, "items.children.leaves.get", v2.OperationID)
+	assert.Equal(t, "Fetch one leaf", v2.Summary)
+	assert.Equal(t, "Walks the parent-child-leaf tree.\n\nReturns a leaf node under a specific child.", v2.Description)
+	assert.Equal(t, "Item id.", _FindParameter(t, v2.Parameters, "path", "items_id").Description)
+	assert.Equal(t, "Owning child id.", _FindParameter(t, v2.Parameters, "path", "children_id").Description)
+	assert.Equal(t, "Leaf id.", _FindParameter(t, v2.Parameters, "path", "leaves_id").Description)
+}
+
+func TestBuildMergesCommonAndIndexedDescription(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /a
+@goai.endpoint GET /b
+@goai.description Shared preamble.
+@goai.description[0] Variant A tail.
+@goai.description[1] Variant B tail.
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/a",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	require.Contains(t, doc.Paths, "/a")
+	require.Contains(t, doc.Paths, "/b")
+	assert.Equal(t, "Shared preamble.\n\nVariant A tail.", doc.Paths["/a"].Get.Description)
+	assert.Equal(t, "Shared preamble.\n\nVariant B tail.", doc.Paths["/b"].Get.Description)
+}
+
+func TestBuildKeepsBaseDescriptionWhenIndexedDescriptionAbsent(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /only
+@goai.description Shared only.
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/only",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	require.Contains(t, doc.Paths, "/only")
+	assert.Equal(t, "Shared only.", doc.Paths["/only"].Get.Description)
+}
+
+func TestBuildDoesNotFanOutWhenMultipleCandidatesShareHandlerMethod(t *testing.T) {
+	handler := &_DocstringTestHandler{}
+	docText := `
+@goai.endpoint GET /a
+@goai.endpoint GET /b
+@goai.summary[0] A
+@goai.summary[1] B
+`
+
+	doc := Build([]OperationCandidate{
+		{
+			Path:          "/a",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+		{
+			Path:          "/b",
+			Method:        "GET",
+			Handler:       handler,
+			HandlerMethod: "Get",
+		},
+	}, nil, BuildOptions{
+		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
+			return _ParseOpenAPIDocCommentWithContext(docText, methodName, nil)
+		},
+	})
+
+	require.Contains(t, doc.Paths, "/a")
+	require.Contains(t, doc.Paths, "/b")
+	assert.Equal(t, "A", doc.Paths["/a"].Get.Summary)
+	assert.Equal(t, "B", doc.Paths["/b"].Get.Summary)
 }
 
 func TestBuildOperationIgnoresDocFallbackWithoutEndpointDirective(t *testing.T) {
