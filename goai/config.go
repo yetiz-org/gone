@@ -40,6 +40,11 @@ type Config struct {
 	// handler itself via the Hidden interface.
 	ExcludePaths []string `yaml:"excludePaths,omitempty"`
 
+	// SuppressEmptySchemas, when true, omits the application/json content
+	// block on responses whose registered response type is nil, producing
+	// tighter yaml for operations without a registered response schema.
+	SuppressEmptySchemas bool `yaml:"suppressEmptySchemas,omitempty"`
+
 	// Profiles is keyed by profile name and contains include/exclude rules.
 	Profiles map[string]ConfigProfile `yaml:"profiles,omitempty"`
 	// Output describes where to write each profile's yaml. Keyed by profile
@@ -192,6 +197,7 @@ func (c *Config) ToRunOptions() RunOptions {
 		BaseSpecPath:            c.BaseSpecPath,
 		RestrictToBaseSpecPaths: c.RestrictToBaseSpecPaths,
 		ExcludePaths:            c.ExcludePaths,
+		SuppressEmptySchemas:    c.SuppressEmptySchemas,
 	}
 
 	if c.EnableDocstringExtraction {
@@ -209,16 +215,17 @@ func (c *Config) ToBuildOptions() BuildOptions {
 	}
 
 	opts := BuildOptions{
-		Title:          c.Title,
-		Description:    c.Description,
-		Version:        c.Version,
-		TermsOfService: c.TermsOfService,
-		Contact:        c.Contact,
-		License:        c.License,
-		Servers:        c.Servers,
-		Tags:           c.Tags,
-		GlobalSecurity: c.GlobalSecurity,
-		ExternalDocs:   c.ExternalDocs,
+		Title:                c.Title,
+		Description:          c.Description,
+		Version:              c.Version,
+		TermsOfService:       c.TermsOfService,
+		Contact:              c.Contact,
+		License:              c.License,
+		Servers:              c.Servers,
+		Tags:                 c.Tags,
+		GlobalSecurity:       c.GlobalSecurity,
+		ExternalDocs:         c.ExternalDocs,
+		SuppressEmptySchemas: c.SuppressEmptySchemas,
 	}
 
 	if c.EnableDocstringExtraction {

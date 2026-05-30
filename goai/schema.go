@@ -225,6 +225,15 @@ func (b *schemaBuilder) structSchema(t reflect.Type) *Schema {
 			continue
 		}
 
+		// `goai:"-"` excludes a field from the generated schema while leaving
+		// its json/runtime behavior untouched, mirroring the encoding/json
+		// convention. Checked before the embedded-flatten and build() paths so
+		// the field's type is never registered as a component when no other
+		// field references it.
+		if field.Tag.Get("goai") == "-" {
+			continue
+		}
+
 		// Embedded struct: flatten its fields up.
 		if field.Anonymous && field.Type.Kind() == reflect.Struct {
 			inner := b.build(field.Type)

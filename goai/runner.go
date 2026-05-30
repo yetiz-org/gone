@@ -106,6 +106,11 @@ type RunOptions struct {
 	//	{"/debug/**"}                                  // drop debug-only routes
 	ExcludePaths []string
 
+	// SuppressEmptySchemas, when true, omits the application/json content
+	// block on responses whose registered response type is nil, producing
+	// tighter yaml for operations without a registered response schema.
+	SuppressEmptySchemas bool
+
 	// OperationDocExtractor enables source-level Go doc-comment extraction
 	// for operation-level OpenAPI metadata. The built-in extractor only
 	// reads namespaced `@goai.*` directives from handler struct and method
@@ -252,6 +257,7 @@ func RunCLI(factory RouteFactory, opts RunOptions) {
 		GlobalSecurity:        opts.GlobalSecurity,
 		ExternalDocs:          opts.ExternalDocs,
 		TagSecurityClassifier: opts.TagSecurityClassifier,
+		SuppressEmptySchemas:  opts.SuppressEmptySchemas,
 		OperationDocExtractor: opts.OperationDocExtractor,
 	})
 

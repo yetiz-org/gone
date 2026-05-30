@@ -2385,6 +2385,17 @@ func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_AS
 	embeddedSchemas := []*Schema{}
 
 	for _, field := range st.Fields.List {
+		jsonTag, goaiTag := _ASTStructTags(field)
+
+		// `goai:"-"` excludes a field from the generated schema while leaving
+		// its json/runtime behavior untouched, mirroring the encoding/json
+		// convention and the reflection-based builder in schema.go. Checked
+		// before the embedded-flatten path so an embedded field tagged
+		// `goai:"-"` is skipped too.
+		if goaiTag == "-" {
+			continue
+		}
+
 		if len(field.Names) == 0 {
 			embedded := b._EmbeddedStructSchema(field.Type, env, imports)
 			if embedded != nil {
@@ -2405,7 +2416,6 @@ func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_AS
 			continue
 		}
 
-		jsonTag, goaiTag := _ASTStructTags(field)
 		if jsonTag == "-" {
 			continue
 		}

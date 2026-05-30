@@ -30,3 +30,15 @@ func TestConfigDocstringBuildTagsCombineWithGOFLAGS(t *testing.T) {
 	assert.NotNil(t, cfg.ToRunOptions().OperationDocExtractor)
 	assert.NotNil(t, cfg.ToBuildOptions().OperationDocExtractor)
 }
+
+func TestConfigSuppressEmptySchemasWiresBuildOption(t *testing.T) {
+	cfg := &Config{}
+
+	assert.False(t, cfg.ToBuildOptions().SuppressEmptySchemas)
+	assert.False(t, cfg.ToRunOptions().SuppressEmptySchemas)
+
+	cfg.SuppressEmptySchemas = true
+
+	assert.True(t, cfg.ToBuildOptions().SuppressEmptySchemas)
+	assert.True(t, cfg.ToRunOptions().SuppressEmptySchemas)
+}

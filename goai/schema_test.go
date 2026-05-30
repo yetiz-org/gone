@@ -202,3 +202,40 @@ func TestSchemaBuilderUsesDefaultErrorResponseSchemaMetadata(t *testing.T) {
 	require.NotNil(t, data)
 	assert.Equal(t, "Additional error data", data.Description)
 }
+
+func TestSchemaBuilderSkipsGoaiDashField(t *testing.T) {
+	type GoaiSkipInner struct {
+		Time  time.Time `json:"time"`
+		Valid bool      `json:"valid"`
+	}
+	type GoaiSkipEmbedded struct {
+		Secret string `json:"secret"`
+	}
+	type GoaiSkipOuter struct {
+		ID               int           `json:"id"`
+		Skipped          GoaiSkipInner `json:"skipped" goai:"-"`
+		GoaiSkipEmbedded `goai:"-"`
+	}
+
+	components := NewComponents()
+	builder := newSchemaBuilder(components)
+
+	ref := builder.build(reflect.TypeOf(GoaiSkipOuter{}))
+	require.NotNil(t, ref)
+	require.Equal(t, "#/components/schemas/goai.GoaiSkipOuter", ref.Ref)
+
+	schema := components.Schemas["goai.GoaiSkipOuter"]
+	require.NotNil(t, schema)
+	assert.Contains(t, schema.Properties, "id")
+	assert.NotContains(t, schema.Properties, "skipped")
+	assert.NotContains(t, schema.Required, "skipped")
+
+	// A `goai:"-"` embedded field is skipped before flattening, so its
+	// promoted fields never appear.
+	assert.NotContains(t, schema.Properties, "secret")
+
+	// Skipping happens before build(), so the field's type is never
+	// registered as a component when nothing else references it.
+	assert.NotContains(t, components.Schemas, "goai.GoaiSkipInner")
+	assert.NotContains(t, components.Schemas, "goai.GoaiSkipEmbedded")
+}

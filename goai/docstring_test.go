@@ -1049,6 +1049,48 @@ func (id ID) MarshalText() string {
 	assert.Equal(t, "string", component.Properties["value"].Type)
 }
 
+func TestASTSchemaBuilderSkipsGoaiDashField(t *testing.T) {
+	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
+
+// @goai.schemaName PublicSkip
+type Skip struct {
+	ID      string `+"`json:\"id\"`"+`
+	Skipped Inner  `+"`json:\"skipped\" goai:\"-\"`"+`
+	Embedded `+"`goai:\"-\"`"+`
+}
+
+type Inner struct {
+	Time  string `+"`json:\"time\"`"+`
+	Valid bool   `+"`json:\"valid\"`"+`
+}
+
+type Embedded struct {
+	Secret string `+"`json:\"secret\"`"+`
+}
+`)
+
+	schema, ok := builder._SchemaForTypeName("Skip")
+	require.True(t, ok)
+	assert.Equal(t, "#/components/schemas/PublicSkip", schema.Ref)
+
+	component := builder._Components["PublicSkip"]
+	require.NotNil(t, component)
+	require.Contains(t, component.Properties, "id")
+	assert.NotContains(t, component.Properties, "skipped")
+	assert.NotContains(t, component.Required, "skipped")
+
+	// A `goai:"-"` embedded field is skipped before flattening, so its
+	// promoted fields never appear.
+	assert.NotContains(t, component.Properties, "secret")
+
+	// Skipping before _SchemaFromExpr means the field's type is never
+	// registered as a component when nothing else references it.
+	for name := range builder._Components {
+		assert.NotContains(t, name, "Inner")
+		assert.NotContains(t, name, "Embedded")
+	}
+}
+
 func TestASTSchemaBuilderIgnoresMultiValueMarshalTextSignature(t *testing.T) {
 	builder := _ASTSchemaBuilderFromSource(t, "example.test/p", `package p
 
