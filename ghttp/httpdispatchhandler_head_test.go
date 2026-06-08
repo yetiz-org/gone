@@ -135,3 +135,104 @@ func TestDispatchHandlerInvokeMethodSupportsHTTPMethods(t *testing.T) {
 		})
 	}
 }
+
+func TestDispatchHandlerUpdateSessionCookieUsesRequestHostWhenSessionDomainEmpty(t *testing.T) {
+	oldSessionDomain := SessionDomain
+	oldSessionKey := SessionKey
+	t.Cleanup(func() {
+		SessionDomain = oldSessionDomain
+		SessionKey = oldSessionKey
+	})
+
+	SessionDomain = ""
+	SessionKey = "HOST_DOMAIN_TEST"
+
+	req := &Request{
+		request: httptest.NewRequest(MethodGet, "http://api.example.test:8080/probe", nil),
+		channel: channel.NewMockChannel(),
+	}
+	req.Session()
+	resp := NewResponse(req)
+
+	NewDispatchHandler(NewSimpleRoute())._UpdateSessionCookie(resp)
+
+	cookie := resp.Cookie(SessionKey)
+	require.NotNil(t, cookie)
+	require.Equal(t, "api.example.test", cookie.Domain)
+}
+
+func TestDispatchHandlerUpdateSessionCookieRefreshUsesRequestHostWhenSessionDomainEmpty(t *testing.T) {
+	oldSessionDomain := SessionDomain
+	oldSessionKey := SessionKey
+	t.Cleanup(func() {
+		SessionDomain = oldSessionDomain
+		SessionKey = oldSessionKey
+	})
+
+	SessionDomain = ""
+	SessionKey = "HOST_DOMAIN_REFRESH_TEST"
+
+	req := &Request{
+		request: httptest.NewRequest(MethodGet, "http://api.example.test:8080/probe", nil),
+		channel: channel.NewMockChannel(),
+	}
+	req.Session()
+	req.AddCookie(&http.Cookie{Name: SessionKey, Value: "expired"})
+	resp := NewResponse(req)
+
+	NewDispatchHandler(NewSimpleRoute())._UpdateSessionCookie(resp)
+
+	cookie := resp.Cookie(SessionKey)
+	require.NotNil(t, cookie)
+	require.Equal(t, "api.example.test", cookie.Domain)
+}
+
+func TestDispatchHandlerUpdateSessionCookieKeepsExplicitSessionDomain(t *testing.T) {
+	oldSessionDomain := SessionDomain
+	oldSessionKey := SessionKey
+	t.Cleanup(func() {
+		SessionDomain = oldSessionDomain
+		SessionKey = oldSessionKey
+	})
+
+	SessionDomain = "example.test"
+	SessionKey = "EXPLICIT_DOMAIN_TEST"
+
+	req := &Request{
+		request: httptest.NewRequest(MethodGet, "http://api.example.test:8080/probe", nil),
+		channel: channel.NewMockChannel(),
+	}
+	req.Session()
+	resp := NewResponse(req)
+
+	NewDispatchHandler(NewSimpleRoute())._UpdateSessionCookie(resp)
+
+	cookie := resp.Cookie(SessionKey)
+	require.NotNil(t, cookie)
+	require.Equal(t, "example.test", cookie.Domain)
+}
+
+func TestDispatchHandlerUpdateSessionCookieSkipsIPv6HostDomain(t *testing.T) {
+	oldSessionDomain := SessionDomain
+	oldSessionKey := SessionKey
+	t.Cleanup(func() {
+		SessionDomain = oldSessionDomain
+		SessionKey = oldSessionKey
+	})
+
+	SessionDomain = ""
+	SessionKey = "IPV6_DOMAIN_TEST"
+
+	req := &Request{
+		request: httptest.NewRequest(MethodGet, "http://[::1]:8080/probe", nil),
+		channel: channel.NewMockChannel(),
+	}
+	req.Session()
+	resp := NewResponse(req)
+
+	NewDispatchHandler(NewSimpleRoute())._UpdateSessionCookie(resp)
+
+	cookie := resp.Cookie(SessionKey)
+	require.NotNil(t, cookie)
+	require.Empty(t, cookie.Domain)
+}

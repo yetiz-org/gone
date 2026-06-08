@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/yetiz-org/gone/channel"
@@ -372,6 +374,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 		return
 	}
 
+	domain := h._SessionCookieDomain(resp.Request())
 	cke, err := resp.Request().Cookie(SessionKey)
 	if err == nil {
 		if timestamp := hash.TimestampOfTimeHash(cke.Value); timestamp < time.Now().Add(time.Second*time.Duration(SessionExpireTime/10)).Unix() {
@@ -380,7 +383,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 				Value:    hash.TimeHash([]byte(resp.request.session.Id()), time.Now().Add(time.Second*time.Duration(SessionExpireTime)).Unix()),
 				Path:     "/",
 				MaxAge:   SessionExpireTime,
-				Domain:   SessionDomain,
+				Domain:   domain,
 				HttpOnly: SessionHttpOnly,
 				Secure:   SessionSecure,
 			})
@@ -391,7 +394,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 			Value:    hash.TimeHash([]byte(resp.request.session.Id()), time.Now().Add(time.Second*time.Duration(SessionExpireTime)).Unix()),
 			Path:     "/",
 			MaxAge:   SessionExpireTime,
-			Domain:   SessionDomain,
+			Domain:   domain,
 			HttpOnly: SessionHttpOnly,
 			Secure:   SessionSecure,
 		})
@@ -400,6 +403,24 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 	}
 
 	resp.request.session.Save()
+}
+
+func (h *DispatchHandler) _SessionCookieDomain(req *Request) string {
+	if SessionDomain != "" || req == nil {
+		return SessionDomain
+	}
+
+	host := req.Host()
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+
+	host = strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
+	if strings.Contains(host, ":") {
+		return ""
+	}
+
+	return host
 }
 
 type ObjectLogStruct struct {
