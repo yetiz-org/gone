@@ -23,6 +23,8 @@ type DefaultErrorResponse struct {
 	StatusCode  int            `json:"status_code,omitempty" goai:"description=HTTP status code;example=401"`
 	Name        string         `json:"error,omitempty" goai:"description=Error code;example=invalid_token"`
 	Description string         `json:"error_description,omitempty" goai:"description=Error description;example=insufficient authentication"`
+	Title       string         `json:"title,omitempty" goai:"description=Localized error title for end-user display;example=Invalid Request"`
+	Detail      string         `json:"detail,omitempty" goai:"description=Localized error detail for end-user display;example=name can't be empty"`
 	Data        map[string]any `json:"data,omitempty" goai:"description=Additional error data"`
 }
 
