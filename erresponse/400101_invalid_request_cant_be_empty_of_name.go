@@ -26,6 +26,7 @@ func InvalidRequestCantBeEmptyOfName(name string) ErrorResponse {
 		StatusCode:  httpstatus.BadRequest,
 		Name:        constant.ErrorInvalidRequest,
 		Description: "insufficient parameters",
+		I18nParams:  map[string]string{"name": name},
 		DefaultKKError: kkerror.DefaultKKError{
 			ErrorLevel:    kkerror.Normal,
 			ErrorCategory: kkerror.Client,

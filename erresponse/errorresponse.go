@@ -26,6 +26,10 @@ type DefaultErrorResponse struct {
 	Title       string         `json:"title,omitempty" goai:"description=Localized error title for end-user display;example=Invalid Request"`
 	Detail      string         `json:"detail,omitempty" goai:"description=Localized error detail for end-user display;example=name can't be empty"`
 	Data        map[string]any `json:"data,omitempty" goai:"description=Additional error data"`
+	// I18nParams carries named parameters for localization template
+	// interpolation by consuming services (e.g. {name} placeholders).
+	// It is never serialized into the response body.
+	I18nParams map[string]string `json:"-" goai:"-"`
 }
 
 func (d *DefaultErrorResponse) GOAISchemaName() string {

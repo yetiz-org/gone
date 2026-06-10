@@ -26,6 +26,7 @@ func InvalidRequestWrongFormatOfName(name string) ErrorResponse {
 		StatusCode:  httpstatus.BadRequest,
 		Name:        constant.ErrorInvalidRequest,
 		Description: "parameter wrong format",
+		I18nParams:  map[string]string{"name": name},
 		DefaultKKError: kkerror.DefaultKKError{
 			ErrorLevel:    kkerror.Normal,
 			ErrorCategory: kkerror.Client,
