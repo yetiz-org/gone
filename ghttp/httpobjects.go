@@ -289,14 +289,15 @@ func (r *Request) Origin() string {
 }
 
 type Response struct {
-	response      *ghttp.Response
-	request       *Request
-	statusCode    int
-	header        ghttp.Header
-	cookies       map[string][]ghttp.Cookie
-	body          buf.ByteBuf
-	done          channel.Future
-	headerWritten bool
+	response          *ghttp.Response
+	request           *Request
+	statusCode        int
+	header            ghttp.Header
+	cookies           map[string][]ghttp.Cookie
+	body              buf.ByteBuf
+	done              channel.Future
+	headerWritten     bool
+	jsonEncoderConfig func(*json.Encoder)
 }
 
 func WrapResponse(ch channel.NetChannel, response *ghttp.Response) *Response {
@@ -420,6 +421,20 @@ func (r *Response) TextResponse(buf buf.ByteBuf) {
 		SetBody(buf)
 }
 
+// DefaultJsonEncoderConfig configures the json.Encoder used by Response.JsonResponse.
+// It disables HTML escaping by default so &, <, > stay literal (still valid JSON).
+// Set it at startup (read per request, unsynchronized); override per response via
+// Response.SetJsonEncoderConfig. nil falls back to the encoding/json default.
+var DefaultJsonEncoderConfig = func(enc *json.Encoder) {
+	enc.SetEscapeHTML(false)
+}
+
+// SetJsonEncoderConfig overrides DefaultJsonEncoderConfig for this response; nil clears it.
+func (r *Response) SetJsonEncoderConfig(config func(*json.Encoder)) *Response {
+	r.jsonEncoderConfig = config
+	return r
+}
+
 func (r *Response) JsonResponse(obj any) {
 	r.SetHeader(httpheadername.ContentType, "application/json")
 
@@ -437,8 +452,20 @@ func (r *Response) JsonResponse(obj any) {
 		obj = struct{ Data string }{Data: body}
 	}
 
-	if body, e := json.Marshal(obj); e == nil {
-		r.SetBody(buf.NewByteBuf(body))
+	config := r.jsonEncoderConfig
+	if config == nil {
+		config = DefaultJsonEncoderConfig
+	}
+
+	// Encoder.Encode appends a trailing newline; trim it to match json.Marshal output.
+	jsonBuf := &bytes.Buffer{}
+	encoder := json.NewEncoder(jsonBuf)
+	if config != nil {
+		config(encoder)
+	}
+
+	if e := encoder.Encode(obj); e == nil {
+		r.SetBody(buf.NewByteBuf(bytes.TrimRight(jsonBuf.Bytes(), "\n")))
 	} else {
 		kklogger.ErrorJ("ghttp:Response.JsonResponse#json_marshal!marshal_error", e.Error())
 	}
