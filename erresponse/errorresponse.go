@@ -2,6 +2,7 @@ package erresponse
 
 import (
 	"encoding/json"
+	"maps"
 
 	kkerror "github.com/yetiz-org/goth-kkerror"
 )
@@ -64,7 +65,17 @@ func (d *DefaultErrorResponse) ErrorData() map[string]any {
 	return d.Data
 }
 
+// Clone returns a copy that shares no mutable state with the receiver.
+//
+// The map copies are required, not defensive: registered responses are
+// package-level singletons and callers write per-request keys into ErrorData()
+// immediately after cloning (see ghttp Response.ResponseError). Sharing the maps
+// would let concurrent requests write the same map.
+//
+// maps.Clone preserves nil, so a nil map stays nil and costs no allocation.
 func (d *DefaultErrorResponse) Clone() ErrorResponse {
-	r := *d
-	return &r
+	r := new(*d)
+	r.Data = maps.Clone(d.Data)
+	r.I18nParams = maps.Clone(d.I18nParams)
+	return r
 }

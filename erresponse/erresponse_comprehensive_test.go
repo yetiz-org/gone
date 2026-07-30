@@ -156,6 +156,7 @@ func TestDefaultErrorResponse_Clone(t *testing.T) {
 		Name:        "forbidden",
 		Description: "Access denied",
 		Data:        map[string]any{"user_id": 123, "permission": "read"},
+		I18nParams:  map[string]string{"field": "permission"},
 		DefaultKKError: kkerror.DefaultKKError{
 			ErrorCode:     "403001",
 			ErrorLevel:    kkerror.Normal,
@@ -180,8 +181,9 @@ func TestDefaultErrorResponse_Clone(t *testing.T) {
 	assert.Equal(t, original.ErrorLevel, clonedErr.ErrorLevel)
 	assert.Equal(t, original.ErrorCategory, clonedErr.ErrorCategory)
 
-	// Verify Data field copying (Note: Clone implements shallow copy, map references are shared)
+	// Verify top-level map fields are copied without sharing the map itself.
 	assert.Equal(t, original.Data, clonedErr.Data)
+	assert.Equal(t, original.I18nParams, clonedErr.I18nParams)
 
 	// Verify Clone created new struct instance (different memory address)
 	assert.NotSame(t, original, clonedErr, "Clone should create new struct instance")
@@ -189,8 +191,12 @@ func TestDefaultErrorResponse_Clone(t *testing.T) {
 	// Verify modifying cloned other fields doesn't affect original object
 	clonedErr.StatusCode = 999
 	clonedErr.Name = "modified_clone"
+	clonedErr.Data["permission"] = "write"
+	clonedErr.I18nParams["field"] = "scope"
 	assert.NotEqual(t, original.StatusCode, clonedErr.StatusCode)
 	assert.NotEqual(t, original.Name, clonedErr.Name)
+	assert.Equal(t, "read", original.Data["permission"])
+	assert.Equal(t, "permission", original.I18nParams["field"])
 }
 
 // TestCollect_Registration tests Collection registration and management functionality

@@ -94,6 +94,56 @@ func TestDefaultPipeline_RemoveFirst(t *testing.T) {
 	}
 }
 
+type recordingLifecycleHandler struct {
+	DefaultHandler
+	addedName   string
+	removedName string
+}
+
+func (h *recordingLifecycleHandler) Added(ctx HandlerContext) {
+	h.addedName = ctx.Name()
+}
+
+func (h *recordingLifecycleHandler) Removed(ctx HandlerContext) {
+	h.removedName = ctx.Name()
+}
+
+func TestDefaultPipeline_AddPassesInsertedContext(t *testing.T) {
+	ch := &DefaultChannel{}
+	ch.init(ch)
+	pipeline := ch.Pipeline()
+
+	last := &recordingLifecycleHandler{}
+	before := &recordingLifecycleHandler{}
+
+	pipeline.AddLast("last", last)
+	pipeline.AddBefore("last", "before", before)
+
+	assert.Equal(t, "last", last.addedName)
+	assert.Equal(t, "before", before.addedName)
+}
+
+func TestDefaultPipeline_RemoveFirstSkipsTailSentinel(t *testing.T) {
+	ch := &DefaultChannel{}
+	ch.init(ch)
+	pipeline := ch.Pipeline().(*DefaultPipeline)
+	first := &recordingLifecycleHandler{}
+
+	pipeline.AddLast("first", first)
+	pipeline.RemoveFirst()
+
+	assert.Equal(t, "first", first.removedName)
+	assert.Same(t, pipeline.tail, pipeline.head.next())
+	assert.Same(t, pipeline.head, pipeline.tail.prev())
+
+	assert.NotPanics(t, func() {
+		pipeline.RemoveFirst()
+		pipeline.AddLast("again", &recordingLifecycleHandler{})
+	})
+	assert.Same(t, pipeline.head, pipeline.head.next().prev())
+	assert.Same(t, pipeline.tail, pipeline.tail.prev().next())
+}
+
 // TestDefaultPipeline_Remove tests pipeline Remove functionality
 func TestDefaultPipeline_Remove(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)

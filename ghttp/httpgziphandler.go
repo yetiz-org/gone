@@ -52,6 +52,7 @@ func (h *GZipHandler) Write(ctx channel.HandlerContext, obj any, future channel.
 		return
 	}
 
+	h.addVaryAcceptEncoding(response)
 	if h.acceptsGzip(response.request.Header().Get(httpheadername.AcceptEncoding)) {
 		st := time.Now()
 		if gzBody, err := h.gzipWrite(response.body); err == nil {
@@ -148,6 +149,18 @@ func (h *GZipHandler) acceptsGzip(header string) bool {
 	}
 
 	return wildcardQ != nil && *wildcardQ > 0
+}
+
+func (h *GZipHandler) addVaryAcceptEncoding(response *Response) {
+	for _, value := range response.Header().Values(httpheadername.Vary) {
+		for part := range strings.SplitSeq(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), httpheadername.AcceptEncoding) {
+				return
+			}
+		}
+	}
+
+	response.AddHeader(httpheadername.Vary, httpheadername.AcceptEncoding)
 }
 
 func (h *GZipHandler) gzipWrite(buffer buf.ByteBuf) (buf.ByteBuf, error) {

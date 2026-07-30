@@ -70,12 +70,11 @@ func (bp *BufferPool) clearBuffer(buf []byte) {
 // If the requested size is larger than the pool buffer, it creates a new buffer
 // This provides flexibility while still benefiting from pooling for common sizes
 func (bp *BufferPool) GetWithSize(size int) []byte {
-	buf := bp.Get() // This already clears the buffer
-	if len(buf) < size {
-		// If requested size is larger, create a new buffer
-		// Don't return the pool buffer since we can't use it
+	if size > bp.size {
 		return make([]byte, size)
 	}
+
+	buf := bp.Get() // This already clears the buffer
 	// Return slice of the requested size
 	return buf[:size]
 }

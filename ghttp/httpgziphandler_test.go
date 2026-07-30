@@ -87,6 +87,7 @@ func TestGZipHandler_CompressesTextContent(t *testing.T) {
 	handler.Write(ctx, pack, future)
 
 	require.Equal(t, "gzip", pack.Response.GetHeader(httpheadername.ContentEncoding))
+	require.True(t, headerHasToken(pack.Response.Header(), httpheadername.Vary, httpheadername.AcceptEncoding))
 	require.Equal(t, pack.Response.Body().ReadableBytes(), mustAtoi(t, pack.Response.GetHeader(httpheadername.ContentLength)))
 	require.NotEmpty(t, pack.Params["[gone-http]compress_time"])
 
@@ -97,6 +98,32 @@ func TestGZipHandler_CompressesTextContent(t *testing.T) {
 	decompressed, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	require.Equal(t, body, string(decompressed))
+	ctx.AssertExpectations(t)
+}
+
+func TestGZipHandler_AddsVaryWhenClientDoesNotAcceptGzip(t *testing.T) {
+	body := strings.Repeat("hello json ", 256)
+	pack, ctx, future := newGZipTestPack(t, body, "application/json")
+	pack.Request.Header().Set(httpheadername.AcceptEncoding, "br")
+	handler := &GZipHandler{CompressThreshold: 128}
+
+	handler.Write(ctx, pack, future)
+
+	require.Empty(t, pack.Response.GetHeader(httpheadername.ContentEncoding))
+	require.True(t, headerHasToken(pack.Response.Header(), httpheadername.Vary, httpheadername.AcceptEncoding))
+	ctx.AssertExpectations(t)
+}
+
+func TestGZipHandler_PreservesExistingVary(t *testing.T) {
+	body := strings.Repeat("hello json ", 256)
+	pack, ctx, future := newGZipTestPack(t, body, "application/json")
+	pack.Response.SetHeader(httpheadername.Vary, "origin")
+	handler := &GZipHandler{CompressThreshold: 128}
+
+	handler.Write(ctx, pack, future)
+
+	require.True(t, headerHasToken(pack.Response.Header(), httpheadername.Vary, "origin"))
+	require.True(t, headerHasToken(pack.Response.Header(), httpheadername.Vary, httpheadername.AcceptEncoding))
 	ctx.AssertExpectations(t)
 }
 
@@ -239,6 +266,17 @@ func mustAtoi(t *testing.T, value string) int {
 	n, err := strconv.Atoi(value)
 	require.NoError(t, err)
 	return n
+}
+
+func headerHasToken(header http.Header, name string, token string) bool {
+	for _, value := range header.Values(name) {
+		for part := range strings.SplitSeq(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), token) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 var gzipBenchSink int

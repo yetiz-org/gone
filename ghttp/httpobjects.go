@@ -33,6 +33,7 @@ type Request struct {
 	createdAt   time.Time
 	remoteAddrs []string
 	body        buf.ByteBuf
+	bodyReadErr error
 	session     httpsession.Session
 	op          sync.Mutex
 }
@@ -59,6 +60,7 @@ func WrapRequest(ch channel.Channel, req *ghttp.Request) *Request {
 				return nil
 			}
 
+			request.bodyReadErr = e
 			request.body = buf.EmptyByteBuf()
 			request.request.Body = io.NopCloser(buf.EmptyByteBuf())
 		}
@@ -174,6 +176,11 @@ func (r *Request) Header() ghttp.Header {
 
 func (r *Request) Body() buf.ByteBuf {
 	return r.body
+}
+
+// BodyReadError returns the error encountered while buffering the request body.
+func (r *Request) BodyReadError() error {
+	return r.bodyReadErr
 }
 
 func (r *Request) FormFile(key string) (multipart.File, *multipart.FileHeader, error) {

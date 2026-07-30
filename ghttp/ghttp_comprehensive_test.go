@@ -2,6 +2,7 @@ package ghttp
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,18 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/yetiz-org/gone/channel"
 )
+
+var errBodyRead = errors.New("body read failed")
+
+type errorReadCloser struct{}
+
+func (errorReadCloser) Read([]byte) (int, error) {
+	return 0, errBodyRead
+}
+
+func (errorReadCloser) Close() error {
+	return nil
+}
 
 // MockNetConn is a mock implementation of net.Conn for testing
 type MockNetConn struct {
@@ -124,6 +137,26 @@ func TestServerChannel_ServeHTTP(t *testing.T) {
 		assert.NotPanics(t, func() {
 			serverCh.ServeHTTP(w, req)
 		})
+		assert.Equal(t, 413, w.Code)
+	})
+
+	t.Run("ServeHTTP_BodyReadError", func(t *testing.T) {
+		t.Parallel()
+
+		serverCh := &ServerChannel{}
+		mockConn := &MockNetConn{}
+		mockChannel := &Channel{}
+		req := httptest.NewRequest("POST", "/test", nil)
+		req.Body = errorReadCloser{}
+		ctx := context.WithValue(req.Context(), ConnCtx, mockConn)
+		ctx = context.WithValue(ctx, ConnChCtx, mockChannel)
+		req = req.WithContext(ctx)
+		w := httptest.NewRecorder()
+
+		assert.NotPanics(t, func() {
+			serverCh.ServeHTTP(w, req)
+		})
+		assert.Equal(t, 400, w.Code)
 	})
 }
 

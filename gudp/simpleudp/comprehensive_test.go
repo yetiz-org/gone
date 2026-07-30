@@ -349,8 +349,14 @@ func TestSimpleCodecWrite(t *testing.T) {
 	// Verify the mock was called
 	mockCtx.AssertExpectations(t)
 
-	// Test writing non-ByteBuf object (should log error but not crash)
-	codec.Write(mockCtx, "invalid object", mockFuture)
+	// Test writing non-ByteBuf object (should fail the provided future)
+	invalidFuture := channel.NewFuture(nil)
+	mockCtx.On("FireErrorCaught", mock.MatchedBy(func(err error) bool {
+		return assert.ErrorIs(t, err, channel.ErrUnknownObjectType)
+	})).Return(mockCtx)
+	codec.Write(mockCtx, "invalid object", invalidFuture)
+	assert.True(t, invalidFuture.IsDone())
+	assert.ErrorIs(t, invalidFuture.Error(), channel.ErrUnknownObjectType)
 
 	// Verify expectations were met
 	mockCtx.AssertExpectations(t)
@@ -379,16 +385,20 @@ func TestSimpleCodec_Write_InvalidTypes(t *testing.T) {
 
 			codec := NewSimpleCodec()
 			mockCtx := goneMock.NewMockHandlerContext()
-			mockFuture := goneMock.NewMockFuture(nil)
+			future := channel.NewFuture(nil)
+			mockCtx.On("FireErrorCaught", mock.MatchedBy(func(err error) bool {
+				return assert.ErrorIs(t, err, channel.ErrUnknownObjectType)
+			})).Return(mockCtx)
 
-			// Should not call Write for invalid types (error logged instead)
-			// Call Write method - should log error but not crash
 			assert.NotPanics(t, func() {
-				codec.Write(mockCtx, tt.obj, mockFuture)
+				codec.Write(mockCtx, tt.obj, future)
 			}, "TestCase: %s should not panic with invalid type", tt.name)
+			assert.True(t, future.IsDone(), "TestCase: %s should settle the future", tt.name)
+			assert.ErrorIs(t, future.Error(), channel.ErrUnknownObjectType)
 
 			// No Write should be called for invalid types
 			mockCtx.AssertNotCalled(t, "Write")
+			mockCtx.AssertExpectations(t)
 		})
 	}
 }

@@ -434,3 +434,26 @@ func TestQueue_NilValueHandling(t *testing.T) {
 	nextPop := queue.Pop()
 	assert.Nil(t, nextPop, "Queue should be empty after popping nil value")
 }
+
+func TestQueue_TryPopDistinguishesNilValueFromEmpty(t *testing.T) {
+	queue := &Queue{}
+
+	value, ok := queue.TryPop()
+	assert.False(t, ok, "empty queue should report no value")
+	assert.Nil(t, value)
+
+	queue.Push(nil)
+	queue.Push("next")
+
+	value, ok = queue.TryPop()
+	assert.True(t, ok, "stored nil should still report a value")
+	assert.Nil(t, value)
+
+	value, ok = queue.TryPop()
+	assert.True(t, ok)
+	assert.Equal(t, "next", value)
+
+	value, ok = queue.TryPop()
+	assert.False(t, ok, "queue should be empty after both values are popped")
+	assert.Nil(t, value)
+}

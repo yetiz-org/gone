@@ -8,6 +8,7 @@ import (
 
 	"github.com/yetiz-org/gone/channel"
 	gtp "github.com/yetiz-org/gone/ghttp"
+	"github.com/yetiz-org/gone/ghttp/httpstatus"
 	kklogger "github.com/yetiz-org/goth-kklogger"
 
 	"github.com/gorilla/websocket"
@@ -56,6 +57,13 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 						RemoteAddr: pack.Request.Request().RemoteAddr,
 					})
 
+					if cast, ok := err.(gtp.ErrorResponse); ok {
+						if pack.Response.StatusCode() == 0 {
+							pack.Response.ResponseError(cast)
+						}
+					} else if pack.Response.StatusCode() == 0 {
+						pack.Response.SetStatusCode(httpstatus.BadRequest)
+					}
 					ctx.Write(obj, nil).Sync()
 					return
 				} else {
@@ -76,6 +84,9 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 
 			if (h.UpgradeCheckFunc != nil && !h.UpgradeCheckFunc(pack.Request, pack.Response, pack.Params)) ||
 				(!task.WSUpgrade(pack.Request, pack.Response, pack.Params)) {
+				if pack.Response.StatusCode() == 0 {
+					pack.Response.SetStatusCode(httpstatus.BadRequest)
+				}
 				ctx.Write(pack, nil).Sync()
 				return
 			}

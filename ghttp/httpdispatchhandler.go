@@ -106,6 +106,8 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 					if response.statusCode == 0 {
 						response.ResponseError(cast)
 					}
+				} else if response.statusCode == 0 {
+					response.SetStatusCode(httpstatus.BadRequest)
 				}
 
 				return

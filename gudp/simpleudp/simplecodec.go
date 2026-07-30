@@ -69,5 +69,9 @@ func (h *SimpleCodec) Write(ctx channel.HandlerContext, obj any, future channel.
 		} else {
 			kklogger.ErrorJ("gudp:SimpleCodec.Write#write!type_error", fmt.Sprintf("obj(%s) is not type of buf.ByteBuf", reflect.TypeOf(obj).String()))
 		}
+		if future != nil {
+			future.Completable().Fail(channel.ErrUnknownObjectType)
+		}
+		ctx.FireErrorCaught(channel.ErrUnknownObjectType)
 	}
 }

@@ -147,7 +147,7 @@ func (p *DefaultPipeline) AddLast(name string, elem Handler) Pipeline {
 	ctx.next().setPrev(ctx)
 	ctx.prev().setNext(ctx)
 	ctx._handler = elem
-	ctx._handler.Added(p.head)
+	ctx._handler.Added(ctx)
 
 	return p
 }
@@ -174,24 +174,21 @@ func (p *DefaultPipeline) AddBefore(target string, name string, elem Handler) Pi
 	ctx.next().setPrev(ctx)
 	ctx.prev().setNext(ctx)
 	ctx._handler = elem
-	ctx._handler.Added(p.head)
+	ctx._handler.Added(ctx)
 	return p
 }
 
 func (p *DefaultPipeline) RemoveFirst() Pipeline {
-	final := p.head
-	if final.next() == nil {
+	first := p.head.next()
+	if first == nil || first == p.tail {
 		return p
 	}
 
-	next := final.next()
-	if next.next() != nil {
-		next.next().setPrev(final)
-		final.setNext(next.next())
-	}
-
-	next.setNext(nil)
-	next.setPrev(nil)
+	first.next().setPrev(p.head)
+	p.head.setNext(first.next())
+	first.handler().Removed(first)
+	first.setNext(nil)
+	first.setPrev(nil)
 	return p
 }
 

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -37,6 +38,27 @@ func TestBufferPool_GetWithSize(t *testing.T) {
 	buf2 := pool.GetWithSize(2048)
 	if len(buf2) != 2048 {
 		t.Errorf("Expected buffer size 2048, got %d", len(buf2))
+	}
+}
+
+func TestBufferPool_GetWithSize_OversizedDoesNotTouchPool(t *testing.T) {
+	var created atomic.Int64
+	pool := &BufferPool{
+		pool: sync.Pool{
+			New: func() any {
+				created.Add(1)
+				return make([]byte, 1024)
+			},
+		},
+		size: 1024,
+	}
+
+	buf := pool.GetWithSize(2048)
+	if len(buf) != 2048 {
+		t.Fatalf("expected oversized buffer length 2048, got %d", len(buf))
+	}
+	if created.Load() != 0 {
+		t.Fatalf("oversized request should not take a buffer from the pool, got %d pool allocations", created.Load())
 	}
 }
 

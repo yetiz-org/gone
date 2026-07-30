@@ -275,21 +275,24 @@ func TestSimpleCodec_ErrorHandling(t *testing.T) {
 		assert.True(t, didPanic, "Should panic with negative length")
 	})
 
-	t.Run("Write_NilData", func(t *testing.T) {
+	t.Run("Write_InvalidDataFailsFuture", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := goneMock.NewMockHandlerContext()
-		mockFuture := goneMock.NewMockFuture(nil)
-		ctx.On("Write", mock.Anything, mockFuture).Return(mockFuture).Maybe()
+		for _, obj := range []any{nil, 123} {
+			ctx := goneMock.NewMockHandlerContext()
+			future := channel.NewFuture(nil)
+			ctx.On("FireErrorCaught", mock.MatchedBy(func(err error) bool {
+				return assert.ErrorIs(t, err, channel.ErrUnknownObjectType)
+			})).Return(ctx)
 
-		// Use Write method instead of Encode, test nil data handling
-		func() {
-			defer func() {
-				r := recover()
-				assert.NotNil(t, r, "Write with nil data should panic")
-			}()
-			codec.Write(ctx, nil, mockFuture)
-		}()
+			assert.NotPanics(t, func() {
+				codec.Write(ctx, obj, future)
+			})
+			assert.True(t, future.IsDone())
+			assert.ErrorIs(t, future.Error(), channel.ErrUnknownObjectType)
+			ctx.AssertNotCalled(t, "Write", mock.Anything, mock.Anything)
+			ctx.AssertExpectations(t)
+		}
 	})
 }
 

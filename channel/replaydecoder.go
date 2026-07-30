@@ -66,7 +66,7 @@ func (h *ReplayDecoder) Read(ctx HandlerContext, obj any) {
 			kklogger.ErrorJ("channel:ReplayDecoder.Read#decode!decode_error", r.String())
 		})
 
-		for elem := out.Pop(); elem != nil; elem = out.Pop() {
+		for elem, ok := out.TryPop(); ok; elem, ok = out.TryPop() {
 			ctx.FireRead(elem)
 		}
 	} else {

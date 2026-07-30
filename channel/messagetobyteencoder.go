@@ -11,18 +11,25 @@ type MessageToByteEncoder struct {
 	Encode func(ctx HandlerContext, msg any, out buf.ByteBuf)
 }
 
-func (h *MessageToByteEncoder) Added(ctx HandlerContext) {
-	if h.Encode == nil {
-		h.Encode = h.encode
-	}
-}
-
 func (h *MessageToByteEncoder) Write(ctx HandlerContext, obj any, future Future) {
+	if h.Encode == nil {
+		b, ok := obj.(buf.ByteBuf)
+		if !ok {
+			if future == nil {
+				future = NewFuture(ctx.Channel())
+			}
+			future.Completable().Fail(ErrUnknownObjectType)
+			ctx.FireErrorCaught(ErrUnknownObjectType)
+			return
+		}
+
+		out := buf.EmptyByteBuf()
+		out.WriteBytes(b.Bytes())
+		ctx.Write(out, future)
+		return
+	}
+
 	out := buf.EmptyByteBuf()
 	h.Encode(ctx, obj, out)
 	ctx.Write(out, future)
-}
-
-func (h *MessageToByteEncoder) encode(ctx HandlerContext, msg any, out buf.ByteBuf) {
-	panic("implement me")
 }

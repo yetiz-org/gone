@@ -24,15 +24,22 @@ func (q *Queue) Push(obj any) {
 // Returns nil if the queue is empty
 // Thread-safe for concurrent use
 func (q *Queue) Pop() any {
+	value, _ := q.TryPop()
+	return value
+}
+
+// TryPop removes and returns the oldest item from the queue.
+// The boolean distinguishes an empty queue from a stored nil value.
+func (q *Queue) TryPop() (any, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	if v := q.l.Back(); v != nil {
 		q.l.Remove(v)
-		return v.Value
+		return v.Value, true
 	}
 
-	return nil
+	return nil, false
 }
 
 // Size returns the current number of items in the queue

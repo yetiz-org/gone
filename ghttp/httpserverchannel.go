@@ -53,6 +53,12 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte{})
 		return
 	}
+	if request.BodyReadError() != nil {
+		kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP#serve_http!body_read_error", fmt.Sprintf("conn from %s, target: %s, error: %s", r.RemoteAddr, r.RequestURI, request.BodyReadError().Error()))
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte{})
+		return
+	}
 
 	var writer = w
 	var pkg = &Pack{
