@@ -2542,12 +2542,74 @@ func (b *_ASTSchemaBuilder) _ImportedBuilderForAlias(alias string, imports map[s
 	return imported, true
 }
 
-func (b *_ASTSchemaBuilder) _ImportedPackageFiles(importPath string) ([]*ast.File, string, bool) {
-	dir := b._ImportDir(importPath)
-	if dir == "" {
+// _ImportedPackageFiles caches context-sensitive directory resolution
+// separately from directory-keyed parsing for the lifetime of the parent
+// docstring extractor. Parsed AST nodes are shared read-only; callers receive
+// a fresh slice so they cannot replace entries retained by the cache.
+func (b *_ASTSchemaBuilder) _ImportedPackageFiles(importPath string) (files []*ast.File, dir string, ok bool) {
+	type importResolutionCacheKey struct{ workDir, importPath, buildTags string }
+	type importResolutionCacheEntry struct {
+		once sync.Once
+		dir  string
+	}
+	type importedPackageCacheKey struct{ dir, buildTags string }
+	type importedPackageCacheEntry struct {
+		once  sync.Once
+		files []*ast.File
+		ok    bool
+	}
+
+	if b._ImportNames == nil {
+		dir = b._ImportDir(importPath)
+		if dir == "" {
+			return nil, "", false
+		}
+
+		files, ok = b._ParseImportedPackageFiles(dir)
+		if !ok {
+			return nil, "", false
+		}
+
+		return files, dir, true
+	}
+
+	buildTags := strings.Join(b._BuildTags, "\x00")
+	resolutionKey := importResolutionCacheKey{
+		workDir:    filepath.Clean(b._Dir),
+		importPath: importPath,
+		buildTags:  buildTags,
+	}
+	resolutionValue, _ := b._ImportNames.LoadOrStore(resolutionKey, &importResolutionCacheEntry{})
+	resolutionEntry := resolutionValue.(*importResolutionCacheEntry)
+	resolutionEntry.once.Do(func() {
+		resolvedDir := b._ImportDir(importPath)
+		if resolvedDir != "" {
+			resolutionEntry.dir = filepath.Clean(resolvedDir)
+		}
+	})
+	if resolutionEntry.dir == "" {
 		return nil, "", false
 	}
 
+	packageKey := importedPackageCacheKey{
+		dir:       resolutionEntry.dir,
+		buildTags: buildTags,
+	}
+	packageValue, _ := b._ImportNames.LoadOrStore(packageKey, &importedPackageCacheEntry{})
+	packageEntry := packageValue.(*importedPackageCacheEntry)
+	packageEntry.once.Do(func() {
+		loadedFiles, loadedOK := b._ParseImportedPackageFiles(resolutionEntry.dir)
+		packageEntry.files = append([]*ast.File(nil), loadedFiles...)
+		packageEntry.ok = loadedOK
+	})
+	if !packageEntry.ok {
+		return nil, "", false
+	}
+
+	return append([]*ast.File(nil), packageEntry.files...), resolutionEntry.dir, true
+}
+
+func (b *_ASTSchemaBuilder) _ParseImportedPackageFiles(dir string) (files []*ast.File, ok bool) {
 	buildCtx := build.Default
 	buildCtx.BuildTags = append(append([]string(nil), buildCtx.BuildTags...), b._BuildTags...)
 	filter := func(info fs.FileInfo) bool {
@@ -2562,15 +2624,15 @@ func (b *_ASTSchemaBuilder) _ImportedPackageFiles(importPath string) ([]*ast.Fil
 
 	pkgs, err := parser.ParseDir(token.NewFileSet(), dir, filter, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
-		return nil, "", false
+		return nil, false
 	}
 
-	files := _ASTPackageFiles(pkgs)
+	files = _ASTPackageFiles(pkgs)
 	if len(files) == 0 {
-		return nil, "", false
+		return nil, false
 	}
 
-	return files, dir, true
+	return files, true
 }
 
 func (b *_ASTSchemaBuilder) _ImportDir(importPath string) string {
