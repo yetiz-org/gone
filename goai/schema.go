@@ -12,6 +12,11 @@ import (
 
 // SchemaNameProvider lets a struct type choose its OpenAPI component schema
 // name when goai builds schemas from reflection.
+//
+// GOAISchemaName must be deterministic. goai may call it during metadata
+// preparation and then reuse the returned name while assembling documents;
+// it must not be invoked inside parallel profile workers. Do not mutate
+// provider state or shared example values during generation.
 type SchemaNameProvider interface {
 	GOAISchemaName() string
 }
@@ -29,6 +34,11 @@ type schemaBuilder struct {
 	// collision we mangle the second occurrence using the full pkg path
 	// to keep $ref pointers honest.
 	pkgOfName map[string]string
+	// resolvedSchemaNames caches SchemaNameProvider results keyed by Go
+	// type. freezeSchemaNames makes assemble reuse those names without
+	// calling GOAISchemaName again.
+	resolvedSchemaNames map[reflect.Type]string
+	freezeSchemaNames   bool
 }
 
 // newSchemaBuilder returns a builder writing into the supplied components.
@@ -38,10 +48,11 @@ func newSchemaBuilder(components *Components) *schemaBuilder {
 	}
 
 	return &schemaBuilder{
-		components: components,
-		visiting:   map[reflect.Type]string{},
-		typeOfName: map[string]reflect.Type{},
-		pkgOfName:  map[string]string{},
+		components:          components,
+		visiting:            map[reflect.Type]string{},
+		typeOfName:          map[string]reflect.Type{},
+		pkgOfName:           map[string]string{},
+		resolvedSchemaNames: map[reflect.Type]string{},
 	}
 }
 
@@ -298,7 +309,7 @@ func (b *schemaBuilder) componentName(t reflect.Type) string {
 	}
 
 	pkg := t.PkgPath()
-	short := schemaComponentBaseName(t)
+	short := b.schemaComponentBaseName(t)
 	if pkg == "" {
 		return b.uniqueComponentName(short, t)
 	}
@@ -349,8 +360,8 @@ func (b *schemaBuilder) uniqueComponentName(name string, t reflect.Type) string 
 	return name
 }
 
-func schemaComponentBaseName(t reflect.Type) string {
-	if name := schemaNameFromProvider(t); name != "" {
+func (b *schemaBuilder) schemaComponentBaseName(t reflect.Type) (name string) {
+	if name := b.lookupSchemaName(t); name != "" {
 		return name
 	}
 
@@ -359,6 +370,29 @@ func schemaComponentBaseName(t reflect.Type) string {
 	}
 
 	return shortPkgName(t.PkgPath()) + "." + t.Name()
+}
+
+func (b *schemaBuilder) lookupSchemaName(t reflect.Type) (name string) {
+	if t == nil || t.Name() == "" {
+		return ""
+	}
+
+	if b != nil && b.resolvedSchemaNames != nil {
+		if name, ok := b.resolvedSchemaNames[t]; ok {
+			return name
+		}
+	}
+
+	if b != nil && b.freezeSchemaNames {
+		return ""
+	}
+
+	name = schemaNameFromProvider(t)
+	if b != nil && b.resolvedSchemaNames != nil {
+		b.resolvedSchemaNames[t] = name
+	}
+
+	return name
 }
 
 func schemaNameFromProvider(t reflect.Type) string {
@@ -921,14 +955,46 @@ func cloneSchema(schema *Schema) *Schema {
 	if additional, ok := schema.AdditionalProperties.(*Schema); ok {
 		clone.AdditionalProperties = cloneSchema(additional)
 	}
-	if schema.Extensions != nil {
-		clone.Extensions = map[string]any{}
-		for key, value := range schema.Extensions {
-			clone.Extensions[key] = value
+	if schema.Discriminator != nil {
+		discriminator := *schema.Discriminator
+		if schema.Discriminator.Mapping != nil {
+			discriminator.Mapping = make(map[string]string, len(schema.Discriminator.Mapping))
+			for key, value := range schema.Discriminator.Mapping {
+				discriminator.Mapping[key] = value
+			}
 		}
+
+		clone.Discriminator = &discriminator
 	}
 
+	if schema.XML != nil {
+		xml := *schema.XML
+		xml.Extensions = cloneAnyMap(schema.XML.Extensions)
+		clone.XML = &xml
+	}
+
+	if schema.ExternalDocs != nil {
+		docs := *schema.ExternalDocs
+		docs.Extensions = cloneAnyMap(schema.ExternalDocs.Extensions)
+		clone.ExternalDocs = &docs
+	}
+
+	clone.Extensions = cloneAnyMap(schema.Extensions)
+
 	return &clone
+}
+
+func cloneAnyMap(values map[string]any) (cloned map[string]any) {
+	if values == nil {
+		return nil
+	}
+
+	cloned = make(map[string]any, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+
+	return cloned
 }
 
 func cloneSchemaSlice(schemas []*Schema) []*Schema {

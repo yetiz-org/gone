@@ -51,6 +51,11 @@ type Config struct {
 	// name; value is a relative path from the config file's directory.
 	Output map[string]string `yaml:"output,omitempty"`
 
+	// Concurrency is the maximum number of profile emission workers.
+	// Absent or 0 means 1. Negative values are invalid. DefaultConfig and
+	// LoadConfig both expose this normalized value.
+	Concurrency int `yaml:"concurrency,omitempty"`
+
 	// EnableDocstringExtraction toggles source-level Go doc-comment
 	// extraction for operation-level OpenAPI metadata. When true,
 	// RunCLIFromConfig wires DefaultOperationDocExtractorWithBuildTags()
@@ -92,6 +97,9 @@ func LoadConfig(dir string) (*Config, error) {
 	}
 
 	cfg.applyDefaults()
+	if cfg.Concurrency < 0 {
+		return nil, fmt.Errorf("goai: concurrency must not be negative")
+	}
 
 	return cfg, nil
 }
@@ -116,6 +124,7 @@ func DefaultConfig() *Config {
 			"internal": "openapi.internal.yaml",
 			"all":      "openapi.yaml",
 		},
+		Concurrency: 1,
 	}
 
 	return cfg
@@ -137,6 +146,10 @@ func (c *Config) applyDefaults() {
 
 	if c.Output == nil {
 		c.Output = DefaultConfig().Output
+	}
+
+	if c.Concurrency == 0 {
+		c.Concurrency = 1
 	}
 }
 

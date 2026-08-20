@@ -48,28 +48,28 @@ func (s Selector) IsEmpty() bool {
 // the handler and its acceptance chain; operationTags is the union of
 // OpenAPI tags assigned to this operation by Spec / Register / classifier.
 func (s Selector) Match(c OperationCandidate, declaredProfiles, operationTags []string) bool {
+	return s.match(c.Path, handlerPackagePath(c.Handler), declaredProfiles, operationTags)
+}
+
+func (s Selector) match(path string, packagePath string, declaredProfiles []string, operationTags []string) bool {
 	if s.IsEmpty() {
 		return true
 	}
 
-	if len(s.Paths) > 0 && !pathMatchesAny(c.Path, s.Paths) {
+	if len(s.Paths) > 0 && !pathMatchesAny(path, s.Paths) {
 		return false
 	}
 
-	if len(s.Packages) > 0 && !packageMatchesAny(c.Handler, s.Packages) {
+	if len(s.Packages) > 0 && !packagePathMatchesAny(packagePath, s.Packages) {
 		return false
 	}
 
-	if len(s.Tags) > 0 {
-		if !sliceIntersects(operationTags, s.Tags) {
-			return false
-		}
+	if len(s.Tags) > 0 && !sliceIntersects(operationTags, s.Tags) {
+		return false
 	}
 
-	if len(s.Profiles) > 0 {
-		if !sliceIntersects(declaredProfiles, s.Profiles) {
-			return false
-		}
+	if len(s.Profiles) > 0 && !sliceIntersects(declaredProfiles, s.Profiles) {
+		return false
 	}
 
 	return true
@@ -85,6 +85,14 @@ func (p *Profile) Matches(c OperationCandidate, declaredProfiles, operationTags 
 		return true
 	}
 
+	return p.matches(c.Path, handlerPackagePath(c.Handler), declaredProfiles, operationTags)
+}
+
+func (p *Profile) matches(path string, packagePath string, declaredProfiles []string, operationTags []string) bool {
+	if p == nil {
+		return true
+	}
+
 	// "all" profile is a special accept-all bucket.
 	if strings.EqualFold(p.Name, "all") && p.Include.IsEmpty() && p.Exclude.IsEmpty() {
 		return true
@@ -94,16 +102,16 @@ func (p *Profile) Matches(c OperationCandidate, declaredProfiles, operationTags 
 	if len(declaredProfiles) > 0 {
 		for _, dp := range declaredProfiles {
 			if strings.EqualFold(dp, p.Name) {
-				return !excluded(c, p.Exclude, declaredProfiles, operationTags)
+				return !excluded(path, packagePath, p.Exclude, declaredProfiles, operationTags)
 			}
 		}
 	}
 
-	if !p.Include.Match(c, declaredProfiles, operationTags) {
+	if !p.Include.match(path, packagePath, declaredProfiles, operationTags) {
 		return false
 	}
 
-	if !p.Exclude.IsEmpty() && excluded(c, p.Exclude, declaredProfiles, operationTags) {
+	if !p.Exclude.IsEmpty() && excluded(path, packagePath, p.Exclude, declaredProfiles, operationTags) {
 		return false
 	}
 
@@ -113,16 +121,16 @@ func (p *Profile) Matches(c OperationCandidate, declaredProfiles, operationTags 
 // excluded reports whether the candidate matches *any* exclude rule. Unlike
 // Selector.Match, exclusion uses logical OR across fields so a single hit
 // is enough to drop the candidate.
-func excluded(c OperationCandidate, sel Selector, declaredProfiles, operationTags []string) bool {
+func excluded(path string, packagePath string, sel Selector, declaredProfiles []string, operationTags []string) bool {
 	if sel.IsEmpty() {
 		return false
 	}
 
-	if pathMatchesAny(c.Path, sel.Paths) {
+	if pathMatchesAny(path, sel.Paths) {
 		return true
 	}
 
-	if packageMatchesAny(c.Handler, sel.Packages) {
+	if packagePathMatchesAny(packagePath, sel.Packages) {
 		return true
 	}
 
@@ -197,11 +205,9 @@ func matchPathPattern(pat, seg []string) bool {
 	return len(seg) == len(pat)
 }
 
-// packageMatchesAny returns true when handler's package path has any of the
-// supplied prefixes.
-func packageMatchesAny(handler any, prefixes []string) bool {
-	if handler == nil || len(prefixes) == 0 {
-		return false
+func handlerPackagePath(handler any) (packagePath string) {
+	if handler == nil {
+		return ""
 	}
 
 	t := reflect.TypeOf(handler)
@@ -209,9 +215,17 @@ func packageMatchesAny(handler any, prefixes []string) bool {
 		t = t.Elem()
 	}
 
-	pkg := t.PkgPath()
-	for _, p := range prefixes {
-		if strings.HasPrefix(pkg, p) {
+	return t.PkgPath()
+}
+
+// packagePathMatchesAny reports whether packagePath has any supplied prefix.
+func packagePathMatchesAny(packagePath string, prefixes []string) bool {
+	if packagePath == "" || len(prefixes) == 0 {
+		return false
+	}
+
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(packagePath, prefix) {
 			return true
 		}
 	}

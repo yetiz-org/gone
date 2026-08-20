@@ -129,7 +129,7 @@ Run it:
 go run ./cmd/goaispec               # writes to DefaultOutput
 go run ./cmd/goaispec -o /tmp/x.yaml
 go run ./cmd/goaispec -o -          # writes to stdout
-goai emit --root . -o /tmp/x.yaml   # delegates to ./cmd/goaispec
+goai emit --root . -o /tmp/x.yaml   # delegates to ./cmd/goaispec; -o is forwarded
 ```
 
 ### 3. Serve the spec at runtime
@@ -515,8 +515,21 @@ Pass the `*Profile` to `Build` to filter the output.
 
 For projects that emit more than one OpenAPI document, keep generation
 policy in `goai.yaml` and call `RunCLIFromConfig` from the project-side
-binary. The route tree is walked once; each configured profile gets its
-own `Build` + `EmitYAML` pass.
+binary. The route tree is walked once. Selected profiles are always emitted
+in `Config.ProfileNames` lexical order; repeatable `-profile` flags select a
+set and do not change that order. A single output target always runs
+sequentially. When more than one target is selected and the effective
+worker count is greater than 1,
+provider/docstring/schema-name metadata is resolved serially, then each
+profile assembles from an owned clone. Workers produce YAML only; the
+owner writes files, stdout, stderr diagnostics, and performs at most one
+`Exit`. Successful files from earlier lexical targets are kept if a later
+target fails; targets after the first failure are not written.
+
+Metadata providers, classifiers, and extractors must be deterministic and
+side-effect-free. goai may cache and reuse their results during serial
+preparation; invocation count and order are not part of the API contract.
+Parallel workers never invoke these callbacks.
 
 The file is not required when a project has one output and can express the
 policy directly in Go with `RunCLI` / `RunOptions`. Prefer `goai.yaml` when
@@ -529,9 +542,34 @@ func main() {
     goai.RunCLIFromConfig(
         "goai.yaml",
         func() ghttp.RouteEntriesProvider { return handlers.NewAppRoute() },
+        goai.WithArgs(os.Args[1:]),
     )
 }
 ```
+
+The standalone helper forwards config-runner flags after `-args`:
+
+```bash
+goai emit --root . -args -profile public -concurrency 2
+```
+
+`goai emit` does not parse `-profile` or `-concurrency` itself. It locates
+the project binary and forwards everything after `-args` verbatim. These
+flags take effect because the project binary passes them to
+`RunCLIFromConfig` with `WithArgs`.
+
+`RunCLIFromConfig` ignores ambient `os.Args` unless `WithArgs` is provided.
+`WithArgs(nil)` is an explicit empty argv. Repeatable case-sensitive
+`-profile` selects a subset; duplicates, unknown names, and empty names
+are usage errors (exit 2). `-o` is valid only when exactly one target is
+selected. Duplicate resolved output paths and multiple targets writing to
+stdout fail before the route factory runs (config errors, exit 1). Other
+generation failures also exit 1.
+
+Effective concurrency is CLI `-concurrency` > `WithConcurrency` > YAML
+`concurrency` > built-in 1. Absent or `0` means 1; an explicit option or
+CLI `0` is a presence bit that overrides lower layers and then defaults
+to 1. Negative values are invalid.
 
 Minimal `goai.yaml`:
 
@@ -572,12 +610,13 @@ contains the config file, so `baseSpecPath: openapi.yaml` next to
 `goai.yaml` and `baseSpecPath: docs/openapi/openapi.yaml` at the project
 root are both valid.
 
-Config fields map to the corresponding `RunOptions` / `BuildOptions`
-fields: `title`, `description`, `version`, `termsOfService`, `contact`,
-`license`, `externalDocs`, `servers`, `tags`, `security`,
-`securitySchemes`, `defaultOutput`, `baseSpecPath`,
-`restrictToBaseSpecPaths`, `excludePaths`, `profiles`, `output`,
-`enableDocstringExtraction`, and `docstringBuildTags`.
+Config metadata and build fields map to the corresponding `RunOptions` /
+`BuildOptions` behavior: `title`, `description`, `version`,
+`termsOfService`, `contact`, `license`, `externalDocs`, `servers`, `tags`,
+`security`, `securitySchemes`, `defaultOutput`, `baseSpecPath`,
+`restrictToBaseSpecPaths`, `excludePaths`, `enableDocstringExtraction`, and
+`docstringBuildTags`. `profiles` and `output` control config-driven targets;
+`concurrency` is the `RunCLIFromConfig` profile-worker limit.
 
 When `profiles` / `output` are omitted, the default buckets are `public`,
 `mgmt`, `internal`, and `all`, with output files
@@ -661,6 +700,14 @@ overwriting hand-tuned prose. See [`examples/merge`](./examples/merge).
 | `WithExternalDocs(url, description)`    | Operation-level externalDocs.                                           |
 | `WithCallback(name, Callback)`          | Operation-level callback under `callbacks.<name>`.                      |
 | `WithOperationServer(Server)`           | Adds an operation-level server override.                                |
+
+`RunCLIFromConfig` options:
+
+| Option                                  | Effect                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| `WithArgs(args)`                        | Supplies argv. Ambient `os.Args` are ignored without it. `nil` is empty argv. |
+| `WithConcurrency(n)`                    | Explicit profile-emission worker limit; explicit `0` overrides YAML then defaults to 1. |
+| `WithClassifier(c)`                     | Fallback classifier for handlers without Spec/Security providers.       |
 
 ### Schema reference
 

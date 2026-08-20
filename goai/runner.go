@@ -7,6 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/yetiz-org/gone/ghttp"
 	"gopkg.in/yaml.v3"
@@ -534,13 +537,161 @@ func countPathsAndOpsFromYAML(body []byte) (int, int) {
 type RunFromConfigOption func(*runFromConfigOpts)
 
 type runFromConfigOpts struct {
-	classifier *Classifier
+	classifier     *Classifier
+	args           []string
+	argsSet        bool
+	concurrency    int
+	concurrencySet bool
 }
 
 // WithClassifier injects a fallback Classifier for handlers that do not
 // implement SpecProvider or SecurityProvider.
-func WithClassifier(c *Classifier) RunFromConfigOption {
+func WithClassifier(c *Classifier) (opt RunFromConfigOption) {
 	return func(o *runFromConfigOpts) { o.classifier = c }
+}
+
+// WithArgs supplies argv for RunCLIFromConfig. Calling WithArgs marks args as
+// set even when args is nil or empty; nil is stored as an explicit empty
+// slice. Ambient os.Args are ignored unless WithArgs is provided.
+func WithArgs(args []string) (opt RunFromConfigOption) {
+	return func(o *runFromConfigOpts) {
+		o.argsSet = true
+		o.args = args
+		if o.args == nil {
+			o.args = []string{}
+		}
+	}
+}
+
+// WithConcurrency records an explicit profile-emission worker limit. The
+// option is marked present even when n is 0; an explicit 0 overrides YAML
+// and then defaults to 1. Negative values are invalid.
+func WithConcurrency(n int) (opt RunFromConfigOption) {
+	return func(o *runFromConfigOpts) {
+		o.concurrency = n
+		o.concurrencySet = true
+	}
+}
+
+type _ProfileJob struct {
+	Name   string
+	Output string
+}
+
+type _ProfileJobResult struct {
+	Name   string
+	Output string
+	Body   []byte
+	Doc    *Document
+	Err    error
+}
+
+type _runCLIFromConfigFlags struct {
+	profiles       []string
+	outputSet      bool
+	output         string
+	concurrencySet bool
+	concurrency    int
+}
+
+type _profileFlagValues []string
+
+func (p *_profileFlagValues) String() (s string) {
+	if p == nil {
+		return ""
+	}
+
+	return strings.Join(*p, ",")
+}
+
+func (p *_profileFlagValues) Set(value string) (err error) {
+	*p = append(*p, value)
+
+	return nil
+}
+
+func _ResolveRunConcurrency(cli *int, option *int, yamlConcurrency int) (concurrency int, err error) {
+	pick := func(n int) (int, error) {
+		if n < 0 {
+			return 0, fmt.Errorf("concurrency must not be negative")
+		}
+
+		if n == 0 {
+			return 1, nil
+		}
+
+		return n, nil
+	}
+
+	if cli != nil {
+		return pick(*cli)
+	}
+
+	if option != nil {
+		return pick(*option)
+	}
+
+	return pick(yamlConcurrency)
+}
+
+func _CappedWorkerCount(concurrency int, targets int) (workers int) {
+	if targets <= 1 {
+		return 1
+	}
+
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	if concurrency > targets {
+		return targets
+	}
+
+	return concurrency
+}
+
+func _RunProfileJobs(concurrency int, jobs []_ProfileJob, worker func(_ProfileJob) _ProfileJobResult) (results []_ProfileJobResult) {
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	if concurrency > len(jobs) {
+		concurrency = len(jobs)
+	}
+
+	results = make([]_ProfileJobResult, len(jobs))
+	if concurrency == 1 {
+		for i, job := range jobs {
+			results[i] = worker(job)
+		}
+
+		return results
+	}
+
+	work := make(chan int)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range work {
+				results[idx] = worker(jobs[idx])
+			}
+		}()
+	}
+
+	for i := range jobs {
+		work <- i
+	}
+
+	close(work)
+	wg.Wait()
+
+	return results
 }
 
 // RunCLIFromConfig is the multi-output entry point. It loads goai.yaml
@@ -551,33 +702,85 @@ func WithClassifier(c *Classifier) RunFromConfigOption {
 //
 // configPath may point at either the goai.yaml file directly or the
 // directory containing it.
+//
+// Ambient os.Args are ignored unless WithArgs is provided; WithArgs(nil)
+// is an explicit empty argv. Supported flags are repeatable case-sensitive
+// -profile, -concurrency, and -o (exactly one effective target). CLI usage
+// errors exit 2; config, option, and generation errors exit 1.
+//
+// Effective worker count is CLI > WithConcurrency > YAML > built-in 1.
+// Explicit CLI or option 0 is a presence bit that overrides lower layers
+// and then defaults to 1. A single output target always runs sequentially.
+// When more than one target is selected and workers > 1, metadata is
+// resolved serially and each profile assembles from an owned clone.
 func RunCLIFromConfig(configPath string, factory RouteFactory, opts ...RunFromConfigOption) {
-	stderr := os.Stderr
-	exit := os.Exit
+	if exitCode := _RunCLIFromConfig(configPath, factory, os.Stdout, os.Stderr, opts...); exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
 
+func _RunCLIFromConfig(configPath string, factory RouteFactory, stdout io.Writer, stderr io.Writer, opts ...RunFromConfigOption) (exitCode int) {
 	o := runFromConfigOpts{}
 	for _, fn := range opts {
 		fn(&o)
 	}
 
+	args := []string{}
+	if o.argsSet {
+		args = o.args
+	}
+
+	flags, err := _ParseRunCLIFromConfigArgs(args, stderr)
+	if err != nil {
+		return 2
+	}
+
 	cfgDir := configPath
-	if info, err := os.Stat(configPath); err == nil && !info.IsDir() {
+	if info, statErr := os.Stat(configPath); statErr == nil && !info.IsDir() {
 		cfgDir = filepath.Dir(configPath)
 	}
 
 	cfg, err := LoadConfig(cfgDir)
 	if err != nil {
 		fmt.Fprintf(stderr, "goai: load config: %v\n", err)
-		exit(1)
 
-		return
+		return 1
+	}
+
+	var cliConcurrency *int
+	if flags.concurrencySet {
+		cliConcurrency = &flags.concurrency
+	}
+
+	var optionConcurrency *int
+	if o.concurrencySet {
+		optionConcurrency = &o.concurrency
+	}
+
+	concurrency, err := _ResolveRunConcurrency(cliConcurrency, optionConcurrency, cfg.Concurrency)
+	if err != nil {
+		fmt.Fprintf(stderr, "goai: %v\n", err)
+
+		return 1
+	}
+
+	jobs, usageErr, cfgErr := _ResolveRunTargets(cfg, cfgDir, flags)
+	if usageErr != nil {
+		fmt.Fprintf(stderr, "goai: %v\n", usageErr)
+
+		return 2
+	}
+
+	if cfgErr != nil {
+		fmt.Fprintf(stderr, "goai: %v\n", cfgErr)
+
+		return 1
 	}
 
 	if factory == nil {
 		fmt.Fprintln(stderr, "goai: route factory is nil")
-		exit(1)
 
-		return
+		return 1
 	}
 
 	prev := ghttp.SetSkipHandlerRegister(true)
@@ -586,17 +789,15 @@ func RunCLIFromConfig(configPath string, factory RouteFactory, opts ...RunFromCo
 	route := factory()
 	if route == nil {
 		fmt.Fprintln(stderr, "goai: route factory returned nil")
-		exit(1)
 
-		return
+		return 1
 	}
 
 	candidates := Walk(route)
 	if len(candidates) == 0 {
 		fmt.Fprintln(stderr, "goai: walker returned 0 candidates — route tree is empty")
-		exit(1)
 
-		return
+		return 1
 	}
 
 	var baseSpec []byte
@@ -605,9 +806,8 @@ func RunCLIFromConfig(configPath string, factory RouteFactory, opts ...RunFromCo
 		baseSpec, err = os.ReadFile(baseSpecPath)
 		if err != nil {
 			fmt.Fprintf(stderr, "goai: read base spec %s: %v\n", baseSpecPath, err)
-			exit(1)
 
-			return
+			return 1
 		}
 	}
 
@@ -619,39 +819,11 @@ func RunCLIFromConfig(configPath string, factory RouteFactory, opts ...RunFromCo
 	// further by tag/package/path.
 	candidates = applyFrameworkFilter(candidates, baseSpec, cfg.RestrictToBaseSpecPaths, cfg.ExcludePaths)
 
-	if len(cfg.Profiles) == 0 {
-		out := cfg.DefaultOutput
-		if out == "" {
-			out = "openapi.generated.yaml"
-		}
-
-		out = resolveConfigPath(cfgDir, out)
-
-		if err := emitOne(stderr, candidates, nil, build, cfg.SecuritySchemes, baseSpec, false, nil, out); err != nil {
-			fmt.Fprintf(stderr, "goai: %v\n", err)
-			exit(1)
-		}
-
-		return
+	if failed := _RunConfigProfileJobs(stdout, stderr, cfg, jobs, candidates, build, baseSpec, concurrency); failed {
+		return 1
 	}
 
-	for name := range cfg.Profiles {
-		profile := cfg.BuildProfile(name)
-
-		out := cfg.Output[name]
-		if out == "" {
-			out = "openapi." + name + ".yaml"
-		}
-
-		out = resolveConfigPath(cfgDir, out)
-
-		if err := emitOne(stderr, candidates, profile, build, cfg.SecuritySchemes, baseSpec, false, nil, out); err != nil {
-			fmt.Fprintf(stderr, "goai: profile %s: %v\n", name, err)
-			exit(1)
-
-			return
-		}
-	}
+	return 0
 }
 
 // resolveConfigPath joins relative paths declared in goai.yaml against the
@@ -719,13 +891,222 @@ func pathMatchesAnyGlob(path string, patterns []string) bool {
 	return false
 }
 
-// emitOne builds, emits, optionally merges, and writes a single yaml file.
-func emitOne(stderr io.Writer, candidates []OperationCandidate, profile *Profile, build BuildOptions, securitySchemes map[string]*SecurityScheme, baseSpec []byte, restrictToBase bool, exclude []string, output string) error {
-	if profile == nil {
-		profile = buildPathFilterProfile(baseSpec, restrictToBase, exclude)
+func _ParseRunCLIFromConfigArgs(args []string, stderr io.Writer) (flags _runCLIFromConfigFlags, err error) {
+	fs := flag.NewFlagSet("goai", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var profiles _profileFlagValues
+	fs.Var(&profiles, "profile", "profile name (repeatable, case-sensitive)")
+	output := fs.String("o", "", "output path; valid only when a single target is selected")
+	fs.Func("concurrency", "maximum number of profile emission workers", func(value string) error {
+		n, parseErr := strconv.Atoi(value)
+		if parseErr != nil {
+			return parseErr
+		}
+
+		flags.concurrency = n
+		flags.concurrencySet = true
+
+		return nil
+	})
+	if err = fs.Parse(args); err != nil {
+		return flags, err
 	}
 
-	doc := Build(candidates, profile, build)
+	flags.profiles = append([]string(nil), profiles...)
+	if fs.Lookup("o") != nil {
+		visited := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "o" {
+				visited = true
+			}
+		})
+		flags.outputSet = visited
+		flags.output = *output
+	}
+
+	return flags, nil
+}
+
+func _ResolveRunTargets(cfg *Config, cfgDir string, flags _runCLIFromConfigFlags) (jobs []_ProfileJob, usageErr error, cfgErr error) {
+	var selected map[string]struct{}
+	if len(flags.profiles) > 0 {
+		selected = make(map[string]struct{}, len(flags.profiles))
+		for _, name := range flags.profiles {
+			if name == "" {
+				return nil, fmt.Errorf("profile name must not be empty"), nil
+			}
+
+			if _, dup := selected[name]; dup {
+				return nil, fmt.Errorf("duplicate profile %q", name), nil
+			}
+
+			selected[name] = struct{}{}
+		}
+
+		for _, name := range flags.profiles {
+			if _, ok := cfg.Profiles[name]; !ok {
+				return nil, fmt.Errorf("unknown profile %q", name), nil
+			}
+		}
+	}
+
+	if len(cfg.Profiles) == 0 {
+		out := cfg.DefaultOutput
+		if out == "" {
+			out = "openapi.generated.yaml"
+		}
+
+		if flags.outputSet {
+			out = flags.output
+		}
+
+		return []_ProfileJob{{Output: resolveConfigPath(cfgDir, out)}}, nil, nil
+	}
+
+	names := cfg.ProfileNames()
+	if selected != nil {
+		filtered := make([]string, 0, len(selected))
+		for _, name := range names {
+			if _, ok := selected[name]; ok {
+				filtered = append(filtered, name)
+			}
+		}
+
+		names = filtered
+	}
+
+	if flags.outputSet && len(names) != 1 {
+		return nil, fmt.Errorf("-o requires exactly one output target"), nil
+	}
+
+	jobs = make([]_ProfileJob, 0, len(names))
+	seenOut := map[string]struct{}{}
+	stdoutCount := 0
+	for _, name := range names {
+		out := cfg.Output[name]
+		if flags.outputSet {
+			out = flags.output
+		} else if out == "" {
+			out = "openapi." + name + ".yaml"
+		}
+
+		out = resolveConfigPath(cfgDir, out)
+		if out == "-" {
+			stdoutCount++
+		}
+
+		key := _CanonicalOutputKey(out)
+		if _, dup := seenOut[key]; dup {
+			return nil, nil, fmt.Errorf("duplicate output path %s", out)
+		}
+
+		seenOut[key] = struct{}{}
+		jobs = append(jobs, _ProfileJob{Name: name, Output: out})
+	}
+
+	if stdoutCount > 1 {
+		return nil, nil, fmt.Errorf("multiple profiles cannot write to stdout")
+	}
+
+	return jobs, nil, nil
+}
+
+func _CanonicalOutputKey(path string) (key string) {
+	if path == "-" {
+		return "-"
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+
+	return abs
+}
+
+func _RunConfigProfileJobs(stdout io.Writer, stderr io.Writer, cfg *Config, jobs []_ProfileJob, candidates []OperationCandidate, build BuildOptions, baseSpec []byte, concurrency int) (failed bool) {
+	workers := _CappedWorkerCount(concurrency, len(jobs))
+	if workers <= 1 {
+		for _, job := range jobs {
+			profile := _ProfileForJob(cfg, job.Name, baseSpec)
+			body, doc, err := _MaterializeProfileYAML(candidates, profile, build, cfg.SecuritySchemes, baseSpec)
+			if err != nil {
+				_WriteProfileError(stderr, job.Name, err)
+				return true
+			}
+
+			if err = _WriteGeneratedOutput(stdout, stderr, job.Output, body, doc, baseSpec); err != nil {
+				_WriteProfileError(stderr, job.Name, err)
+				return true
+			}
+		}
+
+		return false
+	}
+
+	prepared := _PrepareOperationCandidates(candidates, nil, build)
+	owned := make(map[string]_PreparedSet, len(jobs))
+	for _, job := range jobs {
+		owned[job.Name] = _ClonePreparedSet(prepared)
+	}
+
+	results := _RunProfileJobs(workers, jobs, func(job _ProfileJob) (result _ProfileJobResult) {
+		profile := _ProfileForJob(cfg, job.Name, baseSpec)
+		body, doc, err := _MaterializePreparedProfileYAML(owned[job.Name], profile, build, cfg.SecuritySchemes, baseSpec)
+
+		return _ProfileJobResult{Name: job.Name, Output: job.Output, Body: body, Doc: doc, Err: err}
+	})
+
+	for _, result := range results {
+		if result.Err != nil {
+			_WriteProfileError(stderr, result.Name, result.Err)
+
+			return true
+		}
+
+		if err := _WriteGeneratedOutput(stdout, stderr, result.Output, result.Body, result.Doc, baseSpec); err != nil {
+			_WriteProfileError(stderr, result.Name, err)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func _ProfileForJob(cfg *Config, name string, baseSpec []byte) (profile *Profile) {
+	if name == "" {
+		return buildPathFilterProfile(baseSpec, cfg.RestrictToBaseSpecPaths, cfg.ExcludePaths)
+	}
+
+	return cfg.BuildProfile(name)
+}
+
+func _WriteProfileError(stderr io.Writer, name string, err error) {
+	if name == "" {
+		fmt.Fprintf(stderr, "goai: %v\n", err)
+
+		return
+	}
+
+	fmt.Fprintf(stderr, "goai: profile %s: %v\n", name, err)
+}
+
+func _MaterializeProfileYAML(candidates []OperationCandidate, profile *Profile, build BuildOptions, securitySchemes map[string]*SecurityScheme, baseSpec []byte) (body []byte, doc *Document, err error) {
+	doc = Build(candidates, profile, build)
+	body, err = _EmitDocumentYAML(doc, profile, securitySchemes, baseSpec)
+
+	return body, doc, err
+}
+
+func _MaterializePreparedProfileYAML(prepared _PreparedSet, profile *Profile, build BuildOptions, securitySchemes map[string]*SecurityScheme, baseSpec []byte) (body []byte, doc *Document, err error) {
+	doc = _AssembleDocument(prepared, profile, build)
+	body, err = _EmitDocumentYAML(doc, profile, securitySchemes, baseSpec)
+
+	return body, doc, err
+}
+
+func _EmitDocumentYAML(doc *Document, profile *Profile, securitySchemes map[string]*SecurityScheme, baseSpec []byte) (body []byte, err error) {
 
 	if doc.Components == nil {
 		doc.Components = NewComponents()
@@ -735,9 +1116,9 @@ func emitOne(stderr io.Writer, candidates []OperationCandidate, profile *Profile
 		doc.Components.SecuritySchemes[name] = scheme
 	}
 
-	body, err := EmitYAML(doc)
+	body, err = EmitYAML(doc)
 	if err != nil {
-		return fmt.Errorf("emit failed: %w", err)
+		return nil, fmt.Errorf("emit failed: %w", err)
 	}
 
 	mergeSource := baseSpec
@@ -765,26 +1146,30 @@ func emitOne(stderr io.Writer, candidates []OperationCandidate, profile *Profile
 	}
 
 	if len(mergeSource) > 0 {
-		merged, err := Merge3Way(body, mergeSource, nil)
-		if err != nil {
-			return fmt.Errorf("merge with base spec failed: %w", err)
+		merged, mergeErr := Merge3Way(body, mergeSource, nil)
+		if mergeErr != nil {
+			return nil, fmt.Errorf("merge with base spec failed: %w", mergeErr)
 		}
 
 		body = merged
 	}
 
+	return body, nil
+}
+
+func _WriteGeneratedOutput(stdout io.Writer, stderr io.Writer, output string, body []byte, doc *Document, baseSpec []byte) (err error) {
 	if output == "-" {
-		_, err = os.Stdout.Write(body)
+		_, err = stdout.Write(body)
 
 		return err
 	}
 
-	if err := os.WriteFile(output, body, 0o644); err != nil {
+	if err = os.WriteFile(output, body, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", output, err)
 	}
 
 	finalPaths, finalOps := countPathsAndOpsFromYAML(body)
-	if finalPaths == 0 && finalOps == 0 {
+	if finalPaths == 0 && finalOps == 0 && doc != nil {
 		finalPaths = len(doc.Paths)
 		finalOps = CountOperations(doc)
 	}

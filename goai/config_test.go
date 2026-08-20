@@ -1,9 +1,12 @@
 package goai
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigDocstringExtractionWiresExtractor(t *testing.T) {
@@ -41,4 +44,32 @@ func TestConfigSuppressEmptySchemasWiresBuildOption(t *testing.T) {
 
 	assert.True(t, cfg.ToBuildOptions().SuppressEmptySchemas)
 	assert.True(t, cfg.ToRunOptions().SuppressEmptySchemas)
+}
+
+func TestConfigConcurrencyDefaultsAndValidation(t *testing.T) {
+	assert.Equal(t, 1, DefaultConfig().Concurrency)
+	cfg, err := LoadConfig(t.TempDir())
+	require.NoError(t, err)
+	assert.Equal(t, 1, cfg.Concurrency)
+	dir := t.TempDir()
+	_WriteGoaiYAML(t, dir, "title: API\n")
+	cfg, err = LoadConfig(dir)
+	require.NoError(t, err)
+	assert.Equal(t, 1, cfg.Concurrency)
+	_WriteGoaiYAML(t, dir, "concurrency: 0\n")
+	cfg, err = LoadConfig(dir)
+	require.NoError(t, err)
+	assert.Equal(t, 1, cfg.Concurrency)
+	_WriteGoaiYAML(t, dir, "concurrency: 4\n")
+	cfg, err = LoadConfig(dir)
+	require.NoError(t, err)
+	assert.Equal(t, 4, cfg.Concurrency)
+	_WriteGoaiYAML(t, dir, "concurrency: -1\n")
+	_, err = LoadConfig(dir)
+	assert.Error(t, err)
+}
+
+func _WriteGoaiYAML(t *testing.T, dir string, contents string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "goai.yaml"), []byte(contents), 0o644))
 }

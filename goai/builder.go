@@ -45,7 +45,13 @@ type BuildOptions struct {
 
 // Build assembles a single OpenAPI Document from candidates that match the
 // supplied profile. profile may be nil, in which case all candidates pass.
-func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions) *Document {
+// Provider, docstring, and schema-name callbacks run during preparation;
+// assembly uses those prepared values only.
+func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions) (doc *Document) {
+	return _AssembleDocument(_PrepareOperationCandidates(candidates, profile, opts), profile, opts)
+}
+
+func _AssembleDocument(prepared _PreparedSet, profile *Profile, opts BuildOptions) (doc *Document) {
 	if opts.Title == "" {
 		opts.Title = "API"
 	}
@@ -54,19 +60,7 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 		opts.Version = "0.0.0"
 	}
 
-	classifier := opts.Classifier
-	if classifier == nil {
-		classifier = BuiltinClassify
-	}
-
-	tsClassifier := opts.TagSecurityClassifier
-	if tsClassifier == nil {
-		tsClassifier = DefaultClassifier()
-	}
-
-	docExtractor := cachedOperationDocExtractor(opts.OperationDocExtractor)
-
-	doc := &Document{
+	doc = &Document{
 		OpenAPI: "3.0.3",
 		Info: Info{
 			Title:          opts.Title,
@@ -85,35 +79,18 @@ func Build(candidates []OperationCandidate, profile *Profile, opts BuildOptions)
 	}
 
 	schemaBld := newSchemaBuilder(doc.Components)
+	schemaBld.resolvedSchemaNames = prepared.SchemaNames
+	schemaBld.freezeSchemaNames = true
 
-	groupCounts := _CountCandidateGroups(candidates)
-
-	for _, c := range candidates {
-		soleCandidate := groupCounts[_CandidateGroupKeyFor(c)] == 1
-		for _, ec := range _ExpandCandidateFromDocstringEndpoints(c, docExtractor, soleCandidate) {
-			ec = _CandidateWithPathTemplateParams(ec)
-
-			profiles := ec.Profiles
-			if len(profiles) == 0 {
-				profiles = classifier(ec)
-			}
-
-			// Pre-compute the operation's OpenAPI tags so profile selectors
-			// keyed on Tags match what the README promises (e.g. handler
-			// declares WithTag("Public") and goai.yaml says
-			// `include: { tags: [Public] }`). Building the full Operation
-			// before profile filter would be wasteful, so we extract just
-			// the tag list here.
-			operationTags := candidateOperationTags(ec, tsClassifier, docExtractor)
-
-			if profile != nil && !profile.Matches(ec, profiles, operationTags) {
-				continue
-			}
-
-			ensurePathItem(doc, ec.Path)
-			op := buildOperation(ec, schemaBld, tsClassifier, opts.SuppressEmptySchemas, docExtractor)
-			doc.Paths[ec.Path].SetOperation(ec.Method, op)
+	for _, preparedOp := range prepared.Operations {
+		ec := preparedOp.Candidate
+		if profile != nil && !profile.matches(ec.Path, preparedOp.PackagePath, preparedOp.ResolvedProfiles, preparedOp.Tags) {
+			continue
 		}
+
+		ensurePathItem(doc, ec.Path)
+		op := buildOperation(preparedOp, schemaBld, opts.SuppressEmptySchemas)
+		doc.Paths[ec.Path].SetOperation(ec.Method, op)
 	}
 
 	normalizeDocumentSchemas(doc)
@@ -173,47 +150,6 @@ func operationDocHandlerPointer(handler any) uintptr {
 	}
 }
 
-// candidateOperationTags returns the OpenAPI tag list a candidate's
-// Operation will end up carrying after Build, mirroring buildOperation's
-// tag-resolution order:
-//
-//  1. Spec from goai.Register (if registered).
-//  2. Spec from SpecProvider catch-all.
-//  3. Spec from per-method SpecProvider override.
-//  4. Handler or method docstring tags.
-//  5. Path-based fallback from the project Classifier.
-func candidateOperationTags(c OperationCandidate, classifier *Classifier, docExtractor OperationDocExtractor) []string {
-	var spec Spec
-	if entry, ok := Lookup(c.Handler, c.Method); ok {
-		spec = entry.Spec
-	} else {
-		if base, ok := c.Handler.(SpecProvider); ok {
-			spec = base.GOAISpec()
-		}
-
-		if perMethod, ok := perMethodSpec(c.Handler, c.HandlerMethod); ok {
-			spec = perMethod
-		}
-	}
-
-	tags := _DeduplicateStrings(spec.Tags())
-	if len(tags) == 0 && docExtractor != nil {
-		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok {
-			if docOp := _OperationDocOperationForCandidate(doc, c); docOp != nil {
-				tags = _DeduplicateStrings(docOp.Tags)
-			}
-		}
-	}
-
-	if len(tags) == 0 && classifier != nil {
-		if tag := classifier.ClassifyTag(c.Path); tag != "" {
-			tags = []string{tag}
-		}
-	}
-
-	return tags
-}
-
 // ensurePathItem inserts an empty PathItem under the given path if missing.
 func ensurePathItem(doc *Document, path string) {
 	if _, ok := doc.Paths[path]; !ok {
@@ -221,35 +157,14 @@ func ensurePathItem(doc *Document, path string) {
 	}
 }
 
-// buildOperation assembles a single Operation from a walker candidate and
-// its registered Spec/types (if any).
-func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *Classifier, suppressEmpty bool, docExtractor OperationDocExtractor) *Operation {
-	c = _CandidateWithPathTemplateParams(c)
-
-	op := &Operation{
-		OperationID: synthesiseOperationID(c),
-	}
-
-	// Pull registry entry if present for this (handler, method).
-	entry, hasEntry := Lookup(c.Handler, c.Method)
-	var spec Spec
-	if hasEntry {
-		spec = entry.Spec
-	}
-
-	// Augment from SpecProvider / per-method spec providers when registry
-	// didn't override. Per-method providers (GOAIIndexSpec, GOAIGetSpec, ...)
-	// take precedence over the catch-all SpecProvider (GOAISpec) so that a
-	// handler can declare a default spec for all its methods and override
-	// it per-method when needed.
-	if !hasEntry {
-		if base, ok := c.Handler.(SpecProvider); ok {
-			spec = base.GOAISpec()
-		}
-
-		if perMethod, ok := perMethodSpec(c.Handler, c.HandlerMethod); ok {
-			spec = perMethod
-		}
+// buildOperation assembles a single Operation from prepared metadata.
+// It must not invoke Handler, Acceptance, SpecProvider, docstring, or
+// SchemaNameProvider callbacks.
+func buildOperation(p _PreparedOperation, schemaBld *schemaBuilder, suppressEmpty bool) (op *Operation) {
+	c := _CandidateWithPathTemplateParams(p.Candidate)
+	spec := p.Spec
+	op = &Operation{
+		OperationID: p.SynthesizedOperationID,
 	}
 
 	if id := spec.OperationID(); id != "" {
@@ -258,58 +173,44 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 
 	op.Summary = spec.Summary()
 	op.Description = spec.Description()
+	op.Tags = append([]string(nil), p.Tags...)
+	if len(op.Tags) == 0 {
+		op.Tags = _DeduplicateStrings(spec.Tags())
+	}
 
-	op.Tags = _DeduplicateStrings(spec.Tags())
 	op.Deprecated = spec.Deprecated()
 	op.ExternalDocs = spec.ExternalDocs()
 	op.Callbacks = spec.Callbacks()
 	op.Servers = spec.OperationServers()
 
-	var operationDoc *OperationDoc
-	var operationDocOp *Operation
-	operationDocMatches := false
-	if docExtractor != nil {
-		if doc, ok := docExtractor(c.Handler, c.HandlerMethod); ok {
-			operationDoc = doc
-			operationDocMatches = _OperationDocMatches(doc, c)
-			operationDocOp = _OperationDocOperationForCandidate(doc, c)
-			if len(op.Tags) == 0 && operationDocOp != nil && len(operationDocOp.Tags) > 0 {
-				op.Tags = _DeduplicateStrings(operationDocOp.Tags)
-			}
-		}
-	}
-
-	// Tag fallback via classifier when handler/spec gave none.
-	if len(op.Tags) == 0 && classifier != nil {
-		if tag := classifier.ClassifyTag(c.Path); tag != "" {
-			op.Tags = []string{tag}
-		}
-	}
+	operationDoc := p.OperationDoc
+	operationDocOp := p.OperationDocOp
+	operationDocMatches := p.OperationDocMatches
 
 	// Path parameters
-	for _, p := range c.PathParams {
-		op.Parameters = append(op.Parameters, paramFromPathParam(p, "path"))
+	for _, param := range c.PathParams {
+		op.Parameters = append(op.Parameters, paramFromPathParam(param, "path"))
 	}
 
 	// Extra parameters from spec
-	for _, p := range spec.ExtraParams() {
-		in := p.In
+	for _, extra := range spec.ExtraParams() {
+		in := extra.In
 		if in == "" {
 			in = "path"
 		}
 
 		if in == "path" {
-			if _, ok := _PathParamNamesForCandidate(c)[p.Name]; !ok {
+			if _, ok := _PathParamNamesForCandidate(c)[extra.Name]; !ok {
 				continue
 			}
 		}
 
-		op.Parameters = append(op.Parameters, paramFromPathParam(p, in))
+		op.Parameters = append(op.Parameters, paramFromPathParam(extra, in))
 	}
 
 	// Request body
-	if hasEntry && entry.ReqType != nil {
-		schema := schemaBld.build(entry.ReqType)
+	if p.HasRegistryEntry && p.ReqType != nil {
+		schema := schemaBld.build(p.ReqType)
 		if schema != nil {
 			mediaType := spec.RequestMediaType()
 			if mediaType == "" {
@@ -344,9 +245,9 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 
 	successResp := &Response{Description: successDescription}
 	needsDefaultSuccessContent := !suppressEmpty
-	if hasEntry && entry.RespType != nil {
+	if p.HasRegistryEntry && p.RespType != nil {
 		needsDefaultSuccessContent = false
-		schema := schemaBld.build(entry.RespType)
+		schema := schemaBld.build(p.RespType)
 		if schema != nil {
 			mt := &MediaType{Schema: schema}
 			if ex, ok := spec.Examples()["application/json"]; ok {
@@ -377,18 +278,7 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 		_ApplyResponseSpec(op, status, rs, schemaBld)
 	}
 
-	// Security: registry/Spec wins; walker-collected wins next; classifier
-	// fills only when neither produced anything.
-	securityRefs := append([]SecurityRef(nil), c.SecurityRefs...)
-	for _, r := range spec.Security() {
-		securityRefs = append(securityRefs, r)
-	}
-	securityRefs = dedupeSecurityRefs(securityRefs)
-
-	if len(securityRefs) == 0 && classifier != nil {
-		securityRefs = classifier.ClassifySecurity(c.Acceptances)
-	}
-
+	securityRefs := append([]SecurityRef(nil), p.SecurityRefs...)
 	if len(securityRefs) > 0 {
 		// OpenAPI 3.0.3 semantics: each map in op.Security is a Security
 		// Requirement Object. Multiple keys *within* one object combine as
@@ -398,9 +288,9 @@ func buildOperation(c OperationCandidate, schemaBld *schemaBuilder, classifier *
 		// composition for a single operation should declare it via the
 		// document-level GlobalSecurity.
 		sec := make([]map[string][]string, 0, len(securityRefs))
-		for _, r := range securityRefs {
+		for _, ref := range securityRefs {
 			sec = append(sec, map[string][]string{
-				r.Scheme: append([]string(nil), r.Scopes...),
+				ref.Scheme: append([]string(nil), ref.Scopes...),
 			})
 		}
 

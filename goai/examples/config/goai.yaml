@@ -44,6 +44,12 @@ enableDocstringExtraction: true
 docstringBuildTags:
   - api
 
+# Maximum number of profile emission workers for RunCLIFromConfig.
+# Absent or 0 means 1. Negative values are invalid. An explicit
+# -concurrency or WithConcurrency value overrides this field; explicit 0
+# then defaults to 1. A single output target always runs sequentially.
+# concurrency: 2
+
 excludePaths:
   - /static/**
   - /favicon.ico

@@ -151,7 +151,8 @@ func WithTag(tags ...string) Option {
 }
 
 // WithExample attaches an example value for a given media type
-// (e.g. "application/json").
+// (e.g. "application/json"). The example value is caller-owned and must
+// not be mutated while generation is running.
 func WithExample(mediaType string, example any) Option {
 	return func(s *Spec) {
 		if s.examples == nil {
@@ -361,7 +362,9 @@ func (s Spec) Tags() []string {
 	return out
 }
 
-// Examples returns the example map (callers must not mutate).
+// Examples returns the example map (callers must not mutate). Arbitrary
+// example values are treated as immutable caller data for the duration of
+// generation; do not mutate them while goai is building or emitting.
 func (s Spec) Examples() map[string]any { return s.examples }
 
 // Deprecated reports whether the operation is deprecated.
@@ -452,6 +455,9 @@ func (s Spec) Responses() map[string]*ResponseSpec { return s.responses }
 // For handlers that need different specs per HTTP method, implement one of
 // the per-method providers below (IndexSpecProvider, GetSpecProvider, ...).
 // The per-method providers override SpecProvider when both are implemented.
+// All SpecProvider methods must be deterministic and side-effect-free. goai
+// may cache and reuse their results during serial metadata preparation;
+// invocation count and order are not part of the API contract.
 type SpecProvider interface {
 	GOAISpec() Spec
 }
