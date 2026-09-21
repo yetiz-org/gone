@@ -489,6 +489,7 @@ type Pack struct {
 	Params            map[string]any `json:"params"`
 	Writer            ResponseWriter `json:"writer"`
 	writeSeparateMode bool
+	rawMode           bool
 }
 
 func _UnPack(obj any) *Pack {

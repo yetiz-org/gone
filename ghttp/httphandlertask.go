@@ -121,6 +121,20 @@ func (h *DefaultHTTPHandlerTask) SSEMode(ctx channel.HandlerContext, req *Reques
 	return nil
 }
 
+// RawMode hands the raw http.ResponseWriter to the handler. After it returns ok,
+// ghttp writes nothing else for this response; the handler owns status, headers and body.
+func (h *DefaultHTTPHandlerTask) RawMode(req *Request, resp *Response, params map[string]any) (writer http.ResponseWriter, ok bool) {
+	pack, ok := params["[gone-http]context_pack"].(*Pack)
+	if !ok || pack.Writer == nil || (pack.writeSeparateMode && !pack.rawMode) {
+		return nil, false
+	}
+
+	pack.writeSeparateMode = true
+	pack.rawMode = true
+	pack.Response.headerWritten = true
+	return pack.Writer, true
+}
+
 var _DefaultSSEOperation = &DefaultSSEOperation{}
 
 type DefaultSSEOperation struct {

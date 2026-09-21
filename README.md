@@ -221,6 +221,17 @@ ch.Pipeline().
 	AddLast("DISPATCH", ghttp.NewDispatchHandler(route))
 ```
 
+### HTTP RawMode
+
+`RawMode` returns the underlying `http.ResponseWriter` and, once it returns `ok`, ghttp writes nothing else for that response, so gzip and response logging do not run. `RawMode` does not combine with `SSEMode`: it returns `ok == false` after `SSEMode` starts, `SSEMode` must not be called after `RawMode`, and long-lived streams should extend the write deadline with `http.NewResponseController(writer).SetWriteDeadline`.
+
+```go
+writer, ok := t.RawMode(req, resp, params)
+if ok {
+	t.handler.ServeHTTP(writer, req.Request()) // any net/http handler
+}
+```
+
 ## TCP
 
 For framed messages, prefer `gtcp/simpletcp`. It includes a varint length-prefixed codec: outbound `buf.ByteBuf` values are framed automatically, and inbound frames are decoded back to complete messages.
