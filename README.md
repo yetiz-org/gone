@@ -232,6 +232,15 @@ if ok {
 }
 ```
 
+### HTTP Internal Dispatch
+
+`DispatchHandler.Dispatch` serves an `*http.Request` in process through the same route, acceptances and handler task, and returns the `*Pack` instead of writing to the network. `seed` is copied into the params before acceptances run, so callers can pass trusted values that a network request cannot set. The pack has no writer: no cookie is issued, the session stays in a private store, `RawMode` and `SSEMode` are refused, and `CORSHelper` and `DefaultStatusResponse` are skipped. The caller bounds the request body.
+
+```go
+pack := dispatcher.Dispatch(ctx, httpRequest, map[string]any{"origin": "internal"})
+status, body := pack.Response.StatusCode(), pack.Response.Body().Bytes()
+```
+
 ## TCP
 
 For framed messages, prefer `gtcp/simpletcp`. It includes a varint length-prefixed codec: outbound `buf.ByteBuf` values are framed automatically, and inbound frames are decoded back to complete messages.

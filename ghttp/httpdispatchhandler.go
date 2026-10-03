@@ -14,6 +14,8 @@ import (
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
+	"github.com/yetiz-org/gone/ghttp/httpsession"
+	"github.com/yetiz-org/gone/ghttp/httpsession/memory"
 	"github.com/yetiz-org/gone/ghttp/httpstatus"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	kklogger "github.com/yetiz-org/goth-kklogger"
@@ -44,95 +46,11 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 		return
 	}
 
-	request, response, params := pack.Request, pack.Response, pack.Params
-	timeMark := time.Now()
-	if node, nodeParams, isLast := h.route.RouteNode(request.Url().Path); node != nil && node.RouteType() != RouteTypeGroup {
-		pack.RouteNode = node
-		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
-		params["[gone-http]node"] = node
-		params["[gone-http]node_name"] = node.Name()
-		params["[gone-http]is_index"] = isLast
-		params["[gone-http]dispatcher"] = h
-		params["[gone-http]context_pack"] = obj
-		if nodeParams != nil {
-			maps.Copy(params, nodeParams)
-		}
-
-		task, ok := node.HandlerTask().(HttpHandlerTask)
-		if !ok {
-			ctx.FireRead(obj)
-			return
-		}
-
-		var rtnCatch ReturnCatch
+	request, response := pack.Request, pack.Response
+	node, isLast, found := h._Locate(pack)
+	if !found {
 		defer h.callWrite(ctx, obj)
 		defer h._UpdateSessionCookie(response)
-		defer h._PanicCatch(ctx, request, response, task, params, &rtnCatch)
-		defer task.CORSHelper(request, response, params)
-		timeMark = time.Now()
-		for _, acceptance := range node.AggregatedAcceptances() {
-			if request.Method() == MethodOptions && acceptance.SkipMethodOptions() {
-				continue
-			}
-
-			if err := acceptance.Do(ctx, request, response, params); err != nil {
-				if err == AcceptanceInterrupt {
-					if kklogger.GetLogLevel() >= kklogger.TraceLevel {
-						kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
-							ChannelID:  ctx.Channel().ID(),
-							TrackID:    request.TrackID(),
-							State:      "Skip",
-							URI:        request.RequestURI(),
-							Handler:    reflect.TypeOf(acceptance).String(),
-							RemoteAddr: request.Request().RemoteAddr,
-						})
-					}
-
-					return
-				}
-
-				params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
-				kklogger.WarnJ("ghttp:DispatchHandler.Acceptance#acceptance!warn", ObjectLogStruct{
-					ChannelID:  ctx.Channel().ID(),
-					TrackID:    request.TrackID(),
-					State:      "Fail",
-					URI:        request.RequestURI(),
-					Handler:    reflect.TypeOf(acceptance).String(),
-					Message:    err.Error(),
-					RemoteAddr: request.Request().RemoteAddr,
-				})
-
-				if cast, ok := err.(ErrorResponse); ok {
-					if response.statusCode == 0 {
-						response.ResponseError(cast)
-					}
-				} else if response.statusCode == 0 {
-					response.SetStatusCode(httpstatus.BadRequest)
-				}
-
-				return
-			} else {
-				if kklogger.GetLogLevel() >= kklogger.TraceLevel {
-					kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
-						ChannelID:  ctx.Channel().ID(),
-						TrackID:    request.TrackID(),
-						State:      "Pass",
-						URI:        request.RequestURI(),
-						Handler:    reflect.TypeOf(acceptance).String(),
-						RemoteAddr: request.Request().RemoteAddr,
-					})
-				}
-			}
-		}
-
-		params["[gone-http]h_acceptance_time"] = time.Now().Sub(timeMark).Nanoseconds()
-		timeMark = time.Now()
-		rtnCatch.err = h.invokeMethod(ctx, task, request, response, params, isLast)
-		params["[gone-http]handler_time"] = time.Now().Sub(timeMark).Nanoseconds()
-	} else {
-		defer h.callWrite(ctx, obj)
-		defer h._UpdateSessionCookie(response)
-		params["[gone-http]h_locate_time"] = time.Now().Sub(timeMark).Nanoseconds()
 		if upgrade := request.Header().Get(httpheadername.Upgrade); upgrade != "" {
 			response.Header().Set(httpheadername.Upgrade, upgrade)
 		}
@@ -148,7 +66,153 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 			URI:        request.RequestURI(),
 			RemoteAddr: request.Request().RemoteAddr,
 		})
+
+		return
 	}
+
+	task, ok := node.HandlerTask().(HttpHandlerTask)
+	if !ok {
+		ctx.FireRead(obj)
+		return
+	}
+
+	defer h.callWrite(ctx, obj)
+	defer h._UpdateSessionCookie(response)
+	h._Run(ctx, task, node, pack, isLast)
+}
+
+// Dispatch serves r in process through the route, acceptances and handler task and returns its pack.
+// seed is copied into the params before acceptances run. The pack has no writer, so nothing is written
+// to the network, RawMode and SSEMode are refused, CORSHelper and DefaultStatusResponse are skipped, and
+// the session lives in a private store that is never shared. The caller bounds r's body; Dispatch
+// returns nil only when that body exceeds an http.MaxBytesReader limit.
+func (h *DispatchHandler) Dispatch(ctx channel.HandlerContext, r *http.Request, seed map[string]any) (pack *Pack) {
+	request := WrapRequest(ctx.Channel(), r)
+	if request == nil {
+		return nil
+	}
+
+	request.session = httpsession.NewDefaultSession(memory.NewSessionProvider())
+	pack = &Pack{Request: request, Response: NewResponse(request), Params: map[string]any{}}
+	maps.Copy(pack.Params, seed)
+	if request.BodyReadError() != nil {
+		pack.Response.SetStatusCode(httpstatus.BadRequest)
+		return pack
+	}
+
+	node, isLast, found := h._Locate(pack)
+	if !found {
+		pack.Response.SetStatusCode(httpstatus.NotFound)
+		return pack
+	}
+
+	task, ok := node.HandlerTask().(HttpHandlerTask)
+	if !ok {
+		pack.Response.SetStatusCode(httpstatus.NotFound)
+		return pack
+	}
+
+	h._Run(ctx, task, node, pack, isLast)
+	if pack.Response.StatusCode() == 0 {
+		pack.Response.SetStatusCode(h.DefaultStatusCode)
+	}
+
+	return pack
+}
+
+// _Locate resolves the endpoint node for the pack path and records the locate time. A matched node
+// and its route parameters are bound to the pack; found is false for an unknown path or a group node.
+func (h *DispatchHandler) _Locate(pack *Pack) (node RouteNode, isLast bool, found bool) {
+	timeMark := time.Now()
+	node, nodeParams, isLast := h.route.RouteNode(pack.Request.Url().Path)
+	pack.Params["[gone-http]h_locate_time"] = time.Since(timeMark).Nanoseconds()
+	if node == nil || node.RouteType() == RouteTypeGroup {
+		return nil, false, false
+	}
+
+	pack.RouteNode = node
+	pack.Params["[gone-http]node"] = node
+	pack.Params["[gone-http]node_name"] = node.Name()
+	pack.Params["[gone-http]is_index"] = isLast
+	pack.Params["[gone-http]dispatcher"] = h
+	pack.Params["[gone-http]context_pack"] = pack
+	if nodeParams != nil {
+		maps.Copy(pack.Params, nodeParams)
+	}
+
+	return node, isLast, true
+}
+
+// _Run runs the node acceptances and then the task method with panic recovery. A rejecting
+// acceptance leaves its error on the response. CORSHelper runs only for packs with a network writer.
+func (h *DispatchHandler) _Run(ctx channel.HandlerContext, task HttpHandlerTask, node RouteNode, pack *Pack, isLast bool) {
+	request, response, params := pack.Request, pack.Response, pack.Params
+	var rtnCatch ReturnCatch
+	defer h._PanicCatch(ctx, request, response, task, params, &rtnCatch)
+	if pack.Writer != nil {
+		defer task.CORSHelper(request, response, params)
+	}
+
+	timeMark := time.Now()
+	for _, acceptance := range node.AggregatedAcceptances() {
+		if request.Method() == MethodOptions && acceptance.SkipMethodOptions() {
+			continue
+		}
+
+		if err := acceptance.Do(ctx, request, response, params); err != nil {
+			if err == AcceptanceInterrupt {
+				if kklogger.GetLogLevel() >= kklogger.TraceLevel {
+					kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
+						ChannelID:  ctx.Channel().ID(),
+						TrackID:    request.TrackID(),
+						State:      "Skip",
+						URI:        request.RequestURI(),
+						Handler:    reflect.TypeOf(acceptance).String(),
+						RemoteAddr: request.Request().RemoteAddr,
+					})
+				}
+
+				return
+			}
+
+			params["[gone-http]h_acceptance_time"] = time.Since(timeMark).Nanoseconds()
+			kklogger.WarnJ("ghttp:DispatchHandler.Acceptance#acceptance!warn", ObjectLogStruct{
+				ChannelID:  ctx.Channel().ID(),
+				TrackID:    request.TrackID(),
+				State:      "Fail",
+				URI:        request.RequestURI(),
+				Handler:    reflect.TypeOf(acceptance).String(),
+				Message:    err.Error(),
+				RemoteAddr: request.Request().RemoteAddr,
+			})
+
+			if cast, ok := err.(ErrorResponse); ok {
+				if response.statusCode == 0 {
+					response.ResponseError(cast)
+				}
+			} else if response.statusCode == 0 {
+				response.SetStatusCode(httpstatus.BadRequest)
+			}
+
+			return
+		} else {
+			if kklogger.GetLogLevel() >= kklogger.TraceLevel {
+				kklogger.TraceJ("ghttp:DispatchHandler.Acceptance#acceptance!trace", ObjectLogStruct{
+					ChannelID:  ctx.Channel().ID(),
+					TrackID:    request.TrackID(),
+					State:      "Pass",
+					URI:        request.RequestURI(),
+					Handler:    reflect.TypeOf(acceptance).String(),
+					RemoteAddr: request.Request().RemoteAddr,
+				})
+			}
+		}
+	}
+
+	params["[gone-http]h_acceptance_time"] = time.Since(timeMark).Nanoseconds()
+	timeMark = time.Now()
+	rtnCatch.err = h.invokeMethod(ctx, task, request, response, params, isLast)
+	params["[gone-http]handler_time"] = time.Since(timeMark).Nanoseconds()
 }
 
 func (h *DispatchHandler) callWrite(ctx channel.HandlerContext, obj any) channel.Future {

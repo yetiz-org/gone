@@ -108,7 +108,7 @@ func (h *DefaultHTTPHandlerTask) Connect(ctx channel.HandlerContext, req *Reques
 }
 
 func (h *DefaultHTTPHandlerTask) SSEMode(ctx channel.HandlerContext, req *Request, resp *Response, params map[string]any) SSEOperation {
-	if obj, f := params["[gone-http]context_pack"]; f && obj != nil {
+	if obj, f := params["[gone-http]context_pack"]; f && obj != nil && obj.(*Pack).Writer != nil {
 		response := obj.(*Pack).Response
 		response.SetHeader(httpheadername.ContentType, "text/event-stream")
 		response.SetHeader(httpheadername.CacheControl, "no-cache")
