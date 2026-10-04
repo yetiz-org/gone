@@ -57,15 +57,16 @@ type DeleteTool interface {
 }
 
 // BindingAdjuster is implemented by an input type that needs a fixed value no field can carry, such as a constant
-// path ID; it receives the binding derived from the mcp tags and returns the adjusted one.
+// path ID; it receives the binding derived from the gmcp tags and returns the adjusted one.
 type BindingAdjuster interface {
 	AdjustBinding(binding Binding) (adjusted Binding)
 }
 
-// Tool is a tool declaration returned by a handler's MCP method; Bind derives its schema, method, and annotations.
+// Tool is a tool declaration returned by a handler's MCP method; Bind derives its schemas, method, and annotations.
 type Tool struct {
 	_Definition *mcp.Tool
 	_InputType  reflect.Type
+	_OutputType reflect.Type
 	_Register   func(server *Server, route *_Route)
 }
 
@@ -91,15 +92,16 @@ type _Route struct {
 }
 
 // NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response.
-// The input schema and REST mapping come from the json and mcp tags of In, so definition must not set InputSchema;
-// Bind sets InputSchema and Annotations.
+// The input schema and REST mapping come from the json and gmcp tags of In, so definition must not set InputSchema.
+// Bind sets InputSchema and Annotations, and derives OutputSchema from the json and gmcp tags of Out unless definition
+// sets it.
 func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 	if definition == nil || definition.InputSchema != nil {
 		panic("gmcp: NewTool needs a definition without InputSchema; the schema is derived from the input type")
 	}
 
-	return Tool{_Definition: definition, _InputType: reflect.TypeFor[In](), _Register: func(server *Server, route *_Route) {
-		server._AddTool(definition, func(ctx context.Context, request *mcp.CallToolRequest, value In) (result *mcp.CallToolResult, output Out, err error) {
+	return Tool{_Definition: definition, _InputType: reflect.TypeFor[In](), _OutputType: reflect.TypeFor[Out](), _Register: func(server *Server, route *_Route) {
+		_AddTool(server, definition, func(ctx context.Context, request *mcp.CallToolRequest, value In) (result *mcp.CallToolResult, output Out, err error) {
 			binding, ok := route._Input._Binding(value)
 			if !ok {
 				return nil, output, &_ToolError{_Code: _InvalidArgument}

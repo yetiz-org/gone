@@ -1,10 +1,13 @@
 package gmcp
 
 import (
+	"cmp"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,14 +21,31 @@ type ID string
 // Date is a calendar date in YYYY-MM-DD form.
 type Date string
 
-// _TagKeys are the keys an mcp tag accepts. path, query, and body place the field in the REST request; the others
-// follow the goai tag schema keys, and keys prefixed with "items." apply to array elements.
-var _TagKeys = []string{
-	"path", "query", "body", "description", "enum", "minLength", "minItems", "maxItems", "uniqueItems",
-	"items.description", "items.enum", "items.minLength",
+// _InputKeys and _OutputKeys are the keys a gmcp tag accepts on input and output types. path, query, and body place
+// an input field in the REST request; the others follow the goai tag schema keys, and element keys also apply to
+// array elements with the "items." prefix. Output keys only describe: the SDK validates every result against the
+// output schema, so a validation key would turn a valid REST response into a tool error. default is never accepted
+// because the SDK writes schema defaults into arguments and results.
+var (
+	_InputKeys = _TagKeys([]string{"path", "query", "body", "deprecated", "minItems", "maxItems", "uniqueItems"},
+		[]string{"description", "example", "format", "enum", "minLength", "maxLength", "pattern", "minimum", "maximum"})
+	_OutputKeys = _TagKeys([]string{"deprecated"}, []string{"description", "example"})
+)
+
+// _FlagKeys are the keys written without a value.
+var _FlagKeys = []string{"deprecated", "uniqueItems"}
+
+// _TagKeys lists the field keys and the element keys, plus each element key with the "items." prefix.
+func _TagKeys(field []string, element []string) (keys []string) {
+	keys = slices.Concat(field, element)
+	for _, key := range element {
+		keys = append(keys, "items."+key)
+	}
+
+	return keys
 }
 
-// _Tag is a parsed mcp struct tag. Like a goai tag it is a ";"-separated key=value list, so values cannot contain ";".
+// _Tag is a parsed gmcp struct tag. Like a goai tag it is a ";"-separated key=value list, so values cannot contain ";".
 type _Tag map[string]string
 
 // _Field places one input field in the REST request. _Kind is path, query, or body; a path _Name is an ancestor node,
@@ -42,10 +62,10 @@ type _Input struct {
 	_Fields []_Field
 }
 
-// _NewTag parses the mcp tag of field and panics on an unknown key or a valued uniqueItems.
-func _NewTag(owner reflect.Type, field reflect.StructField) (tag _Tag) {
+// _NewTag parses the gmcp tag of field and panics on a key outside keys or a flag key with a value.
+func _NewTag(owner reflect.Type, field reflect.StructField, keys []string) (tag _Tag) {
 	tag = _Tag{}
-	raw, found := field.Tag.Lookup("mcp")
+	raw, found := field.Tag.Lookup("gmcp")
 	if !found {
 		return tag
 	}
@@ -56,8 +76,8 @@ func _NewTag(owner reflect.Type, field reflect.StructField) (tag _Tag) {
 			continue
 		}
 
-		if !slices.Contains(_TagKeys, key) || key == "uniqueItems" && value != "" {
-			panic(fmt.Sprintf("gmcp: %s.%s has invalid mcp tag key %q", owner, field.Name, key))
+		if !slices.Contains(keys, key) || slices.Contains(_FlagKeys, key) && value != "" {
+			panic(fmt.Sprintf("gmcp: %s.%s has invalid gmcp tag key %q", owner, field.Name, key))
 		}
 
 		tag[key] = value
@@ -66,16 +86,16 @@ func _NewTag(owner reflect.Type, field reflect.StructField) (tag _Tag) {
 	return tag
 }
 
-// _NewInput derives the input schema and field placement of t. jsonschema-go infers the structure, the mcp tags add
-// schema keys, a field is optional when its json tag has omitempty or omitzero or it is a pointer, and null is removed
-// from optional types. Every top-level field must be placed in the path, query, or body with a forwardable type.
+// _NewInput derives the input schema and field placement of t. jsonschema-go infers the structure and the gmcp tags
+// add schema keys (see _Annotate). Every top-level field must be placed in the path, query, or body with a
+// forwardable type.
 func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 	schema, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: s._TypeSchemas})
 	if err != nil {
 		panic(fmt.Sprintf("gmcp: input %s: %v", t, err))
 	}
 
-	_Describe(t, schema, false)
+	_Annotate(t, schema, false, true)
 	input = &_Input{_Schema: schema}
 	for _, field := range reflect.VisibleFields(t) {
 		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
@@ -83,7 +103,7 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 			continue
 		}
 
-		tag := _NewTag(t, field)
+		tag := _NewTag(t, field, _InputKeys)
 		placed := _Field{_Index: field.Index}
 		switch {
 		case tag._Has("body") && field.Type.Kind() == reflect.Struct && !slices.ContainsFunc(input._Fields, func(existing _Field) bool { return existing._Kind == "body" }):
@@ -105,30 +125,89 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 	return input
 }
 
-// _Describe applies the mcp tag schema keys of t to its object schema, recomputes required, and removes null. nested
-// marks fields inside a body, which cannot be placed in the request themselves.
-func _Describe(t reflect.Type, schema *jsonschema.Schema, nested bool) {
-	schema.Required = nil
+// _NewOutput derives the output schema of t the way the SDK infers it and adds the gmcp tag descriptions (see
+// _Annotate). ID and Date stay plain strings, so a REST response is never checked against Options.IDPattern. Like
+// the SDK, it derives no schema for any and follows one pointer.
+func _NewOutput(t reflect.Type) (schema any) {
+	if t == reflect.TypeFor[any]() {
+		return nil
+	}
+
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	output, err := jsonschema.ForType(t, &jsonschema.ForOptions{})
+	if err != nil {
+		panic(fmt.Sprintf("gmcp: output %s: %v", t, err))
+	}
+
+	_Annotate(t, output, true, false)
+	return output
+}
+
+// _Annotate applies the gmcp tags of the struct fields reachable from t, through pointers, slices, arrays, and map
+// values, to schema, the schema jsonschema-go inferred for t. Input annotation also removes null and makes a field
+// required unless it is optional; output annotation keeps the inferred null and required list so every REST response
+// still validates. Only top-level input fields may carry a placement.
+func _Annotate(t reflect.Type, schema *jsonschema.Schema, output bool, top bool) {
+	if !output {
+		_Strict(schema)
+	}
+
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array:
+		if schema.Items != nil {
+			_Annotate(t.Elem(), schema.Items, output, false)
+		}
+
+	case reflect.Map:
+		if schema.AdditionalProperties != nil {
+			_Annotate(t.Elem(), schema.AdditionalProperties, output, false)
+		}
+
+	case reflect.Struct:
+		_AnnotateFields(t, schema, output, top)
+	}
+}
+
+// _AnnotateFields annotates the properties of struct type t. A struct inferred without properties, such as a type
+// schema override, is left unchanged.
+func _AnnotateFields(t reflect.Type, schema *jsonschema.Schema, output bool, top bool) {
+	if schema.Properties == nil {
+		return
+	}
+
+	keys := _InputKeys
+	if output {
+		keys = _OutputKeys
+	} else {
+		schema.Required = nil
+	}
+
 	for _, field := range reflect.VisibleFields(t) {
 		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		name = cmp.Or(name, field.Name)
 		property := schema.Properties[name]
 		if field.Anonymous || !field.IsExported() || property == nil {
 			continue
 		}
 
-		tag := _NewTag(t, field)
-		if nested && (tag._Has("path") || tag._Has("query") || tag._Has("body")) {
+		tag := _NewTag(t, field, keys)
+		if !top && (tag._Has("path") || tag._Has("query") || tag._Has("body")) {
 			panic(fmt.Sprintf("gmcp: %s.%s is inside a body and cannot be placed in the request", t, field.Name))
 		}
 
 		tag._Apply(t, field, property)
-		if !_Optional(field) {
+		if !output && !_Optional(field) {
 			schema.Required = append(schema.Required, name)
 		}
 
-		if field.Type.Kind() == reflect.Struct {
-			_Describe(field.Type, property, true)
-		}
+		_Annotate(field.Type, property, output, false)
 	}
 }
 
@@ -165,14 +244,9 @@ func (t _Tag) _Has(key string) (found bool) {
 	return found
 }
 
-// _Apply sets the schema keys on property, or on its items for "items." keys. It panics on an unparsable number or an
-// "items." key on a field that is not an array.
+// _Apply sets the schema keys on property, or on its items for "items." keys. It panics on an unparsable number,
+// example, or pattern, or an "items." key on a field that is not an array.
 func (t _Tag) _Apply(owner reflect.Type, field reflect.StructField, property *jsonschema.Schema) {
-	_Strict(property)
-	if property.Items != nil {
-		_Strict(property.Items)
-	}
-
 	for key, value := range t {
 		target := property
 		if name, found := strings.CutPrefix(key, "items."); found {
@@ -186,6 +260,31 @@ func (t _Tag) _Apply(owner reflect.Type, field reflect.StructField, property *js
 		switch key {
 		case "description":
 			target.Description = value
+
+		case "example":
+			target.Examples = []any{_TagExample(owner, field, target, value)}
+
+		case "deprecated":
+			target.Deprecated = true
+
+		case "format":
+			target.Format = value
+
+		case "pattern":
+			if _, err := regexp.Compile(value); err != nil {
+				panic(fmt.Sprintf("gmcp: %s.%s has invalid gmcp tag pattern %q", owner, field.Name, value))
+			}
+
+			target.Pattern = value
+
+		case "minimum":
+			target.Minimum = new(_TagNumber(owner, field, value))
+
+		case "maximum":
+			target.Maximum = new(_TagNumber(owner, field, value))
+
+		case "maxLength":
+			target.MaxLength = new(_TagInt(owner, field, value))
 
 		case "enum":
 			for item := range strings.SplitSeq(value, ",") {
@@ -211,10 +310,69 @@ func (t _Tag) _Apply(owner reflect.Type, field reflect.StructField, property *js
 func _TagInt(owner reflect.Type, field reflect.StructField, value string) (number int) {
 	number, err := strconv.Atoi(value)
 	if err != nil || number < 0 {
-		panic(fmt.Sprintf("gmcp: %s.%s has invalid mcp tag number %q", owner, field.Name, value))
+		panic(fmt.Sprintf("gmcp: %s.%s has invalid gmcp tag number %q", owner, field.Name, value))
 	}
 
 	return number
+}
+
+// _TagNumber parses a numeric bound and panics unless it is a finite JSON number.
+func _TagNumber(owner reflect.Type, field reflect.StructField, value string) (number float64) {
+	if err := json.Unmarshal([]byte(value), &number); err != nil {
+		panic(fmt.Sprintf("gmcp: %s.%s has invalid gmcp tag number %q", owner, field.Name, value))
+	}
+
+	return number
+}
+
+// _TagExample parses an example by the schema type of target: a string example stays as written, and any other
+// example is JSON of that type. It panics when the value does not parse.
+func _TagExample(owner reflect.Type, field reflect.StructField, target *jsonschema.Schema, value string) (example any) {
+	var err error
+	switch _SchemaType(target) {
+	case "string":
+		return value
+
+	case "integer":
+		example, err = _DecodeExample[int64](value)
+
+	case "number":
+		example, err = _DecodeExample[float64](value)
+
+	case "boolean":
+		example, err = _DecodeExample[bool](value)
+
+	default:
+		example, err = _DecodeExample[any](value)
+	}
+
+	if err != nil {
+		panic(fmt.Sprintf("gmcp: %s.%s has invalid gmcp tag example %q", owner, field.Name, value))
+	}
+
+	return example
+}
+
+// _DecodeExample decodes value as JSON of type T.
+func _DecodeExample[T any](value string) (example any, err error) {
+	var decoded T
+	err = json.Unmarshal([]byte(value), &decoded)
+	return decoded, err
+}
+
+// _SchemaType returns the type of schema other than null, or "" when it has none.
+func _SchemaType(schema *jsonschema.Schema) (schemaType string) {
+	if schema.Type != "" {
+		return schema.Type
+	}
+
+	for _, candidate := range schema.Types {
+		if candidate != "null" {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 // _Strict turns the ["null", X] type jsonschema-go infers for pointers and slices back into X, so omission rather

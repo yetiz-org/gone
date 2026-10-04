@@ -246,13 +246,22 @@ status, body := pack.Response.StatusCode(), pack.Response.Body().Bytes()
 
 `gmcp` serves Model Context Protocol tools that forward to `ghttp` handler functions. A handler task declares one tool per REST function with `MCPIndex`, `MCPGet`, `MCPPost`, `MCPPut`, `MCPPatch`, or `MCPDelete`. Each call is dispatched in process (see HTTP Internal Dispatch) as the request a REST client would send, so routes, acceptances, and handlers keep owning permissions, validation, and responses.
 
-Declare the tool input once with `json` and `mcp` tags. Each field has exactly one placement: `path` (the endpoint's own ID), `path=<ancestor node>`, `query=<name>`, or `body`. The schema keys `description`, `enum`, `minLength`, `minItems`, `maxItems`, `uniqueItems`, and `items.*` follow the goai tag syntax, so values cannot contain `;`. A field is optional when its json tag has `omitempty` or `omitzero` or it is a pointer. `gmcp.ID` values must match `Options.IDPattern`, and `gmcp.Date` is `YYYY-MM-DD`.
+Declare the tool input once with `json` and `gmcp` tags. Each top-level field has exactly one placement: `path` (the endpoint's own ID), `path=<ancestor node>`, `query=<name>`, or `body`. Input fields, including those nested in the body, also accept the schema keys `description`, `example`, `format`, `deprecated`, `enum`, `minLength`, `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`, and `uniqueItems`; `items.` applies the value keys to array elements. A field is optional when its json tag has `omitempty` or `omitzero` or it is a pointer. `gmcp.ID` values must match `Options.IDPattern`, and `gmcp.Date` is `YYYY-MM-DD`.
+
+The output schema comes from `Out`. Its fields accept only `description`, `example`, `deprecated`, `items.description`, and `items.example`, because every result is validated against the output schema: null and the inferred required list are kept, and `gmcp.ID` is not pattern-checked. Without `gmcp` tags the output schema is the one the SDK infers.
+
+Tags follow the goai tag syntax, so values cannot contain `;`. An `example` is parsed as the field type (JSON for numbers, booleans, arrays, and objects). `default` is not accepted because the SDK would write it into arguments and results.
 
 ```go
 type ItemGetToolRequest struct {
-	Org  gmcp.ID `json:"org" mcp:"path=orgs;description=Organization ID."`
-	Item gmcp.ID `json:"item" mcp:"path;description=Item ID."`
-	Tags []string `json:"tags,omitempty" mcp:"query=tags;maxItems=5;uniqueItems"`
+	Org  gmcp.ID  `json:"org" gmcp:"path=orgs;description=Organization ID."`
+	Item gmcp.ID  `json:"item" gmcp:"path;description=Item ID."`
+	Tags []string `json:"tags,omitempty" gmcp:"query=tags;maxItems=5;uniqueItems;items.example=new"`
+}
+
+type ItemGetResponse struct {
+	Name  string `json:"name"`
+	Price int64  `json:"price" gmcp:"description=Price in cents.;example=1250"`
 }
 
 func (h *Items) MCPGet() gmcp.Tool {
@@ -268,7 +277,7 @@ if writer, ok := h.RawMode(req, resp, params); ok {
 }
 ```
 
-`Bind` panics on an invalid declaration, a duplicate name, or a tool that `Options.Allows` rejects. The HTTP method decides the tool annotations: GET is read-only, writes are destructive, and PUT and DELETE are idempotent. Only GET polls again on `202 Accepted`. Handler failures surface as public codes (`invalid_argument`, `permission_denied`, `not_found`, `temporarily_unavailable`, `internal_error`). `Options.Gateway` lists only its public tools plus `tools` (discovery) and `query` (call by name). Path IDs use the default node-name parameter keys; routes with custom `{param}` or `:param_id` names are not supported.
+`Bind` panics on an invalid declaration or tag, a duplicate name, or a tool that `Options.Allows` rejects. The HTTP method decides the tool annotations: GET is read-only, writes are destructive, and PUT and DELETE are idempotent. Only GET polls again on `202 Accepted`. Handler failures surface as public codes (`invalid_argument`, `permission_denied`, `not_found`, `temporarily_unavailable`, `internal_error`). `Options.Gateway` lists only its public tools plus `tools` (discovery, including one tool's input and output schemas) and `query` (call by name). Path IDs use the default node-name parameter keys; routes with custom `{param}` or `:param_id` names are not supported.
 
 ## TCP
 

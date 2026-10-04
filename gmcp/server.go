@@ -131,6 +131,10 @@ func (s *Server) Bind(dispatcher *ghttp.DispatchHandler, entries []ghttp.RouteEn
 		}
 
 		tool._Definition.InputSchema = input._Schema
+		if tool._Definition.OutputSchema == nil {
+			tool._Definition.OutputSchema = _NewOutput(tool._OutputType)
+		}
+
 		tool._Definition.Annotations = route._Annotations()
 		tool._Register(s, route)
 		s._Catalog = append(s._Catalog, tool._Definition)
@@ -186,9 +190,10 @@ func (s *Server) Serve(writer http.ResponseWriter, caller Caller) {
 	s._Handler.ServeHTTP(response, request)
 }
 
-// _AddTool registers handler and marks every failure it returns as a tool error, so the error middleware can tell
-// application failures from SDK input validation errors.
-func (s *Server) _AddTool[In, Out any](tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out]) {
+// _AddTool registers handler on s and marks every failure it returns as a tool error, so the error middleware can tell
+// application failures from SDK input validation errors. It is a function rather than a generic method because Go
+// 1.27.1 fails to link a generic method instantiated with a struct type whose tag contains "[".
+func _AddTool[In, Out any](s *Server, tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out]) {
 	mcp.AddTool(s._SDK, tool, func(ctx context.Context, request *mcp.CallToolRequest, input In) (result *mcp.CallToolResult, output Out, err error) {
 		result, output, err = handler(ctx, request, input)
 		if err == nil && (result == nil || !result.IsError) {

@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,26 +30,35 @@ type _Echo struct {
 }
 
 type _ListInput struct {
-	Org   ID       `json:"org" mcp:"path=orgs;description=Organization."`
-	Limit int      `json:"limit,omitzero" mcp:"query=l"`
-	Since *Date    `json:"since,omitempty" mcp:"query=since"`
-	Tags  []string `json:"tags,omitempty" mcp:"query=tags;minItems=1;uniqueItems;items.enum=a,b"`
+	Org   ID       `json:"org" gmcp:"path=orgs;description=Organization."`
+	Limit int      `json:"limit,omitzero" gmcp:"query=l;minimum=1;maximum=100;example=20"`
+	Since *Date    `json:"since,omitempty" gmcp:"query=since;deprecated"`
+	Name  string   `json:"name,omitempty" gmcp:"query=name;maxLength=20;pattern=^[a-z]+$;format=hostname;example=abc"`
+	Tags  []string `json:"tags,omitempty" gmcp:"query=tags;minItems=1;uniqueItems;items.enum=a,b;items.example=a"`
 }
 
 type _GetInput struct {
-	Org  ID     `json:"org" mcp:"path=orgs"`
-	Item string `json:"item" mcp:"path;description=Item."`
+	Org  ID     `json:"org" gmcp:"path=orgs"`
+	Item string `json:"item" gmcp:"path;description=Item."`
+}
+
+type _Label struct {
+	Key   string  `json:"key" gmcp:"description=Label key."`
+	Value *string `json:"value,omitempty"`
 }
 
 type _PatchBody struct {
-	Name  *string  `json:"name" mcp:"description=New name."`
-	Notes []string `json:"notes,omitempty"`
+	Name   *string           `json:"name" gmcp:"description=New name."`
+	Notes  []string          `json:"notes,omitempty"`
+	Labels []_Label          `json:"labels,omitempty" gmcp:"items.description=One label."`
+	Parent *_Label           `json:"parent,omitempty"`
+	ByKey  map[string]_Label `json:"by_key,omitempty"`
 }
 
 type _PatchInput struct {
-	Org  ID         `json:"org" mcp:"path=orgs"`
-	Item ID         `json:"item" mcp:"path"`
-	Body _PatchBody `json:"body" mcp:"body"`
+	Org  ID         `json:"org" gmcp:"path=orgs"`
+	Item ID         `json:"item" gmcp:"path"`
+	Body _PatchBody `json:"body" gmcp:"body"`
 }
 
 type _OrgsTask struct {
@@ -111,6 +122,49 @@ func (t *_ItemsTask) MCPGet() (tool Tool) {
 
 func (t *_ItemsTask) MCPPatch() (tool Tool) {
 	return NewTool[_PatchInput, _Echo](&mcp.Tool{Name: "items_update", Description: "Update one item."})
+}
+
+type _Money struct {
+	Amount int64 `json:"amount" gmcp:"description=Fixed-point amount.;example=2864000000"`
+	Scale  int   `json:"scale"`
+}
+
+type _ReportRow struct {
+	Code  string  `json:"code" gmcp:"description=Platform code."`
+	Money *_Money `json:"money,omitempty"`
+}
+
+type _Report struct {
+	Rows   []_ReportRow      `json:"rows" gmcp:"description=Report rows.;deprecated"`
+	ByCode map[string]_Money `json:"by_code,omitempty"`
+	Hints  []string          `json:"hints,omitempty" gmcp:"items.description=Hint code.;items.example=partial_data"`
+	Total  _Money            `json:"total"`
+	ID     ID                `json:"id,omitempty"`
+}
+
+type _ReportTask struct {
+	ghttp.DefaultHTTPHandlerTask
+}
+
+func (t *_ReportTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (errResponse ghttp.ErrorResponse) {
+	resp.JsonResponse(_Report{Total: _Money{Amount: 1, Scale: 6}, ID: "not an id"})
+	return nil
+}
+
+func (t *_ReportTask) MCPGet() (tool Tool) {
+	return NewTool[struct{}, _Report](&mcp.Tool{Name: "report", Description: "Read the report."})
+}
+
+type _EmptyTask struct {
+	ghttp.DefaultHTTPHandlerTask
+}
+
+func (t *_EmptyTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (errResponse ghttp.ErrorResponse) {
+	return nil
+}
+
+func (t *_EmptyTask) MCPGet() (tool Tool) {
+	return NewTool[struct{}, *_Money](&mcp.Tool{Name: "empty", Description: "Read nothing."})
 }
 
 type _GetTask struct {
@@ -215,14 +269,53 @@ func TestServerBindDerivesTools(t *testing.T) {
 		"type":"object","additionalProperties":false,"required":["org"],
 		"properties":{
 			"org":{"type":"string","minLength":1,"pattern":%q,"description":"Organization."},
-			"limit":{"type":"integer"},
-			"since":{"type":"string","pattern":"^\\d{4}-\\d{2}-\\d{2}$","description":"Date in YYYY-MM-DD form."},
-			"tags":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","enum":["a","b"]}}
+			"limit":{"type":"integer","minimum":1,"maximum":100,"examples":[20]},
+			"since":{"type":"string","pattern":"^\\d{4}-\\d{2}-\\d{2}$","description":"Date in YYYY-MM-DD form.","deprecated":true},
+			"name":{"type":"string","maxLength":20,"pattern":"^[a-z]+$","format":"hostname","examples":["abc"]},
+			"tags":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","enum":["a","b"],"examples":["a"]}}
 		}}`, DefaultIDPattern), _JSON(t, tools["items_list"].InputSchema), "list schema should come from the input tags")
+	label := `{"type":"object","additionalProperties":false,"required":["key"],
+		"properties":{"key":{"type":"string","description":"Label key."},"value":{"type":"string"}}}`
 	assert.JSONEq(t, `{
 		"type":"object","additionalProperties":false,
-		"properties":{"name":{"type":"string","description":"New name."},"notes":{"type":"array","items":{"type":"string"}}}
-		}`, _JSON(t, tools["items_update"].InputSchema.(map[string]any)["properties"].(map[string]any)["body"]), "body fields should be optional without null")
+		"properties":{
+			"name":{"type":"string","description":"New name."},
+			"notes":{"type":"array","items":{"type":"string"}},
+			"labels":{"type":"array","items":{"type":"object","description":"One label.","additionalProperties":false,"required":["key"],
+				"properties":{"key":{"type":"string","description":"Label key."},"value":{"type":"string"}}}},
+			"parent":`+label+`,
+			"by_key":{"type":"object","additionalProperties":`+label+`}
+		}}`, _JSON(t, tools["items_update"].InputSchema.(map[string]any)["properties"].(map[string]any)["body"]), "nested body fields should be optional without null and keep their tags")
+}
+
+func TestServerBindDerivesOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	route := _ItemsRoute(&_ItemsTask{}).SetEndpoint("/report", &_ReportTask{}).SetEndpoint("/empty", &_EmptyTask{}).
+		SetEndpoint("/preset", &_GetTask{_Tool: NewTool[struct{}, _Echo](&mcp.Tool{Name: "preset", OutputSchema: &jsonschema.Schema{Type: "object"}})})
+	server := _BindServer(Options{}, route)
+	tools, _ := _Tools(t, server)
+	plain, err := jsonschema.ForType(reflect.TypeFor[_Echo](), &jsonschema.ForOptions{})
+	require.NoError(t, err, "plain output schema should infer")
+	want, err := jsonschema.ForType(reflect.TypeFor[_Report](), &jsonschema.ForOptions{})
+	require.NoError(t, err, "report output schema should infer")
+	money := func(schema *jsonschema.Schema) {
+		schema.Properties["amount"].Description, schema.Properties["amount"].Examples = "Fixed-point amount.", []any{2864000000}
+	}
+
+	rows := want.Properties["rows"]
+	rows.Description, rows.Deprecated = "Report rows.", true
+	rows.Items.Properties["code"].Description = "Platform code."
+	money(rows.Items.Properties["money"])
+	money(want.Properties["by_code"].AdditionalProperties)
+	want.Properties["hints"].Items.Description, want.Properties["hints"].Items.Examples = "Hint code.", []any{"partial_data"}
+	money(want.Properties["total"])
+
+	assert.JSONEq(t, _JSON(t, plain), _JSON(t, tools["items_get"].OutputSchema), "an output type without gmcp tags should keep the inferred schema")
+	assert.JSONEq(t, _JSON(t, want), _JSON(t, tools["report"].OutputSchema), "output tags should only add descriptions to the inferred schema")
+	assert.JSONEq(t, `{"type":"object"}`, _JSON(t, tools["preset"].OutputSchema), "a preset output schema should be kept")
+	assert.JSONEq(t, `{"rows":null,"total":{"amount":1,"scale":6},"id":"not an id"}`, string(_Call(t, server, "report", map[string]any{}).StructuredContent), "null values and unchecked IDs should pass output validation")
+	assert.JSONEq(t, `{"amount":0,"scale":0}`, string(_Call(t, server, "empty", map[string]any{}).StructuredContent), "an empty body should give the zero value of a pointer output")
 }
 
 func TestServerForwardsCalls(t *testing.T) {
@@ -295,7 +388,7 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 	t.Parallel()
 
 	type _UnknownKey struct {
-		A string `json:"a" mcp:"query=a;typo"`
+		A string `json:"a" gmcp:"query=a;typo"`
 	}
 
 	type _Unplaced struct {
@@ -303,19 +396,49 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 	}
 
 	type _OptionalPath struct {
-		A string `json:"a,omitempty" mcp:"path"`
+		A string `json:"a,omitempty" gmcp:"path"`
 	}
 
 	type _UnknownAncestor struct {
-		A ID `json:"a" mcp:"path=teams"`
+		A ID `json:"a" gmcp:"path=teams"`
 	}
 
 	type _OwnID struct {
-		A ID `json:"a" mcp:"path"`
+		A ID `json:"a" gmcp:"path"`
 	}
 
 	type _GetBody struct {
-		Body struct{} `json:"body" mcp:"body"`
+		Body struct{} `json:"body" gmcp:"body"`
+	}
+
+	type _NestedPlacement struct {
+		Body struct {
+			Rows []struct {
+				A string `json:"a" gmcp:"query=a"`
+			} `json:"rows"`
+		} `json:"body" gmcp:"body"`
+	}
+
+	type _DefaultKey struct {
+		A string `json:"a" gmcp:"query=a;default=x"`
+	}
+
+	type _BadExample struct {
+		A int `json:"a" gmcp:"query=a;example=abc"`
+	}
+
+	type _BadPattern struct {
+		A string `json:"a" gmcp:"query=a;pattern=["`
+	}
+
+	type _OutputValidation struct {
+		Rows []struct {
+			A string `json:"a" gmcp:"minLength=1"`
+		} `json:"rows"`
+	}
+
+	type _OutputPlacement struct {
+		A string `json:"a" gmcp:"query=a"`
 	}
 
 	tool := func(input Tool) (route *ghttp.SimpleRoute) {
@@ -330,7 +453,7 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 	}{
 		{"unknown tag key", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_UnknownKey, _Echo](&mcp.Tool{Name: "x"})))
-		}, `invalid mcp tag key "typo"`},
+		}, `invalid gmcp tag key "typo"`},
 		{"unplaced field", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_Unplaced, _Echo](&mcp.Tool{Name: "x"})))
 		}, "needs exactly one valid path, query, or body placement"},
@@ -346,6 +469,24 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		{"get with body", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_GetBody, _Echo](&mcp.Tool{Name: "x"})))
 		}, "forwards GET and cannot carry a body"},
+		{"placement inside a nested body", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[_NestedPlacement, _Echo](&mcp.Tool{Name: "x"})))
+		}, "is inside a body and cannot be placed"},
+		{"input default key", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[_DefaultKey, _Echo](&mcp.Tool{Name: "x"})))
+		}, `invalid gmcp tag key "default"`},
+		{"unparsable example", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[_BadExample, _Echo](&mcp.Tool{Name: "x"})))
+		}, `invalid gmcp tag example "abc"`},
+		{"invalid pattern", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[_BadPattern, _Echo](&mcp.Tool{Name: "x"})))
+		}, `invalid gmcp tag pattern "["`},
+		{"nested output validation key", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[struct{}, _OutputValidation](&mcp.Tool{Name: "x"})))
+		}, `invalid gmcp tag key "minLength"`},
+		{"output placement key", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[struct{}, _OutputPlacement](&mcp.Tool{Name: "x"})))
+		}, `invalid gmcp tag key "query"`},
 		{"tool not built by NewTool", Options{}, func(options Options) {
 			_BindServer(options, tool(Tool{}))
 		}, "declares a tool that NewTool did not build"},
@@ -407,6 +548,7 @@ func TestServerGateway(t *testing.T) {
 
 	assert.JSONEq(t, `{"names":["items_get","items_update"]}`, string(discovered.StructuredContent), "discovery should list hidden tools")
 	assert.Contains(t, string(detail.StructuredContent), `"input_schema"`, "an exact search should return the input schema")
+	assert.Contains(t, string(detail.StructuredContent), `"output_schema"`, "an exact search should return the output schema")
 	assert.JSONEq(t, `{"function":"Get","org":"o1","id":"i1","tool":"items_get","language":"zh-TW"}`, string(queried.StructuredContent), "query should forward to the named tool")
 	assert.JSONEq(t, `{"error":{"code":"not_found","message":"Resource not found."}}`, string(missing.StructuredContent), "query should keep the public error code of the named tool")
 	assert.JSONEq(t, `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`, string(public.StructuredContent), "query should only reach hidden tools")

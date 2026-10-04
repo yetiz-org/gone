@@ -39,9 +39,10 @@ type _ToolsSummary struct {
 
 // _ToolsDetail is the definition of the tool whose name equals the search.
 type _ToolsDetail struct {
-	Name        string `json:"name" jsonschema:"Tool name."`
-	Description string `json:"description" jsonschema:"Tool description."`
-	InputSchema any    `json:"input_schema" jsonschema:"Tool input schema."`
+	Name         string `json:"name" jsonschema:"Tool name."`
+	Description  string `json:"description" jsonschema:"Tool description."`
+	InputSchema  any    `json:"input_schema" jsonschema:"Tool input schema."`
+	OutputSchema any    `json:"output_schema,omitempty" jsonschema:"Tool output schema."`
 }
 
 // _ToolsOutput carries only the fields of the answered search mode.
@@ -81,8 +82,8 @@ func (s *Server) _BindGateway(names map[string]string) {
 		destructive = destructive || tool.Annotations.DestructiveHint != nil && *tool.Annotations.DestructiveHint
 	}
 
-	s._AddTool(&mcp.Tool{
-		Name: _ToolsName, Title: "Discover Tools", Description: "Discover tools by name or description and inspect one input schema.",
+	_AddTool(s, &mcp.Tool{
+		Name: _ToolsName, Title: "Discover Tools", Description: "Discover tools by name or description and inspect the input and output schemas of one tool.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: new(false), OpenWorldHint: new(false)},
 	}, func(ctx context.Context, request *mcp.CallToolRequest, input _ToolsInput) (result *mcp.CallToolResult, output _ToolsOutput, err error) {
 		return nil, s._Discover(catalog, input.Search), nil
@@ -123,7 +124,7 @@ func (s *Server) _Discover(catalog []*mcp.Tool, search string) (output _ToolsOut
 
 	for _, tool := range catalog {
 		if tool.Name == search {
-			output.Tool = &_ToolsDetail{Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema}
+			output.Tool = &_ToolsDetail{Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema, OutputSchema: tool.OutputSchema}
 			return output
 		}
 	}
