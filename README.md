@@ -10,7 +10,7 @@ This README focuses on how to use the project. If you want to start a service, b
 go get github.com/yetiz-org/gone
 ```
 
-The project currently targets Go 1.26.
+The project currently targets Go 1.27.
 
 ## Package Layout
 
@@ -18,6 +18,7 @@ The project currently targets Go 1.26.
 channel             Core Channel, Pipeline, Handler, Future, and I/O lifecycle
 ghttp               HTTP server, routing, handler tasks, gzip, logging, SSE, static files
 gws                 WebSocket channel, upgrade processor, and message handler tasks
+gmcp                MCP server that exposes ghttp handler functions as tools
 gtcp                TCP channel and server channel
 gtcp/simpletcp      TCP client/server wrapper with a built-in length-prefixed codec
 gudp                UDP channel and server channel
@@ -240,6 +241,34 @@ if ok {
 pack := dispatcher.Dispatch(ctx, httpRequest, map[string]any{"origin": "internal"})
 status, body := pack.Response.StatusCode(), pack.Response.Body().Bytes()
 ```
+
+## MCP
+
+`gmcp` serves Model Context Protocol tools that forward to `ghttp` handler functions. A handler task declares one tool per REST function with `MCPIndex`, `MCPGet`, `MCPPost`, `MCPPut`, `MCPPatch`, or `MCPDelete`. Each call is dispatched in process (see HTTP Internal Dispatch) as the request a REST client would send, so routes, acceptances, and handlers keep owning permissions, validation, and responses.
+
+Declare the tool input once with `json` and `mcp` tags. Each field has exactly one placement: `path` (the endpoint's own ID), `path=<ancestor node>`, `query=<name>`, or `body`. The schema keys `description`, `enum`, `minLength`, `minItems`, `maxItems`, `uniqueItems`, and `items.*` follow the goai tag syntax, so values cannot contain `;`. A field is optional when its json tag has `omitempty` or `omitzero` or it is a pointer. `gmcp.ID` values must match `Options.IDPattern`, and `gmcp.Date` is `YYYY-MM-DD`.
+
+```go
+type ItemGetToolRequest struct {
+	Org  gmcp.ID `json:"org" mcp:"path=orgs;description=Organization ID."`
+	Item gmcp.ID `json:"item" mcp:"path;description=Item ID."`
+	Tags []string `json:"tags,omitempty" mcp:"query=tags;maxItems=5;uniqueItems"`
+}
+
+func (h *Items) MCPGet() gmcp.Tool {
+	return gmcp.NewTool[ItemGetToolRequest, ItemGetResponse](&mcp.Tool{Name: "item_get", Description: "Read one item."})
+}
+
+server := gmcp.New(&mcp.Implementation{Name: "app", Version: "1.0.0"}, gmcp.Options{ToolParam: "mcp_tool"})
+server.Bind(dispatcher, route.RouteEntries()) // once, after the route is complete
+
+// In the authenticated /mcp handler:
+if writer, ok := h.RawMode(req, resp, params); ok {
+	server.Serve(writer, gmcp.Caller{Request: req, HandlerContext: ctx})
+}
+```
+
+`Bind` panics on an invalid declaration, a duplicate name, or a tool that `Options.Allows` rejects. The HTTP method decides the tool annotations: GET is read-only, writes are destructive, and PUT and DELETE are idempotent. Only GET polls again on `202 Accepted`. Handler failures surface as public codes (`invalid_argument`, `permission_denied`, `not_found`, `temporarily_unavailable`, `internal_error`). `Options.Gateway` lists only its public tools plus `tools` (discovery) and `query` (call by name). Path IDs use the default node-name parameter keys; routes with custom `{param}` or `:param_id` names are not supported.
 
 ## TCP
 
