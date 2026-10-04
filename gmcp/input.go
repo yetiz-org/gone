@@ -21,13 +21,22 @@ type ID string
 // Date is a calendar date in YYYY-MM-DD form.
 type Date string
 
-// _InputKeys and _OutputKeys are the keys a gmcp tag accepts on input and output types. path, query, and body place
-// an input field in the REST request; the others follow the goai tag schema keys, and element keys also apply to
-// array elements with the "items." prefix. Output keys only describe: the SDK validates every result against the
+// JSONSchemaProvider is implemented by a type that describes its own input JSON schema, such as an optional value
+// with its own JSON methods whose schema is the value schema plus null. Every input field of the type, in a body too,
+// takes that schema as is: null stays, and the type's own fields are not described. The field's gmcp tags still
+// apply, and the field is required unless it is optional. JSONSchema must return a new schema on every call, because
+// Bind changes it per field. Output schemas do not use it.
+type JSONSchemaProvider interface {
+	JSONSchema() (schema *jsonschema.Schema)
+}
+
+// _InputKeys and _OutputKeys are the keys a gmcp tag accepts on input and output types. path, query, body, and file
+// place an input field in the REST request; the others follow the goai tag schema keys, and element keys also apply
+// to array elements with the "items." prefix. Output keys only describe: the SDK validates every result against the
 // output schema, so a validation key would turn a valid REST response into a tool error. default is never accepted
 // because the SDK writes schema defaults into arguments and results.
 var (
-	_InputKeys = _TagKeys([]string{"path", "query", "body", "deprecated", "minItems", "maxItems", "uniqueItems"},
+	_InputKeys = _TagKeys([]string{"path", "query", "body", "file", "deprecated", "minItems", "maxItems", "uniqueItems"},
 		[]string{"description", "example", "format", "enum", "minLength", "maxLength", "pattern", "minimum", "maximum"})
 	_OutputKeys = _TagKeys([]string{"deprecated"}, []string{"description", "example"})
 )
@@ -48,8 +57,8 @@ func _TagKeys(field []string, element []string) (keys []string) {
 // _Tag is a parsed gmcp struct tag. Like a goai tag it is a ";"-separated key=value list, so values cannot contain ";".
 type _Tag map[string]string
 
-// _Field places one input field in the REST request. _Kind is path, query, or body; a path _Name is an ancestor node,
-// or empty for the endpoint's own ID, and a query _Name is the query parameter.
+// _Field places one input field in the REST request. _Kind is path, query, body, or file; a path _Name is an ancestor
+// node, or empty for the endpoint's own ID, a query _Name is the query parameter, and a file _Name is the form field.
 type _Field struct {
 	_Index []int
 	_Kind  string
@@ -87,8 +96,8 @@ func _NewTag(owner reflect.Type, field reflect.StructField, keys []string) (tag 
 }
 
 // _NewInput derives the input schema and field placement of t. jsonschema-go infers the structure and the gmcp tags
-// add schema keys (see _Annotate). Every top-level field must be placed in the path, query, or body with a
-// forwardable type.
+// add schema keys (see _Annotate). Every top-level field must be placed in the path, query, body, or a file part with a
+// forwardable type; a file field is a required File or an optional *File with a form field name of its own.
 func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 	schema, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: s._TypeSchemas})
 	if err != nil {
@@ -105,6 +114,7 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 
 		tag := _NewTag(t, field, _InputKeys)
 		placed := _Field{_Index: field.Index}
+		file := field.Type == reflect.TypeFor[*File]() || field.Type == reflect.TypeFor[File]() && !_Optional(field)
 		switch {
 		case tag._Has("body") && field.Type.Kind() == reflect.Struct && !slices.ContainsFunc(input._Fields, func(existing _Field) bool { return existing._Kind == "body" }):
 			placed._Kind = "body"
@@ -115,8 +125,11 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 		case tag._Has("query") && tag["query"] != "" && _QueryType(field.Type):
 			placed._Kind, placed._Name = "query", tag["query"]
 
+		case tag._Has("file") && tag["file"] != "" && file && !slices.ContainsFunc(input._Fields, func(existing _Field) bool { return existing._Kind == "file" && existing._Name == tag["file"] }):
+			placed._Kind, placed._Name = "file", tag["file"]
+
 		default:
-			panic(fmt.Sprintf("gmcp: %s.%s needs exactly one valid path, query, or body placement", t, field.Name))
+			panic(fmt.Sprintf("gmcp: %s.%s needs exactly one valid path, query, body, or file placement", t, field.Name))
 		}
 
 		input._Fields = append(input._Fields, placed)
@@ -126,18 +139,32 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 }
 
 // _NewOutput derives the output schema of t the way the SDK infers it and adds the gmcp tag descriptions (see
-// _Annotate). ID and Date stay plain strings, so a REST response is never checked against Options.IDPattern. Like
-// the SDK, it derives no schema for any and follows one pointer.
+// _Annotate). ID and Date stay plain strings, so a REST response is never checked against Options.IDPattern, and
+// JSONSchemaProvider does not apply. A DataURL is a string, and Blob has a fixed schema. Like the SDK, it derives no
+// schema for any and follows one pointer.
 func _NewOutput(t reflect.Type) (schema any) {
 	if t == reflect.TypeFor[any]() {
 		return nil
+	}
+
+	if t == reflect.TypeFor[Blob]() {
+		return &jsonschema.Schema{
+			Type: "object", Required: []string{"data"},
+			Properties: map[string]*jsonschema.Schema{
+				"filename": {Type: "string", Description: "Suggested file name, when the response names one."},
+				"data":     {Type: "string", Description: _OutputDataURLDescription},
+			},
+			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+		}
 	}
 
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
-	output, err := jsonschema.ForType(t, &jsonschema.ForOptions{})
+	output, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+		reflect.TypeFor[DataURL](): {Type: "string", Description: _OutputDataURLDescription},
+	}})
 	if err != nil {
 		panic(fmt.Sprintf("gmcp: output %s: %v", t, err))
 	}
@@ -149,14 +176,25 @@ func _NewOutput(t reflect.Type) (schema any) {
 // _Annotate applies the gmcp tags of the struct fields reachable from t, through pointers, slices, arrays, and map
 // values, to schema, the schema jsonschema-go inferred for t. Input annotation also removes null and makes a field
 // required unless it is optional; output annotation keeps the inferred null and required list so every REST response
-// still validates. Only top-level input fields may carry a placement.
+// still validates. An input type implementing JSONSchemaProvider replaces schema with its own, kept as given. Only
+// top-level input fields may carry a placement, and File is valid only in a top-level file field.
 func _Annotate(t reflect.Type, schema *jsonschema.Schema, output bool, top bool) {
-	if !output {
-		_Strict(schema)
-	}
-
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
+	}
+
+	if !output {
+		if provider, ok := reflect.New(t).Interface().(JSONSchemaProvider); ok {
+			provided := provider.JSONSchema()
+			if provided == nil {
+				panic(fmt.Sprintf("gmcp: %s returns a nil JSON schema", t))
+			}
+
+			*schema = *provided
+			return
+		}
+
+		_Strict(schema)
 	}
 
 	switch t.Kind() {
@@ -171,12 +209,17 @@ func _Annotate(t reflect.Type, schema *jsonschema.Schema, output bool, top bool)
 		}
 
 	case reflect.Struct:
+		if t == reflect.TypeFor[File]() && !output {
+			panic(fmt.Sprintf("gmcp: %s is valid only in a top-level file field", t))
+		}
+
 		_AnnotateFields(t, schema, output, top)
 	}
 }
 
 // _AnnotateFields annotates the properties of struct type t. A struct inferred without properties, such as a type
-// schema override, is left unchanged.
+// schema override, is left unchanged. A property is annotated before its tags apply, so the tags also apply to a
+// JSONSchemaProvider schema; the fixed File schema of a top-level file field only loses null.
 func _AnnotateFields(t reflect.Type, schema *jsonschema.Schema, output bool, top bool) {
 	if schema.Properties == nil {
 		return
@@ -198,16 +241,21 @@ func _AnnotateFields(t reflect.Type, schema *jsonschema.Schema, output bool, top
 		}
 
 		tag := _NewTag(t, field, keys)
-		if !top && (tag._Has("path") || tag._Has("query") || tag._Has("body")) {
+		if !top && (tag._Has("path") || tag._Has("query") || tag._Has("body") || tag._Has("file")) {
 			panic(fmt.Sprintf("gmcp: %s.%s is inside a body and cannot be placed in the request", t, field.Name))
+		}
+
+		if top && tag._Has("file") {
+			// _NewInput checks the field type.
+			_Strict(property)
+		} else {
+			_Annotate(field.Type, property, output, false)
 		}
 
 		tag._Apply(t, field, property)
 		if !output && !_Optional(field) {
 			schema.Required = append(schema.Required, name)
 		}
-
-		_Annotate(field.Type, property, output, false)
 	}
 }
 
@@ -384,7 +432,8 @@ func _Strict(schema *jsonschema.Schema) {
 }
 
 // _Check panics when the placement does not fit the bound endpoint: an ancestor path ID must name an ancestor
-// segment, an MCPIndex tool cannot carry the endpoint's own ID, and a GET tool cannot carry a body.
+// segment, an MCPIndex tool cannot carry the endpoint's own ID, a GET tool cannot carry a body or a file, and a body
+// and files cannot share one request.
 func (i *_Input) _Check(name string, path string, method string, index bool) {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	for _, field := range i._Fields {
@@ -397,16 +446,23 @@ func (i *_Input) _Check(name string, path string, method string, index bool) {
 
 		case field._Kind == "body" && method == http.MethodGet:
 			panic(fmt.Sprintf("gmcp: tool %q forwards GET and cannot carry a body", name))
+
+		case field._Kind == "file" && method == http.MethodGet:
+			panic(fmt.Sprintf("gmcp: tool %q forwards GET and cannot carry a file", name))
+
+		case field._Kind == "file" && slices.ContainsFunc(i._Fields, func(other _Field) bool { return other._Kind == "body" }):
+			panic(fmt.Sprintf("gmcp: tool %q cannot carry both a body and a file", name))
 		}
 	}
 }
 
 // _Binding places a decoded input in the REST request. Nil pointers, zero values, and empty slices are not sent as
-// query values; ancestor IDs are always sent for _Target to validate. An empty endpoint ID is invalid because the
-// request would fall back to Index. An input implementing BindingAdjuster then adds its fixed values.
+// query values, and a nil *File sends no part; ancestor IDs are always sent for _Target to validate. An empty endpoint
+// ID is invalid because the request would fall back to Index. An input implementing BindingAdjuster then adds its
+// fixed values.
 func (i *_Input) _Binding(value any) (binding Binding, ok bool) {
 	input := reflect.ValueOf(value)
-	binding = Binding{IDs: map[string]string{}, Query: url.Values{}}
+	binding = Binding{IDs: map[string]string{}, Query: url.Values{}, Files: map[string]File{}}
 	for _, field := range i._Fields {
 		fieldValue := input.FieldByIndex(field._Index)
 		switch field._Kind {
@@ -425,6 +481,13 @@ func (i *_Input) _Binding(value any) (binding Binding, ok bool) {
 		case "query":
 			if text, ok := _QueryText(fieldValue); ok {
 				binding.Query.Set(field._Name, text)
+			}
+
+		case "file":
+			if fieldValue.Kind() != reflect.Pointer {
+				binding.Files[field._Name] = fieldValue.Interface().(File)
+			} else if !fieldValue.IsNil() {
+				binding.Files[field._Name] = fieldValue.Elem().Interface().(File)
 			}
 		}
 	}

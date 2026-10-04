@@ -2,8 +2,13 @@ package gmcp
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -17,6 +22,7 @@ import (
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/ghttp"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 type _Echo struct {
@@ -185,6 +191,154 @@ func (t *_IndexTask) MCPIndex() (tool Tool) {
 	return t._Tool
 }
 
+type _PostTask struct {
+	ghttp.DefaultHTTPHandlerTask
+	_Tool Tool
+}
+
+func (t *_PostTask) MCPPost() (tool Tool) {
+	return t._Tool
+}
+
+type _UploadInput struct {
+	Org   ID    `json:"org" gmcp:"path=orgs"`
+	Cover File  `json:"cover" gmcp:"file=file;description=Cover image."`
+	Proof *File `json:"proof,omitempty" gmcp:"file=proof"`
+}
+
+type _UploadPart struct {
+	Field       string `json:"field"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Digest      string `json:"digest"`
+}
+
+type _UploadEcho struct {
+	Org   string        `json:"org"`
+	Form  string        `json:"form"`
+	Parts []_UploadPart `json:"parts"`
+}
+
+type _UploadTask struct {
+	ghttp.DefaultHTTPHandlerTask
+	_Calls atomic.Int32
+}
+
+func (t *_UploadTask) Post(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (errResponse ghttp.ErrorResponse) {
+	t._Calls.Add(1)
+	form, _, _ := mime.ParseMediaType(req.Header().Get("Content-Type"))
+	echo := _UploadEcho{Org: t.GetID("orgs", params), Form: form}
+	for _, field := range []string{"file", "proof"} {
+		file, header, err := req.FormFile(field)
+		if err != nil {
+			continue
+		}
+
+		data, err := io.ReadAll(file)
+		_ = file.Close()
+		if err != nil {
+			return erresponse.InvalidRequest
+		}
+
+		echo.Parts = append(echo.Parts, _UploadPart{Field: field, Filename: header.Filename, ContentType: header.Header.Get("Content-Type"), Digest: _Digest(data)})
+	}
+
+	resp.JsonResponse(echo)
+	return nil
+}
+
+func (t *_UploadTask) MCPPost() (tool Tool) {
+	return NewTool[_UploadInput, _UploadEcho](&mcp.Tool{Name: "upload", Description: "Upload files."})
+}
+
+type _Maybe[T any] struct {
+	Set   bool
+	Value *T
+}
+
+func (o _Maybe[T]) IsZero() (zero bool) {
+	return !o.Set
+}
+
+func (o _Maybe[T]) JSONSchema() (schema *jsonschema.Schema) {
+	schema, err := jsonschema.For[T](nil)
+	if err != nil {
+		panic(err)
+	}
+
+	schema.Types, schema.Type = []string{"null", schema.Type}, ""
+	return schema
+}
+
+func (o _Maybe[T]) MarshalJSON() (data []byte, err error) {
+	return json.Marshal(o.Value)
+}
+
+func (o *_Maybe[T]) UnmarshalJSON(data []byte) (err error) {
+	o.Set, o.Value = true, nil
+	if string(data) == "null" {
+		return nil
+	}
+
+	return json.Unmarshal(data, &o.Value)
+}
+
+type _OptionalBody struct {
+	Name _Maybe[string] `json:"name,omitzero" gmcp:"description=New name."`
+	Mode _Maybe[string] `json:"mode,omitzero" gmcp:"description=New mode.;enum=a,b"`
+	Kind _Maybe[string] `json:"kind,omitzero" gmcp:"description=New kind.;enum=c"`
+}
+
+type _OptionalInput struct {
+	Org  ID            `json:"org" gmcp:"path=orgs"`
+	Item ID            `json:"item" gmcp:"path"`
+	Body _OptionalBody `json:"body" gmcp:"body"`
+}
+
+type _OptionalTask struct {
+	ghttp.DefaultHTTPHandlerTask
+}
+
+func (t *_OptionalTask) Patch(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (errResponse ghttp.ErrorResponse) {
+	resp.JsonResponse(_Echo{Function: "Patch", Body: string(req.Body().Bytes())})
+	return nil
+}
+
+func (t *_OptionalTask) MCPPatch() (tool Tool) {
+	return NewTool[_OptionalInput, _Echo](&mcp.Tool{Name: "optional_update", Description: "Update optional values."})
+}
+
+type _DownloadInput struct {
+	File ID `json:"file" gmcp:"path"`
+}
+
+type _DownloadTask struct {
+	ghttp.DefaultHTTPHandlerTask
+	_Tool Tool
+}
+
+func (t *_DownloadTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (errResponse ghttp.ErrorResponse) {
+	switch t.GetID("files", params) {
+	case "report":
+		resp.SetHeader("Content-Type", "application/pdf")
+		resp.SetHeader("Content-Disposition", `attachment; filename="report.pdf"`)
+		resp.SetBody(buf.NewByteBuf(append([]byte{0x00, 0xff}, req.Header().Get("Accept")...)))
+
+	case "empty":
+		resp.SetHeader("Content-Type", "text/plain")
+
+	default:
+		resp.SetHeader("Content-Disposition", `attachment; filename="../report.pdf"`)
+		resp.SetBody(buf.NewByteBuf([]byte{0x01}))
+	}
+
+	return nil
+}
+
+func (t *_DownloadTask) MCPGet() (tool Tool) {
+	return t._Tool
+}
+
 type _Envelope struct {
 	Result json.RawMessage `json:"result"`
 	Error  *struct {
@@ -192,7 +346,13 @@ type _Envelope struct {
 	} `json:"error"`
 }
 
+type _ContentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 type _CallResult struct {
+	Content           []_ContentBlock `json:"content"`
 	StructuredContent json.RawMessage `json:"structuredContent"`
 	IsError           bool            `json:"isError"`
 }
@@ -207,7 +367,7 @@ func _BindServer(options Options, route *ghttp.SimpleRoute) (server *Server) {
 	return server
 }
 
-func _Request(t *testing.T, server *Server, method string, params any) (envelope _Envelope) {
+func _Serve(t *testing.T, server *Server, method string, params any) (recorder *httptest.ResponseRecorder) {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	require.NoError(t, err, "request should encode")
@@ -220,8 +380,14 @@ func _Request(t *testing.T, server *Server, method string, params any) (envelope
 	ch.Init()
 	ctx := channel.NewMockHandlerContext()
 	ctx.On("Channel").Return(ch)
-	recorder := httptest.NewRecorder()
+	recorder = httptest.NewRecorder()
 	server.Serve(recorder, Caller{Request: ghttp.WrapRequest(ch, request), HandlerContext: ctx, Language: "zh-TW"})
+	return recorder
+}
+
+func _Request(t *testing.T, server *Server, method string, params any) (envelope _Envelope) {
+	t.Helper()
+	recorder := _Serve(t, server, method, params)
 	require.Equal(t, http.StatusOK, recorder.Code, "MCP request should return a JSON-RPC envelope")
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope), "response should be JSON")
 	return envelope
@@ -254,6 +420,19 @@ func _JSON(t *testing.T, value any) (text string) {
 	data, err := json.Marshal(value)
 	require.NoError(t, err, "value should encode")
 	return string(data)
+}
+
+func _DataURL(mediaType string, data []byte) (dataURL string) {
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data)
+}
+
+func _Digest(data []byte) (digest string) {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func _UploadRoute(upload *_UploadTask) (route *ghttp.SimpleRoute) {
+	return ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_OrgsTask{}).SetEndpoint("/orgs/uploads", upload)
 }
 
 func TestServerBindDerivesTools(t *testing.T) {
@@ -441,8 +620,54 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		A string `json:"a" gmcp:"query=a"`
 	}
 
+	type _GetFile struct {
+		A File `json:"a" gmcp:"file=a"`
+	}
+
+	type _BodyAndFile struct {
+		Body struct{} `json:"body" gmcp:"body"`
+		A    File     `json:"a" gmcp:"file=a"`
+	}
+
+	type _FileInBody struct {
+		Body struct {
+			Files []File `json:"files"`
+		} `json:"body" gmcp:"body"`
+	}
+
+	type _FilePlacedInBody struct {
+		Body struct {
+			A File `json:"a" gmcp:"file=a"`
+		} `json:"body" gmcp:"body"`
+	}
+
+	type _FileAsBody struct {
+		A File `json:"a" gmcp:"body"`
+	}
+
+	type _NotAFile struct {
+		A string `json:"a" gmcp:"file=a"`
+	}
+
+	type _UnnamedFile struct {
+		A File `json:"a" gmcp:"file"`
+	}
+
+	type _DuplicateFile struct {
+		A File  `json:"a" gmcp:"file=a"`
+		B *File `json:"b,omitempty" gmcp:"file=a"`
+	}
+
+	type _OptionalFileValue struct {
+		A File `json:"a,omitzero" gmcp:"file=a"`
+	}
+
 	tool := func(input Tool) (route *ghttp.SimpleRoute) {
 		return ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_GetTask{_Tool: input})
+	}
+
+	write := func(input Tool) (route *ghttp.SimpleRoute) {
+		return ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_PostTask{_Tool: input})
 	}
 
 	tests := []struct {
@@ -456,10 +681,10 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		}, `invalid gmcp tag key "typo"`},
 		{"unplaced field", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_Unplaced, _Echo](&mcp.Tool{Name: "x"})))
-		}, "needs exactly one valid path, query, or body placement"},
+		}, "needs exactly one valid path, query, body, or file placement"},
 		{"optional own path", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_OptionalPath, _Echo](&mcp.Tool{Name: "x"})))
-		}, "needs exactly one valid path, query, or body placement"},
+		}, "needs exactly one valid path, query, body, or file placement"},
 		{"unknown ancestor", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_UnknownAncestor, _Echo](&mcp.Tool{Name: "x"})))
 		}, `path ID "teams" is not an ancestor node`},
@@ -487,6 +712,33 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		{"output placement key", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[struct{}, _OutputPlacement](&mcp.Tool{Name: "x"})))
 		}, `invalid gmcp tag key "query"`},
+		{"get with file", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[_GetFile, _Echo](&mcp.Tool{Name: "x"})))
+		}, "forwards GET and cannot carry a file"},
+		{"body and file", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_BodyAndFile, _Echo](&mcp.Tool{Name: "x"})))
+		}, "cannot carry both a body and a file"},
+		{"file type inside a body", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_FileInBody, _Echo](&mcp.Tool{Name: "x"})))
+		}, "gmcp.File is valid only in a top-level file field"},
+		{"file placement inside a body", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_FilePlacedInBody, _Echo](&mcp.Tool{Name: "x"})))
+		}, "is inside a body and cannot be placed"},
+		{"file as body", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_FileAsBody, _Echo](&mcp.Tool{Name: "x"})))
+		}, "gmcp.File is valid only in a top-level file field"},
+		{"file placement on another type", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_NotAFile, _Echo](&mcp.Tool{Name: "x"})))
+		}, "needs exactly one valid path, query, body, or file placement"},
+		{"file without a form name", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_UnnamedFile, _Echo](&mcp.Tool{Name: "x"})))
+		}, "needs exactly one valid path, query, body, or file placement"},
+		{"duplicate form name", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_DuplicateFile, _Echo](&mcp.Tool{Name: "x"})))
+		}, "needs exactly one valid path, query, body, or file placement"},
+		{"optional file value", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_OptionalFileValue, _Echo](&mcp.Tool{Name: "x"})))
+		}, "needs exactly one valid path, query, body, or file placement"},
 		{"tool not built by NewTool", Options{}, func(options Options) {
 			_BindServer(options, tool(Tool{}))
 		}, "declares a tool that NewTool did not build"},
@@ -552,4 +804,174 @@ func TestServerGateway(t *testing.T) {
 	assert.JSONEq(t, `{"function":"Get","org":"o1","id":"i1","tool":"items_get","language":"zh-TW"}`, string(queried.StructuredContent), "query should forward to the named tool")
 	assert.JSONEq(t, `{"error":{"code":"not_found","message":"Resource not found."}}`, string(missing.StructuredContent), "query should keep the public error code of the named tool")
 	assert.JSONEq(t, `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`, string(public.StructuredContent), "query should only reach hidden tools")
+}
+
+func TestServerForwardsFiles(t *testing.T) {
+	t.Parallel()
+
+	upload := &_UploadTask{}
+	server := _BindServer(Options{MaxBodyBytes: 1024}, _UploadRoute(upload))
+	tools, _ := _Tools(t, server)
+	png, text := []byte("\x89PNG\x00\xff"), []byte("hello")
+	cover := map[string]any{"filename": "封面 1.png", "data": _DataURL("image/png", png)}
+	file := func(filename string, data string) (arguments map[string]any) {
+		return map[string]any{"org": "o1", "cover": map[string]any{"filename": filename, "data": data}}
+	}
+
+	invalid := `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`
+	tests := []struct {
+		name      string
+		arguments map[string]any
+		want      string
+	}{
+		{"one file part", map[string]any{"org": "o1", "cover": cover},
+			fmt.Sprintf(`{"org":"o1","form":"multipart/form-data","parts":[{"field":"file","filename":"封面 1.png","content_type":"image/png","digest":%q}]}`, _Digest(png))},
+		{"optional part with media type parameters", map[string]any{"org": "o1", "cover": cover, "proof": map[string]any{"filename": "proof.txt", "data": _DataURL("text/plain;charset=utf-8", text)}},
+			fmt.Sprintf(`{"org":"o1","form":"multipart/form-data","parts":[
+				{"field":"file","filename":"封面 1.png","content_type":"image/png","digest":%q},
+				{"field":"proof","filename":"proof.txt","content_type":"text/plain;charset=utf-8","digest":%q}]}`, _Digest(png), _Digest(text))},
+		{"empty filename", file("", _DataURL("image/png", png)), invalid},
+		{"filename with a slash", file("a/b.png", _DataURL("image/png", png)), invalid},
+		{"filename with a backslash", file(`a\b.png`, _DataURL("image/png", png)), invalid},
+		{"dot filename", file(".", _DataURL("image/png", png)), invalid},
+		{"dot dot filename", file("..", _DataURL("image/png", png)), invalid},
+		{"filename with a control character", file("a\nb.png", _DataURL("image/png", png)), invalid},
+		{"percent-encoded data URL", file("a.txt", "data:text/plain,hello"), invalid},
+		{"data URL without a media type", file("a.png", "data:;base64,AAAA"), invalid},
+		{"media type without a subtype", file("a.png", _DataURL("image", png)), invalid},
+		{"unparsable media type", file("a.png", _DataURL("image/png;=x", png)), invalid},
+		{"plain base64 without a data URL", file("a.png", base64.StdEncoding.EncodeToString(png)), invalid},
+		{"broken base64", file("a.png", "data:image/png;base64,iVBOR@@"), invalid},
+		{"empty data", file("a.png", "data:image/png;base64,"), invalid},
+		{"multipart body over MaxBodyBytes", file("a.png", _DataURL("image/png", bytes.Repeat([]byte{0xff}, 1024))), invalid},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := _Call(t, server, "upload", tt.arguments)
+			assert.JSONEq(t, tt.want, string(result.StructuredContent), "structured content should match the case")
+		})
+	}
+
+	t.Cleanup(func() {
+		assert.EqualValues(t, 2, upload._Calls.Load(), "only valid files should reach the handler")
+	})
+
+	fileSchema := func(description string) (schema string) {
+		return fmt.Sprintf(`{"type":"object","description":%q,"additionalProperties":false,"required":["filename","data"],
+			"properties":{
+				"filename":{"type":"string","minLength":1,"description":"File name without a directory, such as cover.png."},
+				"data":{"type":"string","pattern":"^data:[^,]+;base64,","description":"Base64 data URL with a media type, such as data:image/png;base64,iVBORw0KGgo=."}
+			}}`, description)
+	}
+
+	properties := tools["upload"].InputSchema.(map[string]any)["properties"].(map[string]any)
+	assert.Equal(t, []any{"org", "cover"}, tools["upload"].InputSchema.(map[string]any)["required"], "a pointer file should be optional")
+	assert.JSONEq(t, fileSchema("Cover image."), _JSON(t, properties["cover"]), "a file field should use the fixed File schema with its tag description")
+	assert.JSONEq(t, fileSchema("File to upload."), _JSON(t, properties["proof"]), "an optional file should use the fixed File schema without null")
+}
+
+func TestServerMaxRequestBodyBytes(t *testing.T) {
+	t.Parallel()
+
+	limit := int64(mcp.DefaultMaxRequestBodyBytes + 1<<20)
+	upload := &_UploadTask{}
+	configured := _BindServer(Options{MaxRequestBodyBytes: limit}, _UploadRoute(upload))
+	standard := _BindServer(Options{}, _UploadRoute(&_UploadTask{}))
+	call := func(size int64) (params map[string]any) {
+		data := _DataURL("application/octet-stream", bytes.Repeat([]byte{0xff}, int(size)))
+		return map[string]any{"name": "upload", "arguments": map[string]any{"org": "o1", "cover": map[string]any{"filename": "a.bin", "data": data}}}
+	}
+
+	// Base64 makes the request 4/3 of the file size.
+	above := call(mcp.DefaultMaxRequestBodyBytes * 3 / 4)
+	accepted := _Request(t, configured, "tools/call", above)
+	defaulted := _Serve(t, standard, "tools/call", above)
+	rejected := _Serve(t, configured, "tools/call", call(limit*3/4))
+
+	var result _CallResult
+	require.Nil(t, accepted.Error, "a request within the configured limit should not be a protocol error")
+	require.NoError(t, json.Unmarshal(accepted.Result, &result), "tool result should decode")
+	assert.False(t, result.IsError, "a request above the SDK default but within the configured limit should be served")
+	assert.EqualValues(t, 1, upload._Calls.Load(), "the accepted request should reach the handler")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, defaulted.Code, "zero should keep the SDK default limit")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rejected.Code, "a request above the configured limit should be rejected")
+	assert.JSONEq(t, `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`, rejected.Body.String(), "the rejection should be a public code")
+}
+
+func TestServerReturnsBlobs(t *testing.T) {
+	t.Parallel()
+
+	route := ghttp.NewSimpleRoute().
+		SetEndpoint("/files", &_DownloadTask{_Tool: NewTool[_DownloadInput, Blob](&mcp.Tool{Name: "file_get", Description: "Read one file."})}).
+		SetEndpoint("/raw", &_DownloadTask{_Tool: NewTool[struct{}, _Echo](&mcp.Tool{Name: "raw", Description: "Read raw content."})})
+	server := _BindServer(Options{}, route)
+	tools, _ := _Tools(t, server)
+	tests := []struct {
+		name    string
+		file    string
+		want    string
+		summary string
+	}{
+		{"media type and filename", "report", fmt.Sprintf(`{"filename":"report.pdf","data":%q}`, _DataURL("application/pdf", []byte("\x00\xff*/*"))),
+			`{"media_type":"application/pdf","filename":"report.pdf"}`},
+		{"defaults without headers and drops unsafe filenames", "plain", `{"data":"data:application/octet-stream;base64,AQ=="}`, `{"media_type":"application/octet-stream"}`},
+		{"empty body", "empty", `{"data":"data:text/plain;base64,"}`, `{"media_type":"text/plain"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := _Call(t, server, "file_get", map[string]any{"file": tt.file})
+			assert.False(t, result.IsError, "a binary response should be a result")
+			assert.JSONEq(t, tt.want, string(result.StructuredContent), "the body should be returned as a data URL")
+			require.Len(t, result.Content, 1, "the content should hold one summary block")
+			assert.Equal(t, "text", result.Content[0].Type, "the summary should be text")
+			assert.JSONEq(t, tt.summary, result.Content[0].Text, "the summary should not repeat the data")
+		})
+	}
+
+	assert.JSONEq(t, `{"error":{"code":"internal_error","message":"Unable to complete the request."}}`, string(_Call(t, server, "raw", map[string]any{}).StructuredContent), "a binary response should still fail for a JSON output")
+	assert.JSONEq(t, `{"type":"object","additionalProperties":false,"required":["data"],
+		"properties":{
+			"filename":{"type":"string","description":"Suggested file name, when the response names one."},
+			"data":{"type":"string","description":"Base64 data URL with the media type of the content."}
+		}}`, _JSON(t, tools["file_get"].OutputSchema), "a Blob output should use the fixed Blob schema")
+}
+
+func TestServerJSONSchemaProvider(t *testing.T) {
+	t.Parallel()
+
+	server := _BindServer(Options{}, ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_OrgsTask{}).SetEndpoint("/orgs/items", &_OptionalTask{}))
+	tools, _ := _Tools(t, server)
+	invalid := `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`
+	tests := []struct {
+		name string
+		body map[string]any
+		want string
+	}{
+		{"omitted values are not sent", map[string]any{}, `{"function":"Patch","body":"{}"}`},
+		{"null is sent", map[string]any{"name": nil}, `{"function":"Patch","body":"{\"name\":null}"}`},
+		{"values are sent", map[string]any{"name": "n", "mode": "a", "kind": "c"}, `{"function":"Patch","body":"{\"name\":\"n\",\"mode\":\"a\",\"kind\":\"c\"}"}`},
+		{"field enum tags still validate", map[string]any{"mode": "c"}, invalid},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := _Call(t, server, "optional_update", map[string]any{"org": "o1", "item": "i1", "body": tt.body})
+			assert.JSONEq(t, tt.want, string(result.StructuredContent), "structured content should match the case")
+		})
+	}
+
+	assert.JSONEq(t, `{"type":"object","additionalProperties":false,
+		"properties":{
+			"name":{"type":["null","string"],"description":"New name."},
+			"mode":{"type":["null","string"],"description":"New mode.","enum":["a","b"]},
+			"kind":{"type":["null","string"],"description":"New kind.","enum":["c"]}
+		}}`, _JSON(t, tools["optional_update"].InputSchema.(map[string]any)["properties"].(map[string]any)["body"]), "provided schemas should keep null, stay optional, and take their own field tags")
 }

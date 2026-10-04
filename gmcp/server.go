@@ -37,8 +37,13 @@ type Options struct {
 	// IDPattern restricts ID values and every path ID; it must be valid in both RE2 and ECMA-262. Empty uses
 	// DefaultIDPattern.
 	IDPattern string
-	// MaxBodyBytes limits encoded request bodies of forwarded calls; zero disables the limit.
+	// MaxBodyBytes limits encoded request bodies of forwarded calls, JSON or multipart/form-data; zero disables the
+	// limit.
 	MaxBodyBytes int64
+	// MaxRequestBodyBytes limits the body of one MCP HTTP request. Zero uses mcp.DefaultMaxRequestBodyBytes (4 MiB),
+	// and a negative value disables the limit. A larger request is rejected with 413 and invalid_argument. Base64 makes
+	// a file argument about 4/3 of the file size.
+	MaxRequestBodyBytes int64
 	// Gateway, when set, lists only its public tools plus the "tools" discovery and "query" call tools.
 	Gateway *Gateway
 }
@@ -74,12 +79,22 @@ func New(implementation *mcp.Implementation, options Options) (server *Server) {
 		options.IDPattern = DefaultIDPattern
 	}
 
+	dataURL := &jsonschema.Schema{Type: "string", Pattern: _DataURLPattern, Description: _InputDataURLDescription}
 	server = &Server{
 		_Options:   options,
 		_IDPattern: regexp.MustCompile(options.IDPattern),
 		_TypeSchemas: map[reflect.Type]*jsonschema.Schema{
-			reflect.TypeFor[ID]():   {Type: "string", MinLength: new(1), Pattern: options.IDPattern},
-			reflect.TypeFor[Date](): {Type: "string", Description: "Date in YYYY-MM-DD form.", Pattern: `^\d{4}-\d{2}-\d{2}$`},
+			reflect.TypeFor[ID]():      {Type: "string", MinLength: new(1), Pattern: options.IDPattern},
+			reflect.TypeFor[Date]():    {Type: "string", Description: "Date in YYYY-MM-DD form.", Pattern: `^\d{4}-\d{2}-\d{2}$`},
+			reflect.TypeFor[DataURL](): dataURL,
+			reflect.TypeFor[File](): {
+				Type: "object", Description: "File to upload.", Required: []string{"filename", "data"},
+				Properties: map[string]*jsonschema.Schema{
+					"filename": {Type: "string", MinLength: new(1), Description: "File name without a directory, such as cover.png."},
+					"data":     dataURL,
+				},
+				AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+			},
 		},
 		_SDK: mcp.NewServer(implementation, &mcp.ServerOptions{Instructions: options.Instructions}),
 	}
@@ -91,7 +106,9 @@ func New(implementation *mcp.Implementation, options Options) (server *Server) {
 
 	server._Handler = mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return server._SDK
-	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, PropagateRequestCancellation: true})
+	}, &mcp.StreamableHTTPOptions{
+		Stateless: true, JSONResponse: true, PropagateRequestCancellation: true, MaxRequestBodyBytes: options.MaxRequestBodyBytes,
+	})
 	return server
 }
 

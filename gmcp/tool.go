@@ -5,9 +5,13 @@ import (
 	"context"
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
+	"maps"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -71,12 +75,14 @@ type Tool struct {
 }
 
 // Binding is the REST request a tool call forwards: ID follows the endpoint segment, IDs are keyed by ancestor route
-// node names, and Body, when not nil, is sent as JSON.
+// node names, Body, when not nil, is sent as JSON, and Files, when not empty, are sent instead as multipart/form-data
+// parts keyed by form field name.
 type Binding struct {
 	ID    string
 	IDs   map[string]string
 	Query url.Values
 	Body  any
+	Files map[string]File
 }
 
 // _Route is one bound tool: the dispatcher, endpoint node, canonical path, HTTP method, and derived input mapping.
@@ -91,10 +97,10 @@ type _Route struct {
 	_Input      *_Input
 }
 
-// NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response.
-// The input schema and REST mapping come from the json and gmcp tags of In, so definition must not set InputSchema.
-// Bind sets InputSchema and Annotations, and derives OutputSchema from the json and gmcp tags of Out unless definition
-// sets it.
+// NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response; when
+// Out is Blob, the response body is returned as is. The input schema and REST mapping come from the json and gmcp tags
+// of In, so definition must not set InputSchema. Bind sets InputSchema and Annotations, and derives OutputSchema from
+// the json and gmcp tags of Out unless definition sets it.
 func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 	if definition == nil || definition.InputSchema != nil {
 		panic("gmcp: NewTool needs a definition without InputSchema; the schema is derived from the input type")
@@ -107,8 +113,15 @@ func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 				return nil, output, &_ToolError{_Code: _InvalidArgument}
 			}
 
-			err = route._Forward(ctx, binding, &output)
-			return nil, output, err
+			if err = route._Forward(ctx, binding, &output); err != nil {
+				return nil, output, err
+			}
+
+			if blob, ok := any(output).(Blob); ok {
+				result, err = blob._Result()
+			}
+
+			return result, output, err
 		})
 	}}
 }
@@ -126,9 +139,11 @@ func (r *_Route) _Annotations() (annotations *mcp.ToolAnnotations) {
 }
 
 // _Forward dispatches binding in process with the caller's credentials and decodes a successful response into
-// output. The body is encoded with the encoding/json v1 semantics REST handlers decode with. Only GET polls again on
-// 202 Accepted, waiting Retry-After up to 3 seconds, and the last 202 response is the result; writes are never resent.
-// A success without a body leaves output zero. Failures surface only public error codes.
+// output. The body is encoded with the encoding/json v1 semantics REST handlers decode with, or as multipart/form-data
+// when the binding has files. When output is a *Blob, the request accepts any media type and the response body is
+// kept as is; otherwise a success without a body leaves output zero. Only GET polls again on 202 Accepted, waiting
+// Retry-After up to 3 seconds, and the last 202 response is the result; writes are never resent. Failures surface
+// only public error codes.
 func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtErr error) {
 	caller, ok := ctx.Value(_CallerKey{}).(*Caller)
 	if !ok || caller.Request == nil || caller.HandlerContext == nil {
@@ -146,18 +161,35 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 	}
 
 	var body []byte
-	if binding.Body != nil {
+	contentType := "application/json"
+	switch {
+	case len(binding.Files) > 0 && binding.Body != nil:
+		kklogger.ErrorJ("gmcp:Route.Forward#binding!body_and_files", map[string]any{"tool": r._Name, "path": r._Path})
+		return &_ToolError{_Code: _InternalError}
+
+	case len(binding.Files) > 0:
+		if body, contentType, ok = binding._Multipart(); !ok {
+			return &_ToolError{_Code: _InvalidArgument}
+		}
+
+	case binding.Body != nil:
 		encoded, err := json.Marshal(binding.Body, jsonv1.DefaultOptionsV1())
 		if err != nil {
 			kklogger.ErrorJ("gmcp:Route.Forward#body!encode_failed", map[string]any{"tool": r._Name, "error": err.Error()})
 			return &_ToolError{_Code: _InternalError}
 		}
 
-		if limit := r._Server._Options.MaxBodyBytes; limit > 0 && int64(len(encoded)) > limit {
-			return &_ToolError{_Code: _InvalidArgument}
-		}
-
 		body = encoded
+	}
+
+	if limit := r._Server._Options.MaxBodyBytes; limit > 0 && int64(len(body)) > limit {
+		return &_ToolError{_Code: _InvalidArgument}
+	}
+
+	accept := "application/json"
+	blob, binary := output.(*Blob)
+	if binary {
+		accept = "*/*"
 	}
 
 	seed := map[string]any{}
@@ -175,9 +207,9 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 		request.Host = outer.Host()
 		request.RemoteAddr = outer.Request().RemoteAddr
 		request.Header.Set(httpheadername.Authorization, outer.Header().Get(httpheadername.Authorization))
-		request.Header.Set(httpheadername.Accept, "application/json")
+		request.Header.Set(httpheadername.Accept, accept)
 		if body != nil {
-			request.Header.Set(httpheadername.ContentType, "application/json")
+			request.Header.Set(httpheadername.ContentType, contentType)
 		}
 
 		if forwardedFor := outer.Header().Get(httpheadername.XForwardedFor); forwardedFor != "" {
@@ -208,6 +240,11 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
 			return &_ToolError{_Code: _StatusErrorCode(status)}
+		}
+
+		if binary {
+			blob._Read(pack.Response)
+			return nil
 		}
 
 		raw := pack.Response.Body().Bytes()
@@ -290,4 +327,29 @@ func (r *_Route) _RetryAfter(value string) (wait time.Duration) {
 	}
 
 	return min(time.Duration(seconds)*time.Second, _MaxForwardWait)
+}
+
+// _Multipart encodes Files as a multipart/form-data body with one part per form field, in name order. Each part takes
+// its Content-Type from the file's data URL. It reports false when a file has an invalid filename or media type, or no
+// data.
+func (b Binding) _Multipart() (body []byte, contentType string, ok bool) {
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	for _, name := range slices.Sorted(maps.Keys(b.Files)) {
+		file := b.Files[name]
+		if !_ValidFilename(file.Filename) || !_ValidMediaType(file.Data.MediaType) || len(file.Data.Data) == 0 {
+			return nil, "", false
+		}
+
+		header := textproto.MIMEHeader{}
+		header.Set(httpheadername.ContentDisposition, multipart.FileContentDisposition(name, file.Filename))
+		header.Set(httpheadername.ContentType, file.Data.MediaType)
+
+		// Writes to a bytes.Buffer cannot fail.
+		part, _ := writer.CreatePart(header)
+		_, _ = part.Write(file.Data.Data)
+	}
+
+	_ = writer.Close()
+	return buffer.Bytes(), writer.FormDataContentType(), true
 }
