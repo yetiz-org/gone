@@ -93,8 +93,20 @@ func (t *_ItemsTask) Index(ctx channel.HandlerContext, req *ghttp.Request, resp 
 
 func (t *_ItemsTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (errResponse ghttp.ErrorResponse) {
 	t._GetCalls.Add(1)
-	if t.GetID("items", params) == "missing" {
+	switch t.GetID("items", params) {
+	case "missing":
 		return erresponse.NotFound
+
+	case "invalid":
+		return &erresponse.DefaultErrorResponse{
+			StatusCode: http.StatusBadRequest, Name: "invalid_request", Description: "name is longer than 20", Title: "Invalid name",
+			Detail: "Use at most 20 characters.", Data: map[string]any{"field": "name"},
+		}
+
+	case "untitled":
+		resp.SetStatusCode(http.StatusBadRequest)
+		resp.JsonResponse(map[string]any{"title": 1, "detail": "Use at most 20 characters.", "error_description": "name is longer than 20"})
+		return nil
 	}
 
 	if t._Accepted {
@@ -198,6 +210,24 @@ type _PostTask struct {
 
 func (t *_PostTask) MCPPost() (tool Tool) {
 	return t._Tool
+}
+
+type _LabelsInput struct {
+	Org    ID       `json:"org" gmcp:"path=orgs"`
+	Labels []_Label `json:"labels" gmcp:"body;description=Labels to set.;minItems=1"`
+}
+
+type _LabelsTask struct {
+	ghttp.DefaultHTTPHandlerTask
+}
+
+func (t *_LabelsTask) Put(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (errResponse ghttp.ErrorResponse) {
+	resp.JsonResponse(_Echo{Function: "Put", Org: t.GetID("orgs", params), Body: string(req.Body().Bytes())})
+	return nil
+}
+
+func (t *_LabelsTask) MCPPut() (tool Tool) {
+	return NewTool[_LabelsInput, _Echo](&mcp.Tool{Name: "labels_set", Description: "Replace labels."})
 }
 
 type _UploadInput struct {
@@ -517,6 +547,10 @@ func TestServerForwardsCalls(t *testing.T) {
 			`{"function":"Patch","org":"o1","id":"i1","tool":"items_update","language":"zh-TW","body":"{\"name\":\"n\"}"}`},
 		{"handler errors become public codes", "items_get", map[string]any{"org": "o1", "item": "missing"},
 			`{"error":{"code":"not_found","message":"Resource not found."}}`},
+		{"handler error title and detail are kept", "items_get", map[string]any{"org": "o1", "item": "invalid"},
+			`{"error":{"code":"invalid_argument","message":"Invalid arguments.","title":"Invalid name","detail":"Use at most 20 characters."}}`},
+		{"non-string error text is dropped", "items_get", map[string]any{"org": "o1", "item": "untitled"},
+			`{"error":{"code":"invalid_argument","message":"Invalid arguments.","detail":"Use at most 20 characters."}}`},
 		{"schema rejects an unsafe id", "items_get", map[string]any{"org": "../x", "item": "i1"},
 			`{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`},
 		{"path ids are checked at runtime", "items_get", map[string]any{"org": "o1", "item": "a b"},
@@ -531,8 +565,26 @@ func TestServerForwardsCalls(t *testing.T) {
 
 			result := _Call(t, server, tt.tool, tt.arguments)
 			assert.JSONEq(t, tt.want, string(result.StructuredContent), "structured content should match the case")
+			require.Len(t, result.Content, 1, "the content should hold one text block")
+			assert.JSONEq(t, tt.want, result.Content[0].Text, "the text content should match the structured content")
 		})
 	}
+}
+
+func TestServerForwardsArrayBody(t *testing.T) {
+	t.Parallel()
+
+	server := _BindServer(Options{}, ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_OrgsTask{}).SetEndpoint("/orgs/labels", &_LabelsTask{}))
+	tools, _ := _Tools(t, server)
+	schema := tools["labels_set"].InputSchema.(map[string]any)
+	result := _Call(t, server, "labels_set", map[string]any{"org": "o1", "labels": []any{map[string]any{"key": "a", "value": "1"}, map[string]any{"key": "b"}}})
+
+	assert.Equal(t, []any{"org", "labels"}, schema["required"], "an array body should stay required")
+	assert.JSONEq(t, `{"type":"array","description":"Labels to set.","minItems":1,
+		"items":{"type":"object","additionalProperties":false,"required":["key"],
+			"properties":{"key":{"type":"string","description":"Label key."},"value":{"type":"string"}}}}`,
+		_JSON(t, schema["properties"].(map[string]any)["labels"]), "an array body should keep its tags and annotate its element fields")
+	assert.JSONEq(t, `{"function":"Put","org":"o1","body":"[{\"key\":\"a\",\"value\":\"1\"},{\"key\":\"b\"}]"}`, string(result.StructuredContent), "the array should be the JSON body")
 }
 
 func TestServerPollsOnlyGet(t *testing.T) {
@@ -588,6 +640,10 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 
 	type _GetBody struct {
 		Body struct{} `json:"body" gmcp:"body"`
+	}
+
+	type _GetArrayBody struct {
+		Body []struct{} `json:"body" gmcp:"body"`
 	}
 
 	type _NestedPlacement struct {
@@ -694,6 +750,9 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		{"get with body", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_GetBody, _Echo](&mcp.Tool{Name: "x"})))
 		}, "forwards GET and cannot carry a body"},
+		{"get with an array body", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[_GetArrayBody, _Echo](&mcp.Tool{Name: "x"})))
+		}, "forwards GET and cannot carry a body"},
 		{"placement inside a nested body", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_NestedPlacement, _Echo](&mcp.Tool{Name: "x"})))
 		}, "is inside a body and cannot be placed"},
@@ -796,6 +855,7 @@ func TestServerGateway(t *testing.T) {
 	detail := _Call(t, server, "tools", map[string]any{"search": "items_get"})
 	queried := _Call(t, server, "query", map[string]any{"name": "items_get", "arguments": map[string]any{"org": "o1", "item": "i1"}})
 	missing := _Call(t, server, "query", map[string]any{"name": "items_get", "arguments": map[string]any{"org": "o1", "item": "missing"}})
+	invalid := _Call(t, server, "query", map[string]any{"name": "items_get", "arguments": map[string]any{"org": "o1", "item": "invalid"}})
 	public := _Call(t, server, "query", map[string]any{"name": "items_list", "arguments": map[string]any{"org": "o1"}})
 
 	assert.JSONEq(t, `{"names":["items_get","items_update"]}`, string(discovered.StructuredContent), "discovery should list hidden tools")
@@ -803,6 +863,10 @@ func TestServerGateway(t *testing.T) {
 	assert.Contains(t, string(detail.StructuredContent), `"output_schema"`, "an exact search should return the output schema")
 	assert.JSONEq(t, `{"function":"Get","org":"o1","id":"i1","tool":"items_get","language":"zh-TW"}`, string(queried.StructuredContent), "query should forward to the named tool")
 	assert.JSONEq(t, `{"error":{"code":"not_found","message":"Resource not found."}}`, string(missing.StructuredContent), "query should keep the public error code of the named tool")
+	titled := `{"error":{"code":"invalid_argument","message":"Invalid arguments.","title":"Invalid name","detail":"Use at most 20 characters."}}`
+	assert.JSONEq(t, titled, string(invalid.StructuredContent), "query should keep the title and detail of the named tool")
+	require.Len(t, invalid.Content, 1, "the query content should hold one text block")
+	assert.JSONEq(t, titled, invalid.Content[0].Text, "query should keep the text content of the named tool")
 	assert.JSONEq(t, `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`, string(public.StructuredContent), "query should only reach hidden tools")
 }
 

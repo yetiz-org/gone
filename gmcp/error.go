@@ -2,6 +2,7 @@ package gmcp
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,10 +21,13 @@ const (
 	_InternalError          _ErrorCode = "internal_error"
 )
 
-// _PublicError carries only a fixed public code and message.
+// _PublicError carries a fixed public code and message, and the end-user title and detail of a forwarded REST error
+// response when it has them.
 type _PublicError struct {
 	Code    _ErrorCode `json:"code"`
 	Message string     `json:"message"`
+	Title   string     `json:"title,omitempty"`
+	Detail  string     `json:"detail,omitempty"`
 }
 
 // _ErrorContent is the structured content of a sanitized tool error.
@@ -31,9 +35,12 @@ type _ErrorContent struct {
 	Error _PublicError `json:"error"`
 }
 
-// _ToolError is an application failure that maps to one public error code.
+// _ToolError is an application failure that maps to one public error code. A forwarded REST error also keeps the
+// string title and detail of its response body, the end-user fields of erresponse.DefaultErrorResponse.
 type _ToolError struct {
-	_Code _ErrorCode
+	_Code   _ErrorCode
+	_Title  string
+	_Detail string
 }
 
 // Error returns the public message of the code.
@@ -87,8 +94,9 @@ func (c _ErrorCode) _JSON() (data []byte) {
 	return fmt.Appendf(nil, `{"error":{"code":%q,"message":%q}}`, public.Code, public.Message)
 }
 
-// _ErrorMiddleware rebuilds failed tool results from public codes, dropping SDK and handler texts, metadata, and
-// output. Results it already sanitized, such as a gateway query passing one through, are kept.
+// _ErrorMiddleware rebuilds failed tool results from public codes and the title and detail of forwarded REST errors,
+// dropping SDK and handler texts, metadata, and output. Results it already sanitized, such as a gateway query passing
+// one through, are kept.
 func (s *Server) _ErrorMiddleware(next mcp.MethodHandler) (handler mcp.MethodHandler) {
 	return func(ctx context.Context, method string, request mcp.Request) (result mcp.Result, err error) {
 		result, err = next(ctx, method, request)
@@ -101,18 +109,23 @@ func (s *Server) _ErrorMiddleware(next mcp.MethodHandler) (handler mcp.MethodHan
 			return result, nil
 		}
 
-		code := _InternalError
+		failure := &_ToolError{_Code: _InternalError}
 		if toolError, found := errors.AsType[*_ToolError](toolResult.GetError()); found {
-			code = toolError._Code
+			failure = toolError
 		} else if toolResult.GetError() != nil {
 			// Registered handlers mark every application failure, so a remaining error comes from SDK input validation.
-			code = _InvalidArgument
+			failure._Code = _InvalidArgument
 		}
 
+		content := _ErrorContent{Error: failure._Code._Public()}
+		content.Error.Title, content.Error.Detail = failure._Title, failure._Detail
+
+		// The title and detail were decoded from JSON strings, so they are valid UTF-8 and the content always encodes.
+		text, _ := json.Marshal(content)
 		return &mcp.CallToolResult{
 			IsError:           true,
-			Content:           []mcp.Content{&mcp.TextContent{Text: string(code._JSON())}},
-			StructuredContent: _ErrorContent{Error: code._Public()},
+			Content:           []mcp.Content{&mcp.TextContent{Text: string(text)}},
+			StructuredContent: content,
 		}, nil
 	}
 }

@@ -97,7 +97,8 @@ func _NewTag(owner reflect.Type, field reflect.StructField, keys []string) (tag 
 
 // _NewInput derives the input schema and field placement of t. jsonschema-go infers the structure and the gmcp tags
 // add schema keys (see _Annotate). Every top-level field must be placed in the path, query, body, or a file part with a
-// forwardable type; a file field is a required File or an optional *File with a form field name of its own.
+// forwardable type; the one body field is a struct, slice, or array, and a file field is a required File or an
+// optional *File with a form field name of its own.
 func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 	schema, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: s._TypeSchemas})
 	if err != nil {
@@ -114,9 +115,10 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 
 		tag := _NewTag(t, field, _InputKeys)
 		placed := _Field{_Index: field.Index}
+		body := slices.Contains([]reflect.Kind{reflect.Struct, reflect.Slice, reflect.Array}, field.Type.Kind())
 		file := field.Type == reflect.TypeFor[*File]() || field.Type == reflect.TypeFor[File]() && !_Optional(field)
 		switch {
-		case tag._Has("body") && field.Type.Kind() == reflect.Struct && !slices.ContainsFunc(input._Fields, func(existing _Field) bool { return existing._Kind == "body" }):
+		case tag._Has("body") && body && !slices.ContainsFunc(input._Fields, func(existing _Field) bool { return existing._Kind == "body" }):
 			placed._Kind = "body"
 
 		case tag._Has("path") && field.Type.Kind() == reflect.String && !_Optional(field):

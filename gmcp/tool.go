@@ -143,7 +143,8 @@ func (r *_Route) _Annotations() (annotations *mcp.ToolAnnotations) {
 // when the binding has files. When output is a *Blob, the request accepts any media type and the response body is
 // kept as is; otherwise a success without a body leaves output zero. Only GET polls again on 202 Accepted, waiting
 // Retry-After up to 3 seconds, and the last 202 response is the result; writes are never resent. Failures surface
-// only public error codes.
+// only public error codes, plus the string title and detail of a non-2xx response whose body is a JSON object, the
+// end-user fields of erresponse.DefaultErrorResponse; nothing else of the body is kept.
 func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtErr error) {
 	caller, ok := ctx.Value(_CallerKey{}).(*Caller)
 	if !ok || caller.Request == nil || caller.HandlerContext == nil {
@@ -239,7 +240,14 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 		}
 
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
-			return &_ToolError{_Code: _StatusErrorCode(status)}
+			failure := &_ToolError{_Code: _StatusErrorCode(status)}
+			var fields map[string]any
+			if json.Unmarshal(pack.Response.Body().Bytes(), &fields) == nil {
+				failure._Title, _ = fields["title"].(string)
+				failure._Detail, _ = fields["detail"].(string)
+			}
+
+			return failure
 		}
 
 		if binary {
