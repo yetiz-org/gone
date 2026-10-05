@@ -224,12 +224,12 @@ func (s *Server) Tools() (tools []BoundTool) {
 
 // Serve handles one MCP HTTP request with the stateless Streamable HTTP transport. The caller must already have
 // authenticated the request, and writer must be the raw response writer (see ghttp RawMode). SDK error texts are
-// replaced with public error codes before they reach the client.
+// replaced with public error categories before they reach the client.
 func (s *Server) Serve(writer http.ResponseWriter, caller Caller) {
 	if caller.Request == nil || caller.HandlerContext == nil {
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(http.StatusInternalServerError)
-		_, _ = writer.Write(_InternalError._JSON())
+		_, _ = writer.Write(_PublicError{Category: _InternalError}._JSON())
 		return
 	}
 
@@ -258,6 +258,6 @@ func _AddTool[In, Out any](s *Server, tool *mcp.Tool, handler mcp.ToolHandlerFor
 			return nil, output, toolError
 		}
 
-		return nil, output, &_ToolError{_Code: _InternalError}
+		return nil, output, &_ToolError{_Category: _InternalError}
 	})
 }

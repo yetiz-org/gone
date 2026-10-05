@@ -113,7 +113,7 @@ func (w *_ResponseWriter) _Finish() {
 		data = w._SanitizeJSON(w._Body.Bytes())
 	} else if w._Status >= http.StatusBadRequest {
 		w.Header().Set("Content-Type", "application/json")
-		data = _StatusErrorCode(w._Status)._JSON()
+		data = _PublicError{Category: _StatusCategory(w._Status)}._JSON()
 	}
 
 	w._Commit()
@@ -122,10 +122,10 @@ func (w *_ResponseWriter) _Finish() {
 	}
 }
 
-// _SanitizeJSON keeps successful JSON-RPC responses and rewrites error responses, including batches, with public codes.
+// _SanitizeJSON keeps successful JSON-RPC responses and rewrites error responses, including batches, with the fixed
+// message and public category of their JSON-RPC code.
 func (w *_ResponseWriter) _SanitizeJSON(data []byte) (safe []byte) {
-	internal := _InternalError._Public()
-	fallback := fmt.Appendf(nil, `{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":%q,"data":{"code":%q,"message":%q}}}`, internal.Message, internal.Code, internal.Message)
+	fallback := fmt.Appendf(nil, `{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":%q,"data":{"category":%q}}}`, _InternalError._Message(), _InternalError)
 	data = bytes.TrimSpace(data)
 	if len(data) > 0 && data[0] == '[' {
 		var batch []jsontext.Value
@@ -170,15 +170,14 @@ func (w *_ResponseWriter) _SanitizeJSON(data []byte) (safe []byte) {
 		original.Code = -32603
 	}
 
-	code := _InternalError
+	category := _InternalError
 	switch original.Code {
 	case -32700, -32600, -32602:
-		code = _InvalidArgument
+		category = _InvalidArgument
 	case -32601:
-		code = _NotFound
+		category = _NotFound
 	}
 
-	public := code._Public()
 	id := envelope["id"]
 	if len(id) == 0 {
 		id = jsontext.Value("null")
@@ -188,7 +187,7 @@ func (w *_ResponseWriter) _SanitizeJSON(data []byte) (safe []byte) {
 		JSONRPC string         `json:"jsonrpc"`
 		ID      jsontext.Value `json:"id"`
 		Error   protocolError  `json:"error"`
-	}{JSONRPC: "2.0", ID: id, Error: protocolError{Code: original.Code, Message: public.Message, Data: public}})
+	}{JSONRPC: "2.0", ID: id, Error: protocolError{Code: original.Code, Message: category._Message(), Data: _PublicError{Category: category}}})
 	if err != nil {
 		return fallback
 	}

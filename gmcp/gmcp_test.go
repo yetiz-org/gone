@@ -23,6 +23,7 @@ import (
 	"github.com/yetiz-org/gone/erresponse"
 	"github.com/yetiz-org/gone/ghttp"
 	buf "github.com/yetiz-org/goth-bytebuf"
+	kkerror "github.com/yetiz-org/goth-kkerror"
 )
 
 type _Echo struct {
@@ -105,7 +106,24 @@ func (t *_ItemsTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *g
 
 	case "untitled":
 		resp.SetStatusCode(http.StatusBadRequest)
-		resp.JsonResponse(map[string]any{"title": 1, "detail": "Use at most 20 characters.", "error_description": "name is longer than 20"})
+		resp.JsonResponse(map[string]any{"error_code": 400103, "title": 1, "detail": "Use at most 20 characters.", "error_description": "name is longer than 20"})
+		return nil
+
+	case "locked":
+		return &erresponse.DefaultErrorResponse{
+			StatusCode: http.StatusConflict, Name: "conflict", Description: "item is locked", Title: "Item is busy", Detail: "Retry later.",
+			DefaultKKError: kkerror.DefaultKKError{ErrorCode: "409401", ErrorMessage: "item is locked"},
+		}
+
+	case "overloaded":
+		return &erresponse.DefaultErrorResponse{
+			StatusCode: 529, Name: "server_error", Description: "upstream is overloaded",
+			DefaultKKError: kkerror.DefaultKKError{ErrorCode: "529401"},
+		}
+
+	case "miscoded":
+		resp.SetStatusCode(http.StatusBadRequest)
+		resp.JsonResponse(map[string]any{"error_code": "4001031"})
 		return nil
 	}
 
@@ -372,7 +390,9 @@ func (t *_DownloadTask) MCPGet() (tool Tool) {
 type _Envelope struct {
 	Result json.RawMessage `json:"result"`
 	Error  *struct {
-		Code int `json:"code"`
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
 	} `json:"error"`
 }
 
@@ -429,6 +449,19 @@ func _Call(t *testing.T, server *Server, name string, arguments map[string]any) 
 	require.Nil(t, envelope.Error, "tool call should not be a protocol error")
 	require.NoError(t, json.Unmarshal(envelope.Result, &result), "tool result should decode")
 	return result
+}
+
+// _Payload returns the structured content of a successful result, or the text content of an error result, which must
+// not carry structured content.
+func _Payload(t *testing.T, result _CallResult) (payload string) {
+	t.Helper()
+	if !result.IsError {
+		return string(result.StructuredContent)
+	}
+
+	assert.Empty(t, result.StructuredContent, "an error result should not carry structured content")
+	require.Len(t, result.Content, 1, "an error result should hold one text block")
+	return result.Content[0].Text
 }
 
 func _Tools(t *testing.T, server *Server) (tools map[string]*mcp.Tool, names []string) {
@@ -569,18 +602,24 @@ func TestServerForwardsCalls(t *testing.T) {
 			`{"function":"Get","org":"o1","id":"i-1.x","tool":"items_get","language":"zh-TW"}`},
 		{"patch sends a v1 json body", "items_update", map[string]any{"org": "o1", "item": "i1", "body": map[string]any{"name": "n"}},
 			`{"function":"Patch","org":"o1","id":"i1","tool":"items_update","language":"zh-TW","body":"{\"name\":\"n\"}"}`},
-		{"handler errors become public codes", "items_get", map[string]any{"org": "o1", "item": "missing"},
-			`{"error":{"code":"not_found","message":"Resource not found."}}`},
+		{"handler errors keep their category and code", "items_get", map[string]any{"org": "o1", "item": "missing"},
+			`{"error":{"category":"not_found","code":"404001"}}`},
 		{"handler error title and detail are kept", "items_get", map[string]any{"org": "o1", "item": "invalid"},
-			`{"error":{"code":"invalid_argument","message":"Invalid arguments.","title":"Invalid name","detail":"Use at most 20 characters."}}`},
-		{"non-string error text is dropped", "items_get", map[string]any{"org": "o1", "item": "untitled"},
-			`{"error":{"code":"invalid_argument","message":"Invalid arguments.","detail":"Use at most 20 characters."}}`},
+			`{"error":{"category":"invalid_argument","title":"Invalid name","detail":"Use at most 20 characters."}}`},
+		{"a conflict keeps its code, title, and detail", "items_get", map[string]any{"org": "o1", "item": "locked"},
+			`{"error":{"category":"conflict","code":"409401","title":"Item is busy","detail":"Retry later."}}`},
+		{"an overloaded upstream is temporarily unavailable", "items_get", map[string]any{"org": "o1", "item": "overloaded"},
+			`{"error":{"category":"temporarily_unavailable","code":"529401"}}`},
+		{"non-string error fields are dropped", "items_get", map[string]any{"org": "o1", "item": "untitled"},
+			`{"error":{"category":"invalid_argument","detail":"Use at most 20 characters."}}`},
+		{"a code that is not six digits is dropped", "items_get", map[string]any{"org": "o1", "item": "miscoded"},
+			`{"error":{"category":"invalid_argument"}}`},
 		{"schema rejects an unsafe id", "items_get", map[string]any{"org": "../x", "item": "i1"},
-			`{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`},
+			`{"error":{"category":"invalid_argument"}}`},
 		{"path ids are checked at runtime", "items_get", map[string]any{"org": "o1", "item": "a b"},
-			`{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`},
+			`{"error":{"category":"invalid_argument"}}`},
 		{"dot segments are rejected", "items_get", map[string]any{"org": "o1", "item": ".."},
-			`{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`},
+			`{"error":{"category":"invalid_argument"}}`},
 	}
 
 	for _, tt := range tests {
@@ -588,9 +627,9 @@ func TestServerForwardsCalls(t *testing.T) {
 			t.Parallel()
 
 			result := _Call(t, server, tt.tool, tt.arguments)
-			assert.JSONEq(t, tt.want, string(result.StructuredContent), "structured content should match the case")
+			assert.JSONEq(t, tt.want, _Payload(t, result), "the payload should match the case")
 			require.Len(t, result.Content, 1, "the content should hold one text block")
-			assert.JSONEq(t, tt.want, result.Content[0].Text, "the text content should match the structured content")
+			assert.JSONEq(t, tt.want, result.Content[0].Text, "the text content should match the payload")
 		})
 	}
 }
@@ -635,7 +674,7 @@ func TestServerIDPattern(t *testing.T) {
 	assert.Equal(t, `^[0-9A-Za-z]+$`, tools["items_get"].InputSchema.(map[string]any)["properties"].(map[string]any)["org"].(map[string]any)["pattern"], "ID schema should use the configured pattern")
 	for _, arguments := range []map[string]any{{"org": "a-b", "item": "i1"}, {"org": "o1", "item": "a-b"}} {
 		result := _Call(t, server, "items_get", arguments)
-		assert.JSONEq(t, `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`, string(result.StructuredContent), "IDs outside the pattern should be rejected: %v", arguments)
+		assert.JSONEq(t, `{"error":{"category":"invalid_argument"}}`, _Payload(t, result), "IDs outside the pattern should be rejected: %v", arguments)
 	}
 }
 
@@ -879,7 +918,11 @@ func TestServerGateway(t *testing.T) {
 
 	assert.Equal(t, []string{"items_list", "tools", "query"}, names, "only public, discovery, and query tools should be listed")
 	assert.False(t, tools["query"].Annotations.ReadOnlyHint, "query should not claim read-only while it can reach a write")
-	assert.Equal(t, -32602, _Request(t, server, "tools/call", map[string]any{"name": "items_get", "arguments": map[string]any{"org": "o1", "item": "i1"}}).Error.Code, "hidden tools should not be callable directly")
+	hidden := _Request(t, server, "tools/call", map[string]any{"name": "items_get", "arguments": map[string]any{"org": "o1", "item": "i1"}})
+	require.NotNil(t, hidden.Error, "hidden tools should not be callable directly")
+	assert.Equal(t, -32602, hidden.Error.Code, "a hidden tool call should be invalid params")
+	assert.Equal(t, "Invalid arguments.", hidden.Error.Message, "a protocol error should have the fixed message of its category")
+	assert.JSONEq(t, `{"category":"invalid_argument"}`, string(hidden.Error.Data), "a protocol error should carry only the public category")
 
 	discovered := _Call(t, server, "tools", map[string]any{})
 	detail := _Call(t, server, "tools", map[string]any{"search": "items_get"})
@@ -892,12 +935,9 @@ func TestServerGateway(t *testing.T) {
 	assert.Contains(t, string(detail.StructuredContent), `"input_schema"`, "an exact search should return the input schema")
 	assert.Contains(t, string(detail.StructuredContent), `"output_schema"`, "an exact search should return the output schema")
 	assert.JSONEq(t, `{"function":"Get","org":"o1","id":"i1","tool":"items_get","language":"zh-TW"}`, string(queried.StructuredContent), "query should forward to the named tool")
-	assert.JSONEq(t, `{"error":{"code":"not_found","message":"Resource not found."}}`, string(missing.StructuredContent), "query should keep the public error code of the named tool")
-	titled := `{"error":{"code":"invalid_argument","message":"Invalid arguments.","title":"Invalid name","detail":"Use at most 20 characters."}}`
-	assert.JSONEq(t, titled, string(invalid.StructuredContent), "query should keep the title and detail of the named tool")
-	require.Len(t, invalid.Content, 1, "the query content should hold one text block")
-	assert.JSONEq(t, titled, invalid.Content[0].Text, "query should keep the text content of the named tool")
-	assert.JSONEq(t, `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`, string(public.StructuredContent), "query should only reach hidden tools")
+	assert.JSONEq(t, `{"error":{"category":"not_found","code":"404001"}}`, _Payload(t, missing), "query should keep the category and code of the named tool")
+	assert.JSONEq(t, `{"error":{"category":"invalid_argument","title":"Invalid name","detail":"Use at most 20 characters."}}`, _Payload(t, invalid), "query should keep the title and detail of the named tool")
+	assert.JSONEq(t, `{"error":{"category":"invalid_argument"}}`, _Payload(t, public), "query should only reach hidden tools")
 }
 
 func TestServerForwardsFiles(t *testing.T) {
@@ -912,7 +952,7 @@ func TestServerForwardsFiles(t *testing.T) {
 		return map[string]any{"org": "o1", "cover": map[string]any{"filename": filename, "data": data}}
 	}
 
-	invalid := `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`
+	invalid := `{"error":{"category":"invalid_argument"}}`
 	tests := []struct {
 		name      string
 		arguments map[string]any
@@ -945,7 +985,7 @@ func TestServerForwardsFiles(t *testing.T) {
 			t.Parallel()
 
 			result := _Call(t, server, "upload", tt.arguments)
-			assert.JSONEq(t, tt.want, string(result.StructuredContent), "structured content should match the case")
+			assert.JSONEq(t, tt.want, _Payload(t, result), "the payload should match the case")
 		})
 	}
 
@@ -992,7 +1032,7 @@ func TestServerMaxRequestBodyBytes(t *testing.T) {
 	assert.EqualValues(t, 1, upload._Calls.Load(), "the accepted request should reach the handler")
 	assert.Equal(t, http.StatusRequestEntityTooLarge, defaulted.Code, "zero should keep the SDK default limit")
 	assert.Equal(t, http.StatusRequestEntityTooLarge, rejected.Code, "a request above the configured limit should be rejected")
-	assert.JSONEq(t, `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`, rejected.Body.String(), "the rejection should be a public code")
+	assert.JSONEq(t, `{"error":{"category":"invalid_argument"}}`, rejected.Body.String(), "the rejection should be a public category")
 }
 
 func TestServerReturnsBlobs(t *testing.T) {
@@ -1028,7 +1068,7 @@ func TestServerReturnsBlobs(t *testing.T) {
 		})
 	}
 
-	assert.JSONEq(t, `{"error":{"code":"internal_error","message":"Unable to complete the request."}}`, string(_Call(t, server, "raw", map[string]any{}).StructuredContent), "a binary response should still fail for a JSON output")
+	assert.JSONEq(t, `{"error":{"category":"internal_error"}}`, _Payload(t, _Call(t, server, "raw", map[string]any{})), "a binary response should still fail for a JSON output")
 	assert.JSONEq(t, `{"type":"object","additionalProperties":false,"required":["data"],
 		"properties":{
 			"filename":{"type":"string","description":"Suggested file name, when the response names one."},
@@ -1041,7 +1081,7 @@ func TestServerJSONSchemaProvider(t *testing.T) {
 
 	server := _BindServer(Options{}, ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_OrgsTask{}).SetEndpoint("/orgs/items", &_OptionalTask{}))
 	tools, _ := _Tools(t, server)
-	invalid := `{"error":{"code":"invalid_argument","message":"Invalid arguments."}}`
+	invalid := `{"error":{"category":"invalid_argument"}}`
 	tests := []struct {
 		name string
 		body map[string]any
@@ -1058,7 +1098,7 @@ func TestServerJSONSchemaProvider(t *testing.T) {
 			t.Parallel()
 
 			result := _Call(t, server, "optional_update", map[string]any{"org": "o1", "item": "i1", "body": tt.body})
-			assert.JSONEq(t, tt.want, string(result.StructuredContent), "structured content should match the case")
+			assert.JSONEq(t, tt.want, _Payload(t, result), "the payload should match the case")
 		})
 	}
 

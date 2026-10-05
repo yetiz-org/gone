@@ -111,7 +111,7 @@ func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 		_AddTool(server, definition, func(ctx context.Context, request *mcp.CallToolRequest, value In) (result *mcp.CallToolResult, output Out, err error) {
 			binding, ok := route._Input._Binding(value)
 			if !ok {
-				return nil, output, &_ToolError{_Code: _InvalidArgument}
+				return nil, output, &_ToolError{_Category: _InvalidArgument}
 			}
 
 			if err = route._Forward(ctx, binding, &output); err != nil {
@@ -144,22 +144,23 @@ func (r *_Route) _Annotations() (annotations *mcp.ToolAnnotations) {
 // when the binding has files. When output is a *Blob, the request accepts any media type and the response body is
 // kept as is; otherwise a success without a body leaves output zero. Only GET polls again on 202 Accepted, waiting
 // Retry-After up to 3 seconds, and the last 202 response is the result; writes are never resent. Failures surface
-// only public error codes, plus the string title and detail of a non-2xx response whose body is a JSON object, the
-// end-user fields of erresponse.DefaultErrorResponse; nothing else of the body is kept.
+// only a public category, plus the six-digit error_code and the string title and detail of a non-2xx response whose
+// body is a JSON object, the fields of erresponse.DefaultErrorResponse that identify the error to a client and an end
+// user; nothing else of the body is kept.
 func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtErr error) {
 	caller, ok := ctx.Value(_CallerKey{}).(*Caller)
 	if !ok || caller.Request == nil || caller.HandlerContext == nil {
-		return &_ToolError{_Code: _InternalError}
+		return &_ToolError{_Category: _InternalError}
 	}
 
 	if r._Index && binding.ID != "" {
 		kklogger.ErrorJ("gmcp:Route.Forward#binding!index_id", map[string]any{"tool": r._Name, "path": r._Path})
-		return &_ToolError{_Code: _InternalError}
+		return &_ToolError{_Category: _InternalError}
 	}
 
 	target, ok := r._Target(binding)
 	if !ok {
-		return &_ToolError{_Code: _InvalidArgument}
+		return &_ToolError{_Category: _InvalidArgument}
 	}
 
 	var body []byte
@@ -167,25 +168,25 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 	switch {
 	case len(binding.Files) > 0 && binding.Body != nil:
 		kklogger.ErrorJ("gmcp:Route.Forward#binding!body_and_files", map[string]any{"tool": r._Name, "path": r._Path})
-		return &_ToolError{_Code: _InternalError}
+		return &_ToolError{_Category: _InternalError}
 
 	case len(binding.Files) > 0:
 		if body, contentType, ok = binding._Multipart(); !ok {
-			return &_ToolError{_Code: _InvalidArgument}
+			return &_ToolError{_Category: _InvalidArgument}
 		}
 
 	case binding.Body != nil:
 		encoded, err := json.Marshal(binding.Body, jsonv1.DefaultOptionsV1())
 		if err != nil {
 			kklogger.ErrorJ("gmcp:Route.Forward#body!encode_failed", map[string]any{"tool": r._Name, "error": err.Error()})
-			return &_ToolError{_Code: _InternalError}
+			return &_ToolError{_Category: _InternalError}
 		}
 
 		body = encoded
 	}
 
 	if limit := r._Server._Options.MaxBodyBytes; limit > 0 && int64(len(body)) > limit {
-		return &_ToolError{_Code: _InvalidArgument}
+		return &_ToolError{_Category: _InvalidArgument}
 	}
 
 	accept := "application/json"
@@ -203,7 +204,7 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 	for attempt := 1; ; attempt++ {
 		request, err := http.NewRequestWithContext(ctx, r._Method, target, bytes.NewReader(body))
 		if err != nil {
-			return &_ToolError{_Code: _InternalError}
+			return &_ToolError{_Category: _InternalError}
 		}
 
 		request.Host = outer.Host()
@@ -225,7 +226,7 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 		pack := r._Dispatcher.Dispatch(caller.HandlerContext, request, seed)
 		if pack == nil || !r._Matches(pack, binding) {
 			kklogger.WarnJ("gmcp:Route.Forward#route!mismatch", map[string]any{"tool": r._Name, "path": r._Path})
-			return &_ToolError{_Code: _InternalError}
+			return &_ToolError{_Category: _InternalError}
 		}
 
 		status := pack.Response.StatusCode()
@@ -241,9 +242,13 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 		}
 
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
-			failure := &_ToolError{_Code: _StatusErrorCode(status)}
+			failure := &_ToolError{_Category: _StatusCategory(status)}
 			var fields map[string]any
 			if json.Unmarshal(pack.Response.Body().Bytes(), &fields) == nil {
+				if code, _ := fields["error_code"].(string); _CodePattern.MatchString(code) {
+					failure._Code = code
+				}
+
 				failure._Title, _ = fields["title"].(string)
 				failure._Detail, _ = fields["detail"].(string)
 			}
@@ -263,7 +268,7 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 
 		if err := json.Unmarshal(raw, output); err != nil {
 			kklogger.ErrorJ("gmcp:Route.Forward#response!decode_failed", map[string]any{"tool": r._Name, "error": err.Error()})
-			return &_ToolError{_Code: _InternalError}
+			return &_ToolError{_Category: _InternalError}
 		}
 
 		return nil

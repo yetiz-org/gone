@@ -102,7 +102,7 @@ func (s *Server) _BindGateway(names map[string]string) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: new(destructive), OpenWorldHint: new(false)},
 	}, func(ctx context.Context, request *mcp.CallToolRequest, input _QueryInput) (result *mcp.CallToolResult, output any, err error) {
 		if !slices.ContainsFunc(catalog, func(tool *mcp.Tool) bool { return tool.Name == input.Name }) {
-			return nil, nil, &_ToolError{_Code: _InvalidArgument}
+			return nil, nil, &_ToolError{_Category: _InvalidArgument}
 		}
 
 		return s._Query(ctx, request, input)
@@ -146,7 +146,7 @@ func (s *Server) _Discover(catalog []*mcp.Tool, search string) (output _ToolsOut
 func (s *Server) _Query(ctx context.Context, request *mcp.CallToolRequest, input _QueryInput) (result *mcp.CallToolResult, output any, err error) {
 	next, ok := ctx.Value(_GatewayNextKey{}).(mcp.MethodHandler)
 	if !ok || request == nil || request.Params == nil {
-		return nil, nil, &_ToolError{_Code: _InternalError}
+		return nil, nil, &_ToolError{_Category: _InternalError}
 	}
 
 	delegated := *request
@@ -161,7 +161,7 @@ func (s *Server) _Query(ctx context.Context, request *mcp.CallToolRequest, input
 
 	result, ok = inner.(*mcp.CallToolResult)
 	if !ok || result == nil {
-		return nil, nil, &_ToolError{_Code: _InternalError}
+		return nil, nil, &_ToolError{_Category: _InternalError}
 	}
 
 	return result, nil, nil

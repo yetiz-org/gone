@@ -104,7 +104,7 @@ func (b Blob) _Result() (result *mcp.CallToolResult, err error) {
 	}{MediaType: b.Data.MediaType, Filename: b.Filename})
 	if err != nil {
 		kklogger.ErrorJ("gmcp:Blob.Result#summary!encode_failed", map[string]any{"error": err.Error()})
-		return nil, &_ToolError{_Code: _InternalError}
+		return nil, &_ToolError{_Category: _InternalError}
 	}
 
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(summary)}}}, nil
