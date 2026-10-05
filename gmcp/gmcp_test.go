@@ -421,11 +421,21 @@ func _Serve(t *testing.T, server *Server, method string, params any) (recorder *
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	require.NoError(t, err, "request should encode")
+	return _ServeBody(t, server, body, nil)
+}
+
+// _ServeBody serves one MCP HTTP request with body and the standard request headers; headers overrides or adds headers.
+func _ServeBody(t *testing.T, server *Server, body []byte, headers map[string]string) (recorder *httptest.ResponseRecorder) {
+	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("MCP-Protocol-Version", "2025-11-25")
 	request.Header.Set("Authorization", "Bearer token")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+
 	ch := &channel.DefaultChannel{}
 	ch.Init()
 	ctx := channel.NewMockHandlerContext()
@@ -938,6 +948,32 @@ func TestServerGateway(t *testing.T) {
 	assert.JSONEq(t, `{"error":{"category":"not_found","code":"404001"}}`, _Payload(t, missing), "query should keep the category and code of the named tool")
 	assert.JSONEq(t, `{"error":{"category":"invalid_argument","title":"Invalid name","detail":"Use at most 20 characters."}}`, _Payload(t, invalid), "query should keep the title and detail of the named tool")
 	assert.JSONEq(t, `{"error":{"category":"invalid_argument"}}`, _Payload(t, public), "query should only reach hidden tools")
+}
+
+func TestServerSanitizesMCPProtocolErrors(t *testing.T) {
+	t.Parallel()
+
+	server := _BindServer(Options{}, _ItemsRoute(&_ItemsTask{}))
+	call := func(version string) (body []byte) {
+		return fmt.Appendf(nil, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"items_get","arguments":{"org":"o1","item":"i1"},
+			"_meta":{"io.modelcontextprotocol/protocolVersion":%q,"io.modelcontextprotocol/clientInfo":{"name":"c","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`, version)
+	}
+
+	mismatch := _ServeBody(t, server, call("2026-07-28"), map[string]string{"MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "tools/call", "Mcp-Name": "items_list"})
+	unsupported := _ServeBody(t, server, call("2099-01-01"), map[string]string{"MCP-Protocol-Version": "2099-01-01", "Mcp-Method": "tools/call", "Mcp-Name": "items_get"})
+	writer := &_ResponseWriter{}
+
+	assert.Equal(t, http.StatusBadRequest, mismatch.Code, "a header mismatch should be rejected")
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":7,"error":{"code":-32020,"message":"Invalid arguments.","data":{"category":"invalid_argument"}}}`, mismatch.Body.String(), "a header mismatch should be a client error")
+	assert.Equal(t, http.StatusBadRequest, unsupported.Code, "an unsupported protocol version should be rejected")
+	assert.JSONEq(t, fmt.Sprintf(`{"jsonrpc":"2.0","id":7,"error":{"code":-32022,"message":"Invalid arguments.","data":{"category":"invalid_argument","supported":%s,"requested":"2099-01-01"}}}`, _JSON(t, mcp.SupportedProtocolVersions())),
+		unsupported.Body.String(), "an unsupported protocol version should keep the supported and requested versions")
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32021,"message":"Invalid arguments.","data":{"category":"invalid_argument","requiredCapabilities":{"elicitation":{}}}}}`,
+		string(writer._SanitizeJSON([]byte(`{"jsonrpc":"2.0","id":2,"error":{"code":-32021,"message":"needs elicitation","data":{"requiredCapabilities":{"elicitation":{}},"note":"internal"}}}`))),
+		"missing client capabilities should keep only the decoded capability set")
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":3,"error":{"code":-32022,"message":"Invalid arguments.","data":{"category":"invalid_argument"}}}`,
+		string(writer._SanitizeJSON([]byte(`{"jsonrpc":"2.0","id":3,"error":{"code":-32022,"message":"bad","data":"2099-01-01"}}`))),
+		"version data that is not an object should be dropped")
 }
 
 func TestServerForwardsFiles(t *testing.T) {
