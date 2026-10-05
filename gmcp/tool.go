@@ -98,9 +98,10 @@ type _Route struct {
 }
 
 // NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response; when
-// Out is Blob, the response body is returned as is. The input schema and REST mapping come from the json and gmcp tags
-// of In, so definition must not set InputSchema. Bind sets InputSchema and Annotations, and derives OutputSchema from
-// the json and gmcp tags of Out unless definition sets it.
+// Out is Blob, the response body is returned as is. In must be a struct; use struct{} for a tool without input. The
+// input schema and REST mapping come from the json and gmcp tags of In, so definition must not set InputSchema. Bind
+// sets InputSchema and Annotations, and derives OutputSchema from the json and gmcp tags of Out unless definition sets
+// it.
 func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 	if definition == nil || definition.InputSchema != nil {
 		panic("gmcp: NewTool needs a definition without InputSchema; the schema is derived from the input type")

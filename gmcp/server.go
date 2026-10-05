@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"slices"
 	"sync/atomic"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -29,7 +30,8 @@ type Options struct {
 	// Instructions is returned to clients in the initialize result.
 	Instructions string
 	// Allows reports whether an MCP access token may call method on the canonical route path. Bind panics for a tool
-	// it rejects, so a misconfigured token scope fails at startup. Nil skips the check.
+	// it rejects, so a misconfigured token scope fails at startup. Nil skips the check. To derive a token scope from
+	// the bound tools instead, use Server.Tools.
 	Allows func(path string, method string) (allowed bool)
 	// ToolParam, when set, is the params key under which every forwarded request carries its tool name, so
 	// acceptances, handlers, and audit can tell MCP calls apart. Network requests cannot set params.
@@ -68,6 +70,17 @@ type Server struct {
 	_Handler     *mcp.StreamableHTTPHandler
 	_Catalog     []*mcp.Tool
 	_Bound       atomic.Bool
+	_Tools       atomic.Pointer[[]BoundTool]
+}
+
+// BoundTool is one tool Bind registered and the REST request it forwards.
+type BoundTool struct {
+	// Name is the tool name.
+	Name string
+	// Method is the forwarded HTTP method.
+	Method string
+	// Path is the canonical route path, as in the ghttp.RouteEntry passed to Bind and the path Options.Allows receives.
+	Path string
 }
 
 type _CallerKey struct{}
@@ -121,6 +134,7 @@ func (s *Server) Bind(dispatcher *ghttp.DispatchHandler, entries []ghttp.RouteEn
 	}
 
 	names := map[string]string{}
+	bound := []BoundTool{}
 	register := func(entry ghttp.RouteEntry, tool Tool, method string, index bool) {
 		if tool._Definition == nil || tool._Register == nil {
 			panic(fmt.Sprintf("gmcp: %s declares a tool that NewTool did not build", entry.Path))
@@ -139,6 +153,10 @@ func (s *Server) Bind(dispatcher *ghttp.DispatchHandler, entries []ghttp.RouteEn
 			panic(fmt.Sprintf("gmcp: tool %q cannot %s %s with the MCP token scope", name, method, entry.Path))
 		}
 
+		if tool._InputType.Kind() != reflect.Struct {
+			panic(fmt.Sprintf("gmcp: tool %q input %s is not a struct; use struct{} for a tool without input", name, tool._InputType))
+		}
+
 		input := s._NewInput(tool._InputType)
 		input._Check(name, entry.Path, method, index)
 		names[name] = entry.Path
@@ -155,6 +173,7 @@ func (s *Server) Bind(dispatcher *ghttp.DispatchHandler, entries []ghttp.RouteEn
 		tool._Definition.Annotations = route._Annotations()
 		tool._Register(s, route)
 		s._Catalog = append(s._Catalog, tool._Definition)
+		bound = append(bound, BoundTool{Name: name, Method: method, Path: entry.Path})
 	}
 
 	for _, entry := range entries {
@@ -187,6 +206,20 @@ func (s *Server) Bind(dispatcher *ghttp.DispatchHandler, entries []ghttp.RouteEn
 	if s._Options.Gateway != nil {
 		s._BindGateway(names)
 	}
+
+	s._Tools.Store(&bound)
+}
+
+// Tools returns the forwarding tools Bind registered, in registration order, as a new slice; it is safe to call
+// concurrently with Serve. It returns nil before Bind completes, and an empty slice when Bind registered no tool. The
+// gateway discovery and query tools are not included because they forward no REST request.
+func (s *Server) Tools() (tools []BoundTool) {
+	registered := s._Tools.Load()
+	if registered == nil {
+		return nil
+	}
+
+	return slices.Clone(*registered)
 }
 
 // Serve handles one MCP HTTP request with the stateless Streamable HTTP transport. The caller must already have

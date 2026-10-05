@@ -497,6 +497,30 @@ func TestServerBindDerivesTools(t *testing.T) {
 		}}`, _JSON(t, tools["items_update"].InputSchema.(map[string]any)["properties"].(map[string]any)["body"]), "nested body fields should be optional without null and keep their tags")
 }
 
+func TestServerToolsReportsBoundTools(t *testing.T) {
+	t.Parallel()
+
+	route := _ItemsRoute(&_ItemsTask{}).SetEndpoint("/orgs/labels", &_LabelsTask{})
+	server := New(&mcp.Implementation{Name: "test", Version: "1"}, Options{Gateway: &Gateway{Public: []string{"items_list"}}})
+	assert.Nil(t, server.Tools(), "no tool should be reported before Bind")
+
+	server.Bind(ghttp.NewDispatchHandler(route), route.RouteEntries())
+	want := []BoundTool{
+		{Name: "items_list", Method: http.MethodGet, Path: "/orgs/items"},
+		{Name: "items_get", Method: http.MethodGet, Path: "/orgs/items"},
+		{Name: "items_update", Method: http.MethodPatch, Path: "/orgs/items"},
+		{Name: "labels_set", Method: http.MethodPut, Path: "/orgs/labels"},
+	}
+	tools := server.Tools()
+	assert.Equal(t, want, tools, "every forwarding tool should be reported in registration order without the gateway tools")
+
+	tools[0].Name = "changed"
+	assert.Equal(t, want, server.Tools(), "changing the returned slice should not change the reported tools")
+
+	empty := _BindServer(Options{}, ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_OrgsTask{}))
+	assert.Equal(t, []BoundTool{}, empty.Tools(), "a bound server without tools should report an empty slice")
+}
+
 func TestServerBindDerivesOutputSchema(t *testing.T) {
 	t.Parallel()
 
@@ -798,6 +822,12 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		{"optional file value", Options{}, func(options Options) {
 			_BindServer(options, write(NewTool[_OptionalFileValue, _Echo](&mcp.Tool{Name: "x"})))
 		}, "needs exactly one valid path, query, body, or file placement"},
+		{"input of any type", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[any, _Echo](&mcp.Tool{Name: "x"})))
+		}, `tool "x" input interface {} is not a struct; use struct{} for a tool without input`},
+		{"pointer input", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[*_GetInput, _Echo](&mcp.Tool{Name: "x"})))
+		}, `tool "x" input *gmcp._GetInput is not a struct`},
 		{"tool not built by NewTool", Options{}, func(options Options) {
 			_BindServer(options, tool(Tool{}))
 		}, "declares a tool that NewTool did not build"},
