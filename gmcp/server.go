@@ -170,7 +170,7 @@ func (s *Server) Bind(dispatcher *ghttp.DispatchHandler, entries []ghttp.RouteEn
 			tool._Definition.OutputSchema = _NewOutput(tool._OutputType)
 		}
 
-		tool._Definition.Annotations = route._Annotations()
+		tool._Definition.Annotations = route._Annotations(tool._Definition.Annotations)
 		tool._Register(s, route)
 		s._Catalog = append(s._Catalog, tool._Definition)
 		bound = append(bound, BoundTool{Name: name, Method: method, Path: entry.Path})

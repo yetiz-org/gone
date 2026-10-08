@@ -100,8 +100,8 @@ type _Route struct {
 // NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response; when
 // Out is Blob, the response body is returned as is. In must be a struct; use struct{} for a tool without input. The
 // input schema and REST mapping come from the json and gmcp tags of In, so definition must not set InputSchema. Bind
-// sets InputSchema and Annotations, and derives OutputSchema from the json and gmcp tags of Out unless definition sets
-// it.
+// sets InputSchema and Annotations, keeping only the OpenWorldHint that definition sets, and derives OutputSchema
+// from the json and gmcp tags of Out unless definition sets it.
 func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 	if definition == nil || definition.InputSchema != nil {
 		panic("gmcp: NewTool needs a definition without InputSchema; the schema is derived from the input type")
@@ -128,15 +128,21 @@ func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 }
 
 // _Annotations derives tool hints from HTTP method semantics: GET is read-only, every write may be destructive, PUT
-// and DELETE are idempotent, and forwarded tools only touch this server, so openWorld is false.
-func (r *_Route) _Annotations() (annotations *mcp.ToolAnnotations) {
+// and DELETE are idempotent, and openWorld is false because a forwarded call reaches only this server. The
+// OpenWorldHint of declared, when set, replaces that default for a tool whose effects reach external systems.
+func (r *_Route) _Annotations(declared *mcp.ToolAnnotations) (annotations *mcp.ToolAnnotations) {
 	readOnly := r._Method == http.MethodGet
-	return &mcp.ToolAnnotations{
+	annotations = &mcp.ToolAnnotations{
 		ReadOnlyHint:    readOnly,
 		DestructiveHint: new(!readOnly),
 		IdempotentHint:  r._Method == http.MethodPut || r._Method == http.MethodDelete,
 		OpenWorldHint:   new(false),
 	}
+	if declared != nil && declared.OpenWorldHint != nil {
+		annotations.OpenWorldHint = new(*declared.OpenWorldHint)
+	}
+
+	return annotations
 }
 
 // _Forward dispatches binding in process with the caller's credentials and decodes a successful response into

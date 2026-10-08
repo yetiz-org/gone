@@ -157,7 +157,7 @@ func (t *_ItemsTask) MCPGet() (tool Tool) {
 }
 
 func (t *_ItemsTask) MCPPatch() (tool Tool) {
-	return NewTool[_PatchInput, _Echo](&mcp.Tool{Name: "items_update", Description: "Update one item."})
+	return NewTool[_PatchInput, _Echo](&mcp.Tool{Name: "items_update", Description: "Update one item.", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: new(true)}})
 }
 
 type _Money struct {
@@ -516,7 +516,7 @@ func TestServerBindDerivesTools(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{"items_list", "items_get", "items_update"}, names, "every declared function should become a tool")
 	assert.JSONEq(t, `{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}`, _JSON(t, tools["items_list"].Annotations), "Index should be read-only")
-	assert.JSONEq(t, `{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":false}`, _JSON(t, tools["items_update"].Annotations), "Patch should be a destructive write")
+	assert.JSONEq(t, `{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true}`, _JSON(t, tools["items_update"].Annotations), "Patch should be a destructive write that keeps only its declared openWorld hint")
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"type":"object","additionalProperties":false,"required":["org"],
 		"properties":{
@@ -928,6 +928,8 @@ func TestServerGateway(t *testing.T) {
 
 	assert.Equal(t, []string{"items_list", "tools", "query"}, names, "only public, discovery, and query tools should be listed")
 	assert.False(t, tools["query"].Annotations.ReadOnlyHint, "query should not claim read-only while it can reach a write")
+	assert.Equal(t, new(true), tools["query"].Annotations.OpenWorldHint, "query should be open-world while it can reach an open-world tool")
+	assert.Equal(t, new(false), tools["tools"].Annotations.OpenWorldHint, "discovery should stay closed-world")
 	hidden := _Request(t, server, "tools/call", map[string]any{"name": "items_get", "arguments": map[string]any{"org": "o1", "item": "i1"}})
 	require.NotNil(t, hidden.Error, "hidden tools should not be callable directly")
 	assert.Equal(t, -32602, hidden.Error.Code, "a hidden tool call should be invalid params")

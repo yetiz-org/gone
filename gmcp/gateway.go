@@ -59,7 +59,7 @@ type _QueryInput struct {
 }
 
 // _BindGateway checks that every public tool is bound and registers the discovery and query tools over the other
-// bound tools. The query tool is read-only only when every hidden tool is.
+// bound tools. The query tool is read-only only when every hidden tool is, and open-world when any hidden tool is.
 func (s *Server) _BindGateway(names map[string]string) {
 	public := s._Options.Gateway.Public
 	for _, name := range public {
@@ -76,10 +76,11 @@ func (s *Server) _BindGateway(names map[string]string) {
 		return strings.Compare(left.Name, right.Name)
 	})
 
-	readOnly, destructive := true, false
+	readOnly, destructive, openWorld := true, false, false
 	for _, tool := range catalog {
 		readOnly = readOnly && tool.Annotations.ReadOnlyHint
 		destructive = destructive || tool.Annotations.DestructiveHint != nil && *tool.Annotations.DestructiveHint
+		openWorld = openWorld || tool.Annotations.OpenWorldHint != nil && *tool.Annotations.OpenWorldHint
 	}
 
 	_AddTool(s, &mcp.Tool{
@@ -99,7 +100,7 @@ func (s *Server) _BindGateway(names map[string]string) {
 			},
 			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 		},
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: new(destructive), OpenWorldHint: new(false)},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: new(destructive), OpenWorldHint: new(openWorld)},
 	}, func(ctx context.Context, request *mcp.CallToolRequest, input _QueryInput) (result *mcp.CallToolResult, output any, err error) {
 		if !slices.ContainsFunc(catalog, func(tool *mcp.Tool) bool { return tool.Name == input.Name }) {
 			return nil, nil, &_ToolError{_Category: _InvalidArgument}
