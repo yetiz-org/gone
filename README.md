@@ -248,11 +248,11 @@ status, body := pack.Response.StatusCode(), pack.Response.Body().Bytes()
 
 Declare the tool input once with `json` and `gmcp` tags. Each top-level field has exactly one placement: `path` (the endpoint's own ID), `path=<ancestor node>`, `query=<name>`, `body`, or `file=<form field>`. The one `body` field is a struct, slice, or array, sent as the JSON request body; for a JSON array body, the element fields take the same tags as other body fields. Input fields, including those nested in the body, also accept the schema keys `description`, `example`, `format`, `deprecated`, `enum`, `minLength`, `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`, and `uniqueItems`; `items.` applies the value keys to array elements. A field is optional when its json tag has `omitempty` or `omitzero` or it is a pointer. `gmcp.ID` values must match `Options.IDPattern`, and `gmcp.Date` is `YYYY-MM-DD`. A type that implements `gmcp.JSONSchemaProvider` (`JSONSchema() *jsonschema.Schema`, returning a new schema on every call) describes its own input schema, such as an optional value whose schema is the value schema plus `null`: every input field of the type, in the body too, takes that schema as is, keeping `null` without describing the type's fields, while the field's tags and the optional rule still apply. Output schemas do not use it.
 
-The output schema comes from `Out`. Its fields accept only `description`, `example`, `deprecated`, `items.description`, and `items.example`, because every result is validated against the output schema: null and the inferred required list are kept, and `gmcp.ID` is not pattern-checked. Without `gmcp` tags the output schema is the one the SDK infers.
+The output schema comes from `Out`. Its fields accept only `description`, `example`, `deprecated`, `items.description`, and `items.example`, because every result is validated against the output schema: null and the inferred required list are kept, and `gmcp.ID` is not pattern-checked. Without `gmcp` tags the output schema is the one the SDK infers. To return something the REST response does not carry, pass `gmcp.WithOutputAdjuster(adjust)` to `NewTool`, where `adjust` is a `gmcp.OutputAdjuster[In, Out]`: `func(ctx context.Context, input In, output Out) (Out, error)`. It runs only after a successful REST call, on the output decoded from the response, so routes, acceptances, and handlers still decide whether the call succeeds; several adjusters run in the order given, the result is validated against the output schema of `Out`, and a returned error fails the call with `internal_error`. A handler usually passes one of its own methods, so the adjuster can compute the value from the input and the handler's dependencies, as `Items.MCPIndex` in the example below does.
 
 Binary content travels as `gmcp.DataURL`, one RFC 2397 data URL string in base64 form such as `data:image/png;base64,iVBORw0KGgo=`. Its media type needs a type and subtype, may carry parameters (`data:text/plain;charset=utf-8;base64,...`), and is kept as written. Only lowercase `data:` and `;base64` are accepted, the base64 needs its padding, and percent-encoded data URLs are rejected. A `file=<form field>` field is a required `gmcp.File` or an optional `*gmcp.File`, sent as `{"filename": "cover.png", "data": "data:image/png;base64,..."}`. A tool with file fields forwards `multipart/form-data` with one part per file field, named by the tag, carrying the filename and the data URL media type as its `Content-Type`. File fields cannot be used by GET tools, together with `body`, or inside the body. A call fails with `invalid_argument` when a filename is empty, `.`, or `..`, or contains `/`, `\`, or a control character, or when the data URL is malformed or empty; the REST handler still validates size and type. `Options.MaxBodyBytes` limits the encoded multipart body as it limits JSON bodies, and `Options.MaxRequestBodyBytes` limits each MCP request (zero keeps the SDK default of 4 MiB, a negative value disables the limit); base64 makes a request about 4/3 of the file size.
 
-When `Out` is `gmcp.Blob`, the forwarded request accepts `*/*` and a successful response body is returned as is: `{"filename": "report.pdf", "data": "data:application/pdf;base64,..."}`. The data URL takes the response `Content-Type`, or `application/octet-stream` when it is missing or invalid, and `filename` comes from a `Content-Disposition` file name that passes the same file name rules, and is omitted otherwise. The result content is one text summary, `{"media_type": ..., "filename": ...}`, so the base64 data is sent only once, in the structured content. Any other `Out` still fails with `internal_error` on a non-JSON response.
+When `Out` is `gmcp.Blob`, the forwarded request accepts `*/*` and a successful response body is returned as is: `{"filename": "report.pdf", "data": "data:application/pdf;base64,..."}`. The data URL takes the response `Content-Type`, or `application/octet-stream` when it is missing or invalid, and `filename` comes from a `Content-Disposition` file name that passes the same file name rules, and is omitted otherwise. The result content is one text summary, `{"media_type": ..., "filename": ...}`, so the base64 data is sent only once, in the structured content; output adjusters run before that summary is built. Any other `Out` still fails with `internal_error` on a non-JSON response.
 
 Tags follow the goai tag syntax, so values cannot contain `;`. An `example` is parsed as the field type (JSON for numbers, booleans, arrays, and objects). `default` is not accepted because the SDK would write it into arguments and results.
 
@@ -270,6 +270,21 @@ type ItemGetResponse struct {
 
 func (h *Items) MCPGet() gmcp.Tool {
 	return gmcp.NewTool[ItemGetToolRequest, ItemGetResponse](&mcp.Tool{Name: "item_get", Description: "Read one item."})
+}
+
+type ItemsLinkResponse struct {
+	URL string `json:"url" gmcp:"description=Web page that lists the items."`
+}
+
+func (h *Items) MCPIndex() gmcp.Tool {
+	return gmcp.NewTool[struct{}, ItemsLinkResponse](&mcp.Tool{Name: "items_link", Description: "Get the items page link."},
+		gmcp.WithOutputAdjuster(h.itemsLink))
+}
+
+// itemsLink runs after GET /items succeeds and replaces its body with the page link.
+func (h *Items) itemsLink(ctx context.Context, input struct{}, output ItemsLinkResponse) (ItemsLinkResponse, error) {
+	output.URL = h.siteURL + "/items"
+	return output, nil
 }
 
 type CoverPostToolRequest struct {

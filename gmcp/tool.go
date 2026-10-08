@@ -66,6 +66,32 @@ type BindingAdjuster interface {
 	AdjustBinding(binding Binding) (adjusted Binding)
 }
 
+// OutputAdjuster computes the result of one tool from the output decoded from a successful REST response, such as a
+// value the response does not carry. It runs after the REST call, so it cannot bypass the route, acceptances, or
+// handler, and it may use ctx, the tool input, and whatever the declaring handler owns. A returned error fails the
+// call with internal_error.
+type OutputAdjuster[In, Out any] func(ctx context.Context, input In, output Out) (adjusted Out, err error)
+
+// ToolOption customizes one tool declared by NewTool.
+type ToolOption[In, Out any] func(options *_ToolOptions[In, Out])
+
+// _ToolOptions holds the settings ToolOption values apply to one tool.
+type _ToolOptions[In, Out any] struct {
+	_OutputAdjusters []OutputAdjuster[In, Out]
+}
+
+// WithOutputAdjuster adds adjuster to the tool; several adjusters run in the order given, each receiving the output
+// of the previous one.
+func WithOutputAdjuster[In, Out any](adjuster OutputAdjuster[In, Out]) (option ToolOption[In, Out]) {
+	if adjuster == nil {
+		panic("gmcp: WithOutputAdjuster needs an adjuster")
+	}
+
+	return func(options *_ToolOptions[In, Out]) {
+		options._OutputAdjusters = append(options._OutputAdjusters, adjuster)
+	}
+}
+
 // Tool is a tool declaration returned by a handler's MCP method; Bind derives its schemas, method, and annotations.
 type Tool struct {
 	_Definition *mcp.Tool
@@ -97,14 +123,20 @@ type _Route struct {
 	_Input      *_Input
 }
 
-// NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response; when
-// Out is Blob, the response body is returned as is. In must be a struct; use struct{} for a tool without input. The
+// NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response and then
+// passed through the output adjusters of options; when Out is Blob, the response body is returned as is, after the
+// adjusters run. In must be a struct; use struct{} for a tool without input. The
 // input schema and REST mapping come from the json and gmcp tags of In, so definition must not set InputSchema. Bind
 // sets InputSchema and Annotations, keeping only the OpenWorldHint that definition sets, and derives OutputSchema
-// from the json and gmcp tags of Out unless definition sets it.
-func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
+// from the json and gmcp tags of Out unless definition sets it; adjusted outputs are validated against it.
+func NewTool[In, Out any](definition *mcp.Tool, options ...ToolOption[In, Out]) (tool Tool) {
 	if definition == nil || definition.InputSchema != nil {
 		panic("gmcp: NewTool needs a definition without InputSchema; the schema is derived from the input type")
+	}
+
+	settings := _ToolOptions[In, Out]{}
+	for _, option := range options {
+		option(&settings)
 	}
 
 	return Tool{_Definition: definition, _InputType: reflect.TypeFor[In](), _OutputType: reflect.TypeFor[Out](), _Register: func(server *Server, route *_Route) {
@@ -116,6 +148,13 @@ func NewTool[In, Out any](definition *mcp.Tool) (tool Tool) {
 
 			if err = route._Forward(ctx, binding, &output); err != nil {
 				return nil, output, err
+			}
+
+			for _, adjuster := range settings._OutputAdjusters {
+				if output, err = adjuster(ctx, value, output); err != nil {
+					kklogger.ErrorJ("gmcp:NewTool#output!adjust_failed", map[string]any{"tool": route._Name, "error": err.Error()})
+					return nil, output, &_ToolError{_Category: _InternalError}
+				}
 			}
 
 			if blob, ok := any(output).(Blob); ok {

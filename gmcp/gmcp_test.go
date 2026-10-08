@@ -2,16 +2,19 @@ package gmcp
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -385,6 +388,37 @@ func (t *_DownloadTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp
 
 func (t *_DownloadTask) MCPGet() (tool Tool) {
 	return t._Tool
+}
+
+type _Link struct {
+	Function string `json:"function"`
+	ID       string `json:"id"`
+	URL      string `json:"url,omitempty" gmcp:"description=Item page."`
+}
+
+type _LinkTask struct {
+	_ItemsTask
+	_Base     string
+	_Adjusted atomic.Int32
+}
+
+func (t *_LinkTask) MCPGet() (tool Tool) {
+	return NewTool[_GetInput, _Link](&mcp.Tool{Name: "items_link", Description: "Read one item link."}, WithOutputAdjuster(t._AddLink), WithOutputAdjuster(t._MarkLink))
+}
+
+func (t *_LinkTask) _AddLink(ctx context.Context, input _GetInput, output _Link) (adjusted _Link, err error) {
+	t._Adjusted.Add(1)
+	if input.Item == "broken" {
+		return output, errors.New("link unavailable")
+	}
+
+	output.URL = t._Base + "/orgs/" + string(input.Org) + "/items/" + output.ID
+	return output, nil
+}
+
+func (t *_LinkTask) _MarkLink(ctx context.Context, input _GetInput, output _Link) (adjusted _Link, err error) {
+	output.URL += "?from=" + strings.ToLower(output.Function)
+	return output, nil
 }
 
 type _Envelope struct {
@@ -1146,4 +1180,36 @@ func TestServerJSONSchemaProvider(t *testing.T) {
 			"mode":{"type":["null","string"],"description":"New mode.","enum":["a","b"]},
 			"kind":{"type":["null","string"],"description":"New kind.","enum":["c"]}
 		}}`, _JSON(t, tools["optional_update"].InputSchema.(map[string]any)["properties"].(map[string]any)["body"]), "provided schemas should keep null, stay optional, and take their own field tags")
+}
+
+func TestServerAdjustsOutputs(t *testing.T) {
+	t.Parallel()
+
+	link := &_LinkTask{_Base: "https://example.com"}
+	server := _BindServer(Options{}, ghttp.NewSimpleRoute().SetEndpoint("/orgs", &_OrgsTask{}).SetEndpoint("/orgs/items", link))
+	tests := []struct {
+		name     string
+		item     string
+		want     string
+		adjusted int32
+	}{
+		{"adjusters run in order on the decoded output", "i1", `{"function":"Get","id":"i1","url":"https://example.com/orgs/o1/items/i1?from=get"}`, 1},
+		{"an adjuster error fails the call", "broken", `{"error":{"category":"internal_error"}}`, 1},
+		{"a failed REST call is not adjusted", "missing", `{"error":{"category":"not_found","code":"404001"}}`, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := link._Adjusted.Load()
+			result := _Call(t, server, "items_link", map[string]any{"org": "o1", "item": tt.item})
+			assert.JSONEq(t, tt.want, _Payload(t, result), "the payload should match the case")
+			require.Len(t, result.Content, 1, "the content should hold one text block")
+			assert.JSONEq(t, tt.want, result.Content[0].Text, "the text content should match the payload")
+			assert.Equal(t, tt.adjusted, link._Adjusted.Load()-before, "adjusters should run only after a successful REST call")
+		})
+	}
+
+	assert.PanicsWithValue(t, "gmcp: WithOutputAdjuster needs an adjuster", func() {
+		WithOutputAdjuster[_GetInput, _Link](nil)
+	}, "a nil adjuster should be rejected at declaration")
 }
