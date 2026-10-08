@@ -59,6 +59,11 @@ type Caller struct {
 	HandlerContext channel.HandlerContext
 	// Language, when set, is sent as Accept-Language on forwarded requests.
 	Language string
+	// ToolVisible, when set, reports whether tools/list shows the bound tool to this caller; the list result then has
+	// cache scope private. With Options.Gateway it filters the listed public tools and the tools found by discovery.
+	// It does not authorize calls: tools/call and the gateway query still forward every bound tool, and the REST route
+	// authorizes each call. Nil lists every tool.
+	ToolVisible func(tool BoundTool) (visible bool)
 }
 
 // Server owns one MCP server, its stateless Streamable HTTP transport, and the tools bound from a ghttp route.
@@ -115,6 +120,8 @@ func New(implementation *mcp.Implementation, options Options) (server *Server) {
 	server._SDK.AddReceivingMiddleware(server._ErrorMiddleware)
 	if options.Gateway != nil {
 		server._SDK.AddReceivingMiddleware(server._GatewayMiddleware)
+	} else {
+		server._SDK.AddReceivingMiddleware(server._VisibleMiddleware)
 	}
 
 	server._Handler = mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
@@ -238,6 +245,50 @@ func (s *Server) Serve(writer http.ResponseWriter, caller Caller) {
 	response := &_ResponseWriter{_Writer: writer}
 	defer response._Finish()
 	s._Handler.ServeHTTP(response, request)
+}
+
+// _VisibleMiddleware keeps only the tools the caller's ToolVisible shows in each tools/list page, in declaration
+// order with the SDK cursor, and marks the page cache scope private; other methods and callers without ToolVisible
+// pass through.
+func (s *Server) _VisibleMiddleware(next mcp.MethodHandler) (handler mcp.MethodHandler) {
+	return func(ctx context.Context, method string, request mcp.Request) (result mcp.Result, err error) {
+		result, err = next(ctx, method, request)
+		if method != "tools/list" || err != nil {
+			return result, err
+		}
+
+		listed := s._Listed(ctx)
+		page, ok := result.(*mcp.ListToolsResult)
+		if listed == nil || !ok || page == nil {
+			return result, err
+		}
+
+		filtered := *page
+		filtered.Tools = slices.DeleteFunc(slices.Clone(page.Tools), func(tool *mcp.Tool) bool {
+			return tool == nil || !listed(tool.Name)
+		})
+
+		filtered.CacheScope = "private"
+		return &filtered, nil
+	}
+}
+
+// _Listed returns whether the ToolVisible of the caller in ctx shows the tool named name; a name that is not a bound
+// tool, such as a gateway tool, is shown. It returns nil when ctx has no caller or the caller has no ToolVisible.
+func (s *Server) _Listed(ctx context.Context) (listed func(name string) bool) {
+	caller, ok := ctx.Value(_CallerKey{}).(*Caller)
+	if !ok || caller.ToolVisible == nil {
+		return nil
+	}
+
+	tools := s.Tools()
+	return func(name string) bool {
+		index := slices.IndexFunc(tools, func(tool BoundTool) bool {
+			return tool.Name == name
+		})
+
+		return index < 0 || caller.ToolVisible(tools[index])
+	}
 }
 
 // _AddTool registers handler on s and marks every failure it returns as a tool error, so the error middleware can tell

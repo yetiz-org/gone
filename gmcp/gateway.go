@@ -87,7 +87,14 @@ func (s *Server) _BindGateway(names map[string]string) {
 		Name: _ToolsName, Title: "Discover Tools", Description: "Discover tools by name or description and inspect the input and output schemas of one tool.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: new(false), OpenWorldHint: new(false)},
 	}, func(ctx context.Context, request *mcp.CallToolRequest, input _ToolsInput) (result *mcp.CallToolResult, output _ToolsOutput, err error) {
-		return nil, s._Discover(catalog, input.Search), nil
+		found := catalog
+		if listed := s._Listed(ctx); listed != nil {
+			found = slices.DeleteFunc(slices.Clone(catalog), func(tool *mcp.Tool) bool {
+				return !listed(tool.Name)
+			})
+		}
+
+		return nil, s._Discover(found, input.Search), nil
 	})
 
 	mcp.AddTool(s._SDK, &mcp.Tool{
@@ -169,7 +176,7 @@ func (s *Server) _Query(ctx context.Context, request *mcp.CallToolRequest, input
 }
 
 // _GatewayMiddleware lists only the public, discovery, and query tools, taking their definitions from the SDK
-// registry, and rejects direct calls to hidden tools.
+// registry and leaving out the public tools the caller's ToolVisible hides, and rejects direct calls to hidden tools.
 func (s *Server) _GatewayMiddleware(next mcp.MethodHandler) (handler mcp.MethodHandler) {
 	visible := append(slices.Clone(s._Options.Gateway.Public), _ToolsName, _QueryName)
 	return func(ctx context.Context, method string, request mcp.Request) (result mcp.Result, err error) {
@@ -184,7 +191,20 @@ func (s *Server) _GatewayMiddleware(next mcp.MethodHandler) (handler mcp.MethodH
 				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "Tool list cursor is not supported."}
 			}
 
-			return s._ListVisible(ctx, next, listRequest, visible)
+			listed := s._Listed(ctx)
+			if listed == nil {
+				return s._ListVisible(ctx, next, listRequest, visible)
+			}
+
+			result, err = s._ListVisible(ctx, next, listRequest, slices.DeleteFunc(slices.Clone(visible), func(name string) bool {
+				return !listed(name)
+			}))
+
+			if page, ok := result.(*mcp.ListToolsResult); ok {
+				page.CacheScope = "private"
+			}
+
+			return result, err
 
 		case "tools/call":
 			callRequest, ok := request.(*mcp.CallToolRequest)
