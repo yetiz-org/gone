@@ -2,6 +2,7 @@ package ghttp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -43,21 +44,27 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if c.maxBodyBytes > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, c.maxBodyBytes)
+		if r.ContentLength > c.maxBodyBytes {
+			// Reject a declared overflow without reading any of the body.
+			r.Body = failedBody{ReadCloser: r.Body, err: &http.MaxBytesError{Limit: c.maxBodyBytes}}
+		} else {
+			r.Body = http.MaxBytesReader(w, r.Body, c.maxBodyBytes)
+		}
 	}
 
 	request := WrapRequest(cch, r)
-	if request == nil {
-		kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP#serve_http!body_too_large", fmt.Sprintf("conn from %s, target: %s, body is too large", r.RemoteAddr, r.RequestURI))
-		w.WriteHeader(http.StatusRequestEntityTooLarge)
-		w.Write([]byte{})
-		return
-	}
-	if request.BodyReadError() != nil {
-		kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP#serve_http!body_read_error", fmt.Sprintf("conn from %s, target: %s, error: %s", r.RemoteAddr, r.RequestURI, request.BodyReadError().Error()))
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte{})
-		return
+	if !cch.bodyGated.Load() {
+		// Without a DispatchHandler to answer for the body, reject an unreadable one here as before.
+		if err := request.BodyReadError(); err != nil {
+			kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP#serve_http!body_read_error", fmt.Sprintf("conn from %s, target: %s, error: %s", r.RemoteAddr, r.RequestURI, err.Error()))
+			if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+			}
+
+			return
+		}
 	}
 
 	var writer = w
@@ -79,7 +86,7 @@ func (c *ServerChannel) panicCatch() {
 	})
 }
 
-func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
+func (c *ServerChannel) UnsafeBind(localAddr net.Addr) (rtErr error) {
 	var handler http.Handler = c
 	if c.Name == "" {
 		c.Name = fmt.Sprintf("SERVER_%s", localAddr.String())
@@ -91,7 +98,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 	}
 
 	c.newChChan = make(chan *serverChannelAccept, channel.GetParamIntDefault(c, ParamAcceptWaitCount, 1024))
-	c.maxBodyBytes = channel.GetParamInt64Default(c, ParamMaxBodyBytes, 0)
+	c.maxBodyBytes = channel.GetParamInt64Default(c, ParamMaxBodyBytes, 4<<20)
 	c.server = &http.Server{
 		Addr:              localAddr.String(),
 		Handler:           handler,
@@ -144,6 +151,8 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 	if err != nil {
 		return err
 	}
+
+	listener = channel.LimitListener(listener, int(channel.GetParamInt64Default(c, channel.ParamMaxConnections, channel.DefaultMaxConnections)))
 
 	c.active.Store(true)
 	go c.server.Serve(listener)

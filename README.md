@@ -145,6 +145,28 @@ func main() {
 }
 ```
 
+### Request Bodies
+
+`ghttp.ParamMaxBodyBytes` limits each request body (default 4 MiB; a nonpositive value disables the limit). The body is not read until it is needed. `DispatchHandler` reads it into memory after routing and before the acceptances run, and answers `413` when it exceeds the limit or `400` when it cannot be read; a declared `Content-Length` over the limit is rejected without reading the body, and unknown routes are answered without reading it. `Request.Body()` and `Request().Body` then share one buffered copy, so treat `Body()` as read-only: do not write, `Reset`, `Clear` or `Compact` it, or change the slice from `Body().Bytes()` in place. A pipeline without `DispatchHandler` keeps the earlier behavior: the server reads the body before the pipeline and answers `413` or `400` itself.
+
+A task that implements `ghttp.RequestBodyStreamer` and returns true reads `Request().Body` as a stream instead, for example to spool a large upload to disk without holding it in memory. The limit still applies, so the task handles the `*http.MaxBytesError`; `Request.ContentLength()` is the declared size, and a chunked body's size is known only after reading it. Calling `Request.Body()` still buffers the body on demand: after part of the stream was read it returns only the rest, and a printing `LogHandler` (`NewLogHandler(true)`) buffers every body before routing. When buffering fails, `Request().Body` returns the same error on every read.
+
+Buffered bodies hold up to the limit per request, as Netty's `HttpObjectAggregator` does per message, so peak memory is about the number of concurrent buffered requests times `ParamMaxBodyBytes`; size the limit and the server's concurrency together. A handler placed before `DispatchHandler` may read `Request().Body`: the first read buffers the body, so `Body()` still returns all of it, and a streaming task then reads that buffered copy.
+
+### Sessions, Client Address and Logs
+
+- Session cookies are `HttpOnly` by default (`ghttp.SessionHttpOnly`). They are `Secure` when `ghttp.SessionSecure` is set, the request arrived over TLS, or a peer accepted by `ghttp.TrustForwardedFor` forwarded it with `X-Forwarded-Proto: https`.
+- `Request.RenewSession()` deletes the previous session from the store. With the memory provider, a concurrent request still holding the previous session cannot store it again. A provider that loads a separate copy per request, such as Redis, can still have a concurrent request store its copy under the previous ID again, including any credentials that copy already held; preventing that needs the provider to refuse saves for deleted IDs.
+- `DefaultSession` is safe for concurrent requests sharing one session. `Data()` returns the live map, which is not synchronized; when other requests may write the same session, for example while rendering a template, read `Snapshot()` instead, which returns a copy taken under the session lock. The memory provider keeps at most `MaxSessions` sessions (default 100,000); going over it drops expired sessions and then the least recently saved ones until a tenth of the cap is free. Saves running concurrently can briefly exceed the cap until the next save evicts again. Traffic that keeps creating sessions can therefore end idle sessions early; use a shared store such as Redis, or rate-limit session creation, when that matters.
+- `WrapRequest` takes the client address from `X-Forwarded-For` only when `ghttp.TrustForwardedFor` accepts the direct peer; by default, loopback, private and other non-public peers such as a load balancer in the same network. Any host in those networks can then set the header, and so can outside clients that reach the server through NAT, such as Docker port publishing or a Kubernetes SNAT, because they arrive from a private address. Replace it at startup with your proxies' addresses for a stricter boundary, or to trust a public proxy.
+- `LogHandler` logs the headers in `RedactHeaders` (by default `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`) as `[REDACTED]`; clear it to log every value.
+
+### Connection Limits and Static Files
+
+- `gtcp` and `ghttp` servers hold at most `channel.ParamMaxConnections` connections at once (default 10,000; nonpositive disables it), upgraded WebSockets included. Further connections wait in the listen backlog until one closes. Keep the process descriptor limit (`ulimit -n`) above it.
+- Connections a server accepts close after receiving nothing for `channel.ParamReadIdleTimeout` milliseconds (default 300,000; nonpositive disables it). Client connections default to off. A `gtcp` channel checks it every `channel.ParamReadTimeout`; a WebSocket must receive each whole message, ping or pong within it, so a server that only pushes should ping its clients more often than that. A gUDP child ignores it and uses `gudp.ParamPeerIdleTimeout`. HTTP keep-alive connections use `ghttp.ParamIdleTimeout` instead.
+- `StaticFilesHandlerTask` rejects paths that leave `FolderPath` but follows symlinks inside it, so keep untrusted writers out of that folder.
+
 ## HTTP Routing
 
 `ghttp.Route` maps a URL path to a `HandlerTask`. Gone provides two routing styles:
@@ -315,6 +337,8 @@ if writer, ok := h.RawMode(req, resp, params); ok {
 
 For framed messages, prefer `gtcp/simpletcp`. It includes a varint length-prefixed codec: outbound `buf.ByteBuf` values are framed automatically, and inbound frames are decoded back to complete messages.
 
+`simpletcp.MaxFrameLength` limits each payload to 16 MiB. Oversized declarations are rejected before reading the body; invalid framing or exhausted decoder input budgets clear the buffered input and close the channel. Oversized writes fail their future. Valid frames may span reads or share a read, and zero-length keepalives remain supported.
+
 ```go
 package main
 
@@ -356,7 +380,7 @@ Use `channel.NewBootstrap()` with `gtcp.Channel` directly only when you need a f
 
 ## UDP
 
-`gudp/simpleudp` provides a similar client/server wrapper for UDP. The UDP server creates a virtual child channel for each source address so UDP packets can use the same handler pipeline model.
+`gudp/simpleudp` provides a similar client/server wrapper for UDP. The UDP server is the only reader of its socket and serves each source address through one child channel, so UDP packets can use the same handler pipeline model. `gudp.ParamMaxPeers` limits the addresses served at once (default 4096; datagrams from new addresses are dropped at the limit), and `gudp.ParamPeerIdleTimeout` closes a child after that many milliseconds without a datagram in either direction (default 60,000); the address's next datagram opens a new child. Each child queues at most 32 datagrams and all children of a server at most 64 MiB; datagrams beyond that are dropped. Each written `ByteBuf` leaves as one datagram.
 
 ```go
 server := simpleudp.NewServer(&ServerHandler{})
@@ -371,6 +395,8 @@ ch.CloseFuture().Sync()
 ```
 
 UDP is connectionless. The `simpleudp` virtual channel exists to reuse the pipeline abstraction; it does not provide TCP-style delivery guarantees.
+
+Each `simpleudp` datagram must contain complete frames. `simpleudp.MaxFrameLength` limits each payload to 65,504 bytes, leaving room for its three-byte prefix within the 65,507-byte datagram budget. Oversized writes fail their future. Incomplete or oversized incoming datagrams report an error and are discarded with decoder state reset; later datagrams are decoded independently. Set `channel.ParamReadBufferSize` large enough for the datagrams your application accepts, because UDP reads discard bytes beyond the read buffer.
 
 ## WebSocket
 
@@ -453,6 +479,8 @@ Common buffer types:
 - `buf.NewByteBufString("...")` and `buf.NewByteBuf([]byte{...})`: payload constructors.
 - `buf.CompositeByteBuf`: combines multiple buffers without merging them into one slice first.
 
+In stream mode, `channel.ReplayDecoder` closes the channel and reports `channel.ErrDecoderBufferLimit` when more than `MaxBufferedBytes` (default 16 MiB; non-positive values select the default) stay unread after decoding, so one read can still carry complete messages larger in total. A decode error other than incomplete input also closes it. `Datagram` mode reports these errors without closing the channel, resets framing state after each read, and rejects incomplete input instead of joining packets.
+
 In `DefaultNetChannel.UnsafeWrite`, `ByteBuf` values that implement `io.WriterTo` write directly to the underlying `net.Conn`. `CompositeByteBuf` can use the underlying `net.Buffers.WriteTo` path on TCP and Unix sockets, which is useful for header + body writes.
 
 ```go
@@ -477,7 +505,12 @@ Common parameters:
 - `channel.ParamReadTimeout`: read timeout in milliseconds.
 - `channel.ParamWriteTimeout`: write timeout in milliseconds.
 - `channel.ParamAcceptTimeout`: server child-channel accept timeout.
+- `channel.ParamReadIdleTimeout`: close an accepted connection after receiving nothing for this many milliseconds (default 300,000; nonpositive disables it).
+- `channel.ParamMaxConnections`: connections a `gtcp` or `ghttp` server holds open at once (default 10,000; nonpositive disables it).
 - `gws.ParamCheckOrigin`: whether WebSocket upgrade checks request origin.
+- `gws.ParamWSReadLimit`: largest incoming WebSocket message in bytes (default 16 MiB; nonpositive disables it). Each connection can hold one such message, so lower it when many connections are open. The default ping handler waits for each pong to be written, so a peer that does not read pongs stalls only its own reads.
+- `ghttp.ParamMaxBodyBytes`: largest HTTP request body in bytes (default 4 MiB; nonpositive disables it).
+- `gudp.ParamMaxPeers` and `gudp.ParamPeerIdleTimeout`: UDP server address limit and idle timeout in milliseconds.
 
 ## Testing
 

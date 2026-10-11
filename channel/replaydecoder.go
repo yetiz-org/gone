@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/yetiz-org/gone/utils"
@@ -12,21 +13,32 @@ import (
 
 type ReplayState int
 
-type ReplayDecoder struct {
-	ByteToMessageDecoder
-	in    buf.CompositeByteBuf
-	state ReplayState
-	op    sync.Mutex
-}
+const DefaultMaxBufferedBytes = 16 << 20
+
+var ErrDecoderBufferLimit = errors.New("decoder buffer limit exceeded")
+var ErrFrameTooLarge = errors.New("frame length exceeds limit")
+var ErrMalformedFrame = errors.New("incomplete datagram frame")
 
 var replayDecoderTruncateLen = 1 << 20
 
-func NewReplayDecoder(state ReplayState, decode func(ctx HandlerContext, in buf.ByteBuf, out structs.Queue)) *ReplayDecoder {
+type ReplayDecoder struct {
+	ByteToMessageDecoder
+	// MaxBufferedBytes bounds the input left unread after decoding; non-positive values use the default.
+	MaxBufferedBytes int
+	// Datagram rejects incomplete input instead of replaying across reads.
+	Datagram     bool
+	in           buf.CompositeByteBuf
+	state        ReplayState
+	initialState ReplayState
+	failed       bool
+	op           sync.Mutex
+}
+
+func NewReplayDecoder(state ReplayState, decode func(ctx HandlerContext, in buf.ByteBuf, out structs.Queue)) (decoder *ReplayDecoder) {
 	return &ReplayDecoder{
-		ByteToMessageDecoder: ByteToMessageDecoder{
-			Decode: decode,
-		},
-		state: state,
+		Decode:       decode,
+		state:        state,
+		initialState: state,
 	}
 }
 
@@ -54,22 +66,71 @@ func (h *ReplayDecoder) Checkpoint(state ReplayState) {
 
 func (h *ReplayDecoder) Added(ctx HandlerContext) {
 	h.in = buf.NewCompositeByteBuf()
+	h.state = h.initialState
+	h.failed = false
 }
 
 func (h *ReplayDecoder) Read(ctx HandlerContext, obj any) {
-	if h.Decode != nil {
-		h.in.AddComponent(obj.(buf.ByteBuf))
-		out := &utils.Queue{}
-		kkpanic.CatchExcept(func() {
-			h.Decode(ctx, h.in, out)
-		}, buf.ErrInsufficientSize, func(r kkpanic.Caught) {
-			kklogger.ErrorJ("channel:ReplayDecoder.Read#decode!decode_error", r.String())
-		})
-
-		for elem, ok := out.TryPop(); ok; elem, ok = out.TryPop() {
-			ctx.FireRead(elem)
-		}
-	} else {
-		kklogger.WarnJ("channel:ReplayDecoder.Read#decode!no_decoder", "no decoder")
+	if h.failed {
+		return
 	}
+
+	if h.Decode == nil {
+		kklogger.WarnJ("channel:ReplayDecoder.Read#decode!no_decoder", "no decoder")
+		return
+	}
+
+	h.in.AddComponent(obj.(buf.ByteBuf))
+	out := &utils.Queue{}
+	var decodeErr error
+	kkpanic.Catch(func() {
+		h.Decode(ctx, h.in, out)
+	}, func(r kkpanic.Caught) {
+		err, ok := r.Data().(error)
+		if !ok {
+			err = r
+		}
+
+		if !errors.Is(err, buf.ErrInsufficientSize) {
+			decodeErr = err
+		} else if h.Datagram {
+			decodeErr = ErrMalformedFrame
+		}
+	})
+
+	limit := h.MaxBufferedBytes
+	if limit <= 0 {
+		limit = DefaultMaxBufferedBytes
+	}
+
+	if decodeErr == nil && h.in.ReadableBytes() > limit {
+		decodeErr = ErrDecoderBufferLimit
+	}
+
+	if decodeErr != nil {
+		h.reject(ctx, decodeErr)
+		return
+	}
+
+	for elem, ok := out.TryPop(); ok; elem, ok = out.TryPop() {
+		ctx.FireRead(elem)
+	}
+
+	if h.Datagram {
+		h.in = buf.NewCompositeByteBuf()
+		h.state = h.initialState
+		return
+	}
+
+	h.Checkpoint(h.state)
+}
+
+func (h *ReplayDecoder) reject(ctx HandlerContext, err error) {
+	h.in = buf.NewCompositeByteBuf()
+	h.state = h.initialState
+	if !h.Datagram {
+		h.failed = true
+		ctx.Disconnect(nil)
+	}
+	ctx.FireErrorCaught(err)
 }

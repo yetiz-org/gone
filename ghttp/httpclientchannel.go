@@ -2,12 +2,14 @@ package ghttp
 
 import (
 	"net/http"
+	"sync/atomic"
 
 	"github.com/yetiz-org/gone/channel"
 )
 
 type Channel struct {
 	channel.DefaultNetChannel
+	bodyGated atomic.Bool // a DispatchHandler in the pipeline answers for unreadable request bodies
 }
 
 func (c *Channel) UnsafeIsAutoRead() bool {

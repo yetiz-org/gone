@@ -33,6 +33,9 @@ func (h *DefaultHandlerTask) ErrorCaught(ctx channel.HandlerContext, err error) 
 	kklogger.ErrorJ("gws:DefaultHandlerTask.WSErrorCaught#error_caught!error", err.Error())
 }
 
+// WSPing answers a ping and waits, up to the pong deadline, until the pong is written, so a peer that
+// sends pings without reading the pongs stalls its own read loop instead of growing the write queue.
+// A pong still unwritten at its deadline closes the channel.
 func (h *DefaultHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMessage, params map[string]any) {
 	dead := time.Now().Add(time.Minute)
 	rtn := &PongMessage{
@@ -43,7 +46,9 @@ func (h *DefaultHandlerTask) WSPing(ctx channel.HandlerContext, message *PingMes
 		},
 	}
 
-	ctx.Write(rtn, nil)
+	if !ctx.Write(rtn, nil).AwaitTimeout(time.Until(dead)).IsDone() {
+		ctx.Channel().Disconnect()
+	}
 }
 
 func (h *DefaultHandlerTask) WSPong(ctx channel.HandlerContext, message *PongMessage, params map[string]any) {

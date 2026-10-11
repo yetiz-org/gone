@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -114,49 +113,6 @@ func TestServerChannel_ServeHTTP(t *testing.T) {
 		assert.NotPanics(t, func() {
 			serverCh.ServeHTTP(w, req)
 		})
-	})
-
-	t.Run("ServeHTTP_MaxBodyBytes", func(t *testing.T) {
-		t.Parallel()
-
-		serverCh := &ServerChannel{maxBodyBytes: 10}
-
-		// Create mock objects
-		mockConn := &MockNetConn{}
-		mockChannel := &Channel{}
-
-		// Create request with both contexts
-		body := strings.NewReader("test body content that exceeds limit")
-		req := httptest.NewRequest("POST", "/test", body)
-		ctx := context.WithValue(req.Context(), ConnCtx, mockConn)
-		ctx = context.WithValue(ctx, ConnChCtx, mockChannel)
-		req = req.WithContext(ctx)
-		w := httptest.NewRecorder()
-
-		// Should apply max body bytes
-		assert.NotPanics(t, func() {
-			serverCh.ServeHTTP(w, req)
-		})
-		assert.Equal(t, 413, w.Code)
-	})
-
-	t.Run("ServeHTTP_BodyReadError", func(t *testing.T) {
-		t.Parallel()
-
-		serverCh := &ServerChannel{}
-		mockConn := &MockNetConn{}
-		mockChannel := &Channel{}
-		req := httptest.NewRequest("POST", "/test", nil)
-		req.Body = errorReadCloser{}
-		ctx := context.WithValue(req.Context(), ConnCtx, mockConn)
-		ctx = context.WithValue(ctx, ConnChCtx, mockChannel)
-		req = req.WithContext(ctx)
-		w := httptest.NewRecorder()
-
-		assert.NotPanics(t, func() {
-			serverCh.ServeHTTP(w, req)
-		})
-		assert.Equal(t, 400, w.Code)
 	})
 }
 

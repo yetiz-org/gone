@@ -33,60 +33,60 @@ type Request struct {
 	createdAt   time.Time
 	remoteAddrs []string
 	body        buf.ByteBuf
+	rawBody     io.ReadCloser // the body as received, read once by bufferBody or by a streaming task
 	bodyReadErr error
+	bodyOnce    sync.Once
+	forwarded   bool // the direct peer passed TrustForwardedFor
 	session     httpsession.Session
 	op          sync.Mutex
 }
 
-func WrapRequest(ch channel.Channel, req *ghttp.Request) *Request {
+// TrustForwardedFor reports whether WrapRequest may take the client address from the X-Forwarded-For
+// header sent by the direct peer. The default trusts only loopback, private and other non-public peers,
+// such as a load balancer inside the same network; clients behind NAT to the server also arrive from such
+// addresses. Set it at startup; it is read per request unsynchronized.
+var TrustForwardedFor = func(peer net.IP) (trusted bool) {
+	return peer != nil && !validate.IsPublicIP(peer)
+}
+
+// WrapRequest wraps req without reading its body. Body, BodyReadError and the first read of req.Body buffer
+// the body, so every reader sees all of it.
+func WrapRequest(ch channel.Channel, req *ghttp.Request) (request *Request) {
 	u := uuid.New()
-	request := Request{
+	request = &Request{
 		request:   req,
 		channel:   ch,
 		trackID:   base62.FlipEncoding.EncodeToString(u[:]),
 		createdAt: time.Now(),
+		rawBody:   req.Body,
 	}
 
-	if request.request.Body == nil {
-		request.body = buf.EmptyByteBuf()
-	} else {
-		if bs, e := io.ReadAll(request.request.Body); e == nil {
-			request.request.Body.Close()
-			request.body = buf.NewByteBuf(bs)
-			request.request.Body = io.NopCloser(buf.NewByteBuf(bs))
-		} else {
-			request.request.Body.Close()
-			if _, ok := e.(*ghttp.MaxBytesError); ok {
-				return nil
-			}
+	if req.Body != nil {
+		req.Body = lazyBody{request: request}
+	}
 
-			request.bodyReadErr = e
-			request.body = buf.EmptyByteBuf()
-			request.request.Body = io.NopCloser(buf.EmptyByteBuf())
+	request.remoteAddrs = []string{req.RemoteAddr}
+	request.forwarded = TrustForwardedFor(request.RemoteIP())
+	xForwardFor := request.Header().Get(httpheadername.XForwardedFor)
+	if xForwardFor == "" || !request.forwarded {
+		return request
+	}
+
+	xffu := strings.Split(xForwardFor, ",")
+	for i := range xffu {
+		xffu[i] = strings.TrimSpace(xffu[i])
+	}
+
+	rAddr := req.RemoteAddr
+	for i := len(xffu) - 1; i >= 0; i-- {
+		if ip := net.ParseIP(xffu[i]); ip != nil && validate.IsPublicIP(ip) {
+			req.RemoteAddr = xffu[i]
+			break
 		}
 	}
 
-	if xForwardFor := request.Header().Get(httpheadername.XForwardedFor); xForwardFor != "" {
-		xffu := strings.Split(xForwardFor, ", ")
-		rAddr := request.request.RemoteAddr
-		for i := len(xffu) - 1; i >= 0; i-- {
-			current := xffu[i]
-			if validate.IsPublicIP(net.ParseIP(current)) {
-				request.request.RemoteAddr = current
-				break
-			}
-		}
-
-		if xffu == nil {
-			xffu = []string{}
-		}
-
-		request.remoteAddrs = append(xffu, rAddr)
-	} else {
-		request.remoteAddrs = []string{request.request.RemoteAddr}
-	}
-
-	return &request
+	request.remoteAddrs = append(xffu, rAddr)
+	return request
 }
 
 func (r *Request) Request() *ghttp.Request {
@@ -174,13 +174,47 @@ func (r *Request) Header() ghttp.Header {
 	return r.request.Header
 }
 
-func (r *Request) Body() buf.ByteBuf {
+// Body returns the request body, reading it into memory on first use. Request().Body then replays
+// the same bytes. A failed read leaves an empty body, its error in BodyReadError, and a Request().Body
+// that returns that error.
+func (r *Request) Body() (body buf.ByteBuf) {
+	r.bodyOnce.Do(r.bufferBody)
 	return r.body
 }
 
-// BodyReadError returns the error encountered while buffering the request body.
-func (r *Request) BodyReadError() error {
+// BodyReadError returns the error encountered while buffering the request body, buffering it first if needed.
+// A body over the server limit reports an *http.MaxBytesError.
+func (r *Request) BodyReadError() (rtErr error) {
+	r.bodyOnce.Do(r.bufferBody)
 	return r.bodyReadErr
+}
+
+func (r *Request) bufferBody() {
+	if r.rawBody == nil {
+		r.body = buf.EmptyByteBuf()
+		return
+	}
+
+	bs, err := io.ReadAll(r.rawBody)
+	if err != nil {
+		// Leave the failed body open: net/http closes it after writing the response, while closing it here
+		// would first wait for whatever the client is still sending.
+		r.bodyReadErr = err
+		r.body = buf.EmptyByteBuf()
+		r.request.Body = failedBody{ReadCloser: ghttp.NoBody, err: err}
+		return
+	}
+
+	r.rawBody.Close()
+	r.body = buf.NewSharedByteBuf(bs)
+	r.request.Body = io.NopCloser(bytes.NewReader(bs))
+}
+
+// streamBody hands a streaming task the body as received, unless something already buffered it.
+func (r *Request) streamBody() {
+	if _, lazy := r.request.Body.(lazyBody); lazy {
+		r.request.Body = r.rawBody
+	}
 }
 
 func (r *Request) FormFile(key string) (multipart.File, *multipart.FileHeader, error) {
@@ -208,7 +242,23 @@ func (r *Request) Session() httpsession.Session {
 	return r.session
 }
 
+// RenewSession replaces the request session with a new one and deletes the previous one from the store,
+// so the previous session cookie no longer resolves to it.
 func (r *Request) RenewSession() {
+	previous := r.session
+	if previous == nil {
+		previous = _StoredSession(r)
+	}
+
+	if previous != nil {
+		// Mark the held session too: an eviction may already have removed it from the store.
+		if session, ok := previous.(interface{ MarkDeleted() }); ok {
+			session.MarkDeleted()
+		}
+
+		SessionProvider().Delete(previous.Id())
+	}
+
 	r.session = _NewSession(r)
 }
 
@@ -307,8 +357,8 @@ type Response struct {
 	jsonEncoderConfig func(*json.Encoder)
 }
 
-func WrapResponse(ch channel.NetChannel, response *ghttp.Response) *Response {
-	resp := &Response{
+func WrapResponse(ch channel.NetChannel, response *ghttp.Response) (resp *Response) {
+	resp = &Response{
 		request: &Request{
 			request: response.Request,
 			channel: ch,
@@ -318,6 +368,8 @@ func WrapResponse(ch channel.NetChannel, response *ghttp.Response) *Response {
 		done:       channel.NewFuture(ch),
 	}
 
+	// The client request body was already sent, so Body keeps returning nil instead of reading it.
+	resp.request.bodyOnce.Do(func() {})
 	return resp
 }
 
@@ -498,4 +550,28 @@ func _UnPack(obj any) *Pack {
 	}
 
 	return nil
+}
+
+// failedBody fails every read with err, so a later reader of Request().Body sees why the body is missing.
+// lazyBody buffers the request body on its first read and then reads the buffered copy.
+type lazyBody struct {
+	request *Request
+}
+
+func (b lazyBody) Read(p []byte) (n int, rtErr error) {
+	b.request.bodyOnce.Do(b.request.bufferBody)
+	return b.request.request.Body.Read(p)
+}
+
+func (b lazyBody) Close() (rtErr error) {
+	return nil
+}
+
+type failedBody struct {
+	io.ReadCloser
+	err error
+}
+
+func (b failedBody) Read(p []byte) (n int, rtErr error) {
+	return 0, b.err
 }

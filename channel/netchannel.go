@@ -53,18 +53,30 @@ type NetChannelSetConn interface {
 	SetConn(conn net.Conn)
 }
 
+// ErrReadIdle closes a net channel that received nothing for its ParamReadIdleTimeout.
+var ErrReadIdle = fmt.Errorf("read idle timeout")
+
 type DefaultNetChannel struct {
 	DefaultChannel
-	conn         Conn
-	BufferSize   int
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
+	conn            Conn
+	BufferSize      int
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	ReadIdleTimeout time.Duration
+	lastRead        time.Time // touched only by the read loop
 }
 
-func (c *DefaultNetChannel) Init() Channel {
+func (c *DefaultNetChannel) Init() (ch Channel) {
 	c.BufferSize = GetParamIntDefault(c, ParamReadBufferSize, 1024)
 	c.ReadTimeout = time.Duration(GetParamIntDefault(c, ParamReadTimeout, 1000)) * time.Millisecond
 	c.WriteTimeout = time.Duration(GetParamIntDefault(c, ParamWriteTimeout, 100)) * time.Millisecond
+	idleDefault := int64(0)
+	if c.Parent() != nil {
+		// Only connections a server accepted close when idle by default; a client keeps its own connection.
+		idleDefault = DefaultReadIdleTimeout
+	}
+
+	c.ReadIdleTimeout = time.Duration(GetParamInt64Default(c, ParamReadIdleTimeout, idleDefault)) * time.Millisecond
 	return c
 }
 
@@ -123,7 +135,13 @@ func (c *DefaultNetChannel) UnsafeWrite(obj any) error {
 		// underlying net.Conn so net.Buffers.WriteTo can coalesce components
 		// into a writev(2) syscall for *net.TCPConn / *net.UnixConn targets.
 		if wt, ok := v.(io.WriterTo); ok {
-			_, err = wt.WriteTo(c.Conn().Conn())
+			target := c.Conn().Conn()
+			if limited, ok := target.(*limitConn); ok {
+				// Write to the accepted connection itself so a *net.TCPConn keeps its writev path.
+				target = limited.Conn
+			}
+
+			_, err = wt.WriteTo(target)
 			if err != nil {
 				markConnInactiveOnError(c.Conn(), err)
 			}
@@ -145,7 +163,7 @@ func (c *DefaultNetChannel) UnsafeWrite(obj any) error {
 	return nil
 }
 
-func (c *DefaultNetChannel) UnsafeRead() (any, error) {
+func (c *DefaultNetChannel) UnsafeRead() (obj any, rtErr error) {
 	if c.Conn() == nil {
 		return nil, ErrNilObject
 	}
@@ -158,14 +176,28 @@ func (c *DefaultNetChannel) UnsafeRead() (any, error) {
 	bs := getNetBuffer(c.BufferSize)
 	defer putNetBuffer(bs) // Return buffer to pool when done
 
-	if c.ReadTimeout > 0 {
-		if err := c.Conn().SetReadDeadline(time.Now().Add(c.ReadTimeout)); err != nil {
+	wait := c.ReadTimeout
+	if wait <= 0 {
+		// Without a ReadTimeout the idle timeout is the deadline, so a silent peer still gets closed.
+		wait = c.ReadIdleTimeout
+	}
+
+	if wait > 0 {
+		if err := c.Conn().SetReadDeadline(time.Now().Add(wait)); err != nil {
 			return nil, err
 		}
 	}
 
+	if c.ReadIdleTimeout > 0 && c.lastRead.IsZero() {
+		c.lastRead = time.Now()
+	}
+
 	if rc, err := c.Conn().Read(bs); err != nil {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
+			if c.ReadIdleTimeout > 0 && time.Since(c.lastRead) >= c.ReadIdleTimeout {
+				return nil, ErrReadIdle
+			}
+
 			if c.Conn().IsActive() {
 				return nil, ErrSkip
 			} else {
@@ -181,6 +213,10 @@ func (c *DefaultNetChannel) UnsafeRead() (any, error) {
 	} else if rc == 0 {
 		return nil, ErrSkip
 	} else {
+		if c.ReadIdleTimeout > 0 {
+			c.lastRead = time.Now()
+		}
+
 		// Create a copy of the data since we're returning the buffer to pool
 		data := make([]byte, rc)
 		copy(data, bs[:rc])
@@ -188,16 +224,18 @@ func (c *DefaultNetChannel) UnsafeRead() (any, error) {
 	}
 }
 
-func (c *DefaultNetChannel) UnsafeDisconnect() error {
-	if c.Conn() != nil {
-		if c.Conn().IsActive() {
-			return c.Conn().Close()
-		}
-
-		return nil
+// UnsafeDisconnect closes the connection even after a failed read or write marked it inactive, so its
+// file descriptor is released at once instead of by the garbage collector. Closing it again is not an error.
+func (c *DefaultNetChannel) UnsafeDisconnect() (rtErr error) {
+	if c.Conn() == nil {
+		return ErrNilObject
 	}
 
-	return ErrNilObject
+	if err := c.Conn().Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+
+	return nil
 }
 
 func (c *DefaultNetChannel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error {

@@ -21,7 +21,12 @@ var DefaultSessionType = memory.SessionTypeMemory
 var SessionKey = "DEFAULT"
 var SessionDomain = ""
 var SessionExpireTime = 86400
-var SessionHttpOnly = false
+
+// SessionHttpOnly hides the session cookie from scripts.
+var SessionHttpOnly = true
+
+// SessionSecure always marks the session cookie Secure. Without it, the cookie is still Secure on
+// requests received over TLS, or forwarded with X-Forwarded-Proto: https by a peer TrustForwardedFor accepts.
 var SessionSecure = false
 
 var sessionProviders = make(map[httpsession.SessionType]httpsession.SessionProvider)
@@ -55,23 +60,27 @@ func SessionProvider() httpsession.SessionProvider {
 }
 
 func GetSession(req *Request) httpsession.Session {
-	var session httpsession.Session
-	if sessionID, e := req.Cookie(SessionKey); e == nil {
-		data := hash.DataOfTimeHash(sessionID.Value)
-		timestamp := hash.TimestampOfTimeHash(sessionID.Value)
-		if data == nil || timestamp == 0 || time.Now().Unix() >= timestamp {
-			session = _NewSession(req)
-		} else {
-			session = SessionProvider().Session(string(data))
-		}
-		if session == nil {
-			session = _NewSession(req)
-		}
-	} else {
-		session = _NewSession(req)
+	if session := _StoredSession(req); session != nil {
+		return session
 	}
 
-	return session
+	return _NewSession(req)
+}
+
+// _StoredSession returns the stored session named by the request's unexpired session cookie, or nil.
+func _StoredSession(req *Request) (session httpsession.Session) {
+	sessionID, err := req.Cookie(SessionKey)
+	if err != nil {
+		return nil
+	}
+
+	data := hash.DataOfTimeHash(sessionID.Value)
+	timestamp := hash.TimestampOfTimeHash(sessionID.Value)
+	if data == nil || timestamp == 0 || time.Now().Unix() >= timestamp {
+		return nil
+	}
+
+	return SessionProvider().Session(string(data))
 }
 
 func _NewSession(req *Request) httpsession.Session {

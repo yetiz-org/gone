@@ -187,6 +187,11 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 								child.Pipeline().fireRegistered()
 								child.activeChannel()
 								u.futureSuccess(future)
+								// A server that began closing has already closed the children it had active, so close
+								// one it accepted meanwhile; otherwise Close waits for it.
+								if server, ok := u.channel.(interface{ closing() bool }); ok && server.closing() {
+									child.inactiveChannel()
+								}
 							}(u, child, future)
 
 							go func(u *DefaultUnsafe, child Channel, future Future) {

@@ -10,4 +10,7 @@ var ParamAcceptWaitCount channel.ParamKey = "accept_wait_count"
 var ParamMaxHeaderBytes channel.ParamKey = "max_header_bytes"
 
 // var ParamMaxMultiPartMemory channel.ParamKey = "max_multi_part_memory"
+
+// ParamMaxBodyBytes limits buffered HTTP request bodies in bytes (default: 4 MiB).
+// Nonpositive values disable the limit.
 const ParamMaxBodyBytes = channel.ParamKey("max_body_bytes")

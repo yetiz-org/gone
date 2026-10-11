@@ -83,6 +83,87 @@ func TestWebSocketChannel_LiveUnsafeConnectReadWrite(t *testing.T) {
 	}
 }
 
+func TestWebSocketChannel_ReadLimit(t *testing.T) {
+	tests := []struct {
+		name     string
+		param    any
+		size     int
+		wantRead bool
+	}{
+		{name: "default accepts the limit", size: DefaultWSReadLimit, wantRead: true},
+		{name: "default rejects a larger message", size: DefaultWSReadLimit + 1},
+		{name: "configured limit is honored", param: int64(8), size: 9},
+		{name: "explicit zero preserves optout", param: int64(0), size: DefaultWSReadLimit + 1, wantRead: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+
+				defer conn.Close()
+				_ = conn.WriteMessage(websocket.BinaryMessage, make([]byte, tt.size))
+				_, _, _ = conn.ReadMessage()
+			}))
+			defer server.Close()
+
+			reads := make(chan *DefaultMessage, 1)
+			bootstrap := channel.NewBootstrap()
+			bootstrap.ChannelType(&Channel{})
+			bootstrap.Handler(&liveWebSocketReadHandler{reads: reads})
+			if tt.param != nil {
+				bootstrap.SetParams(ParamWSReadLimit, tt.param)
+			}
+
+			ch := bootstrap.Connect(nil, &WSCustomConnectConfig{Url: "ws" + strings.TrimPrefix(server.URL, "http")}).Sync().Channel()
+			require.NotNil(t, ch)
+			t.Cleanup(func() { ch.Close().Sync() })
+
+			select {
+			case msg := <-reads:
+				require.True(t, tt.wantRead, "a message over the limit must not be delivered")
+				require.Len(t, msg.Message, tt.size)
+			case <-ch.CloseFuture().Done():
+				require.False(t, tt.wantRead, "a message within the limit must be delivered")
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for the read outcome")
+			}
+		})
+	}
+}
+
+func TestWebSocketChannel_ClosesWhenReadIdle(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		defer conn.Close()
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer server.Close()
+
+	bootstrap := channel.NewBootstrap()
+	bootstrap.ChannelType(&Channel{})
+	bootstrap.Handler(&liveWebSocketReadHandler{reads: make(chan *DefaultMessage, 1)})
+	bootstrap.SetParams(channel.ParamReadIdleTimeout, 200)
+	ch := bootstrap.Connect(nil, &WSCustomConnectConfig{Url: "ws" + strings.TrimPrefix(server.URL, "http")}).Sync().Channel()
+	require.NotNil(t, ch)
+	t.Cleanup(func() { ch.Close().Sync() })
+
+	select {
+	case <-ch.CloseFuture().Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("a WebSocket that receives nothing must close after its read idle timeout")
+	}
+}
+
 // TestDefaultHandlerTask_ComprehensiveWSOperations tests all WebSocket handler operations
 func TestDefaultHandlerTask_ComprehensiveWSOperations(t *testing.T) {
 	// keep top-level parallelism of group runner
@@ -113,12 +194,26 @@ func TestDefaultHandlerTask_ComprehensiveWSOperations(t *testing.T) {
 				}
 				params := map[string]any{"test": "param"}
 
-				mockFuture := channel.NewMockFuture(mockCtx)
-				mockCtx.On("Write", mock.AnythingOfType("*gws.PongMessage"), mock.Anything).Return(mockFuture)
-
-				assert.NotPanics(t, func() {
+				written := channel.NewFuture(nil)
+				mockCtx.On("Write", mock.AnythingOfType("*gws.PongMessage"), mock.Anything).Return(written)
+				returned := make(chan struct{})
+				go func() {
 					task.WSPing(mockCtx, pingMsg, params)
-				})
+					close(returned)
+				}()
+
+				select {
+				case <-returned:
+					t.Fatal("WSPing must wait for the pong write so the read loop applies backpressure")
+				case <-time.After(50 * time.Millisecond):
+				}
+
+				written.Completable().Complete(nil)
+				select {
+				case <-returned:
+				case <-time.After(time.Second):
+					t.Fatal("WSPing must return once the pong is written")
+				}
 
 				mockCtx.AssertExpectations(t)
 			},

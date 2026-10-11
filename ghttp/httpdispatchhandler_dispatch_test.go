@@ -158,7 +158,19 @@ func TestDispatchHandlerDispatchOversizedBody(t *testing.T) {
 	ctx.On("Channel").Return(ch)
 	handler := NewDispatchHandler(NewSimpleRoute().SetEndpoint("/items", &_DispatchProbeTask{}))
 	req := httptest.NewRequest(MethodPost, "/items", nil)
-	req.Body = http.MaxBytesReader(nil, io.NopCloser(strings.NewReader("exceeds")), 3)
+	body := &closeRecordingBody{Reader: strings.NewReader("exceeds")}
+	req.Body = http.MaxBytesReader(nil, body, 3)
 
 	assert.Nil(t, handler.Dispatch(ctx, req, nil), "Dispatch should return nil when the body exceeds its limit")
+	assert.True(t, body.closed, "no server closes the body after an in-process dispatch")
+}
+
+type closeRecordingBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *closeRecordingBody) Close() (rtErr error) {
+	b.closed = true
+	return nil
 }

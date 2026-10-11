@@ -7,14 +7,21 @@ package gudp
 
 import (
 	"fmt"
+	"maps"
 	"net"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
+	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 // =============================================================================
@@ -32,7 +39,7 @@ func TestUDPChannel_RealConnection(t *testing.T) {
 	assert.NoError(t, err, "Server should bind successfully")
 	defer server.UnsafeClose()
 
-	actualServerAddr := server.conn.LocalAddr()
+	actualServerAddr := server.conn.Load().LocalAddr()
 	t.Logf("Server bound to: %s", actualServerAddr.String())
 
 	// Test simple UDP packet sending
@@ -57,7 +64,7 @@ func TestUDPChannel_MessageExchange(t *testing.T) {
 	assert.NoError(t, err, "Server should bind successfully")
 	defer server.UnsafeClose()
 
-	actualServerAddr := server.conn.LocalAddr()
+	actualServerAddr := server.conn.Load().LocalAddr()
 
 	// Test message exchange using direct UDP connection
 	testMessage := []byte("Hello UDP Server!")
@@ -70,7 +77,7 @@ func TestUDPChannel_MessageExchange(t *testing.T) {
 
 		// Read directly from UDP connection
 		buffer := make([]byte, 1024)
-		n, clientAddr, err := server.conn.ReadFromUDP(buffer)
+		n, clientAddr, err := server.conn.Load().ReadFromUDP(buffer)
 		if err == nil {
 			serverReceivedMessage = buffer[:n]
 			t.Logf("Server received message from %s: %s", clientAddr, string(serverReceivedMessage))
@@ -123,7 +130,7 @@ func TestUDPChannel_MultipleConcurrentClients(t *testing.T) {
 	assert.NoError(t, err, "Server should bind successfully")
 	defer server.UnsafeClose()
 
-	actualServerAddr := server.conn.LocalAddr()
+	actualServerAddr := server.conn.Load().LocalAddr()
 
 	const numClients = 10
 	const messagesPerClient = 5
@@ -140,7 +147,7 @@ func TestUDPChannel_MultipleConcurrentClients(t *testing.T) {
 		buffer := make([]byte, 1024)
 
 		for range expectedMessages {
-			n, clientAddr, err := server.conn.ReadFromUDP(buffer)
+			n, clientAddr, err := server.conn.Load().ReadFromUDP(buffer)
 			if err != nil {
 				t.Errorf("Server failed to read message: %v", err)
 				break
@@ -389,7 +396,7 @@ func TestServerChannel_UnsafeAcceptDeliversFirstPacket(t *testing.T) {
 	assert.NoError(t, server.UnsafeBind(localAddr))
 	defer server.UnsafeClose()
 
-	client, err := net.DialUDP("udp", nil, server.conn.LocalAddr().(*net.UDPAddr))
+	client, err := net.DialUDP("udp", nil, server.conn.Load().LocalAddr().(*net.UDPAddr))
 	assert.NoError(t, err)
 	defer client.Close()
 	_, err = client.Write([]byte("first-packet"))
@@ -406,231 +413,325 @@ func TestServerChannel_UnsafeAcceptDeliversFirstPacket(t *testing.T) {
 	assert.Equal(t, "first-packet", string(readBuffer[:n]))
 }
 
-func TestUDPClientConn_ReadFiltersPacketsByClientAddress(t *testing.T) {
-	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
-	assert.NoError(t, err)
-	defer serverConn.Close()
+type udpPeerRecorder struct {
+	channel.DefaultHandler
+	reads    chan string
+	inactive chan string
+}
 
-	targetClient, err := net.DialUDP("udp", nil, serverConn.LocalAddr().(*net.UDPAddr))
-	assert.NoError(t, err)
-	defer targetClient.Close()
+func (h *udpPeerRecorder) Read(ctx channel.HandlerContext, obj any) {
+	h.reads <- ctx.Channel().ID() + "|" + string(obj.(buf.ByteBuf).Bytes())
+}
 
-	otherClient, err := net.DialUDP("udp", nil, serverConn.LocalAddr().(*net.UDPAddr))
-	assert.NoError(t, err)
-	defer otherClient.Close()
+func (h *udpPeerRecorder) Inactive(ctx channel.HandlerContext) {
+	h.inactive <- ctx.Channel().ID()
+	ctx.FireInactive()
+}
 
-	clientConn := &UDPClientConn{
-		server:     serverConn,
-		clientAddr: targetClient.LocalAddr().(*net.UDPAddr),
-		firstRead:  true,
+func startUDPPeerServer(t *testing.T, params map[channel.ParamKey]any) (recorder *udpPeerRecorder, addr *net.UDPAddr, serverCh channel.Channel) {
+	t.Helper()
+	probe, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	addr = probe.LocalAddr().(*net.UDPAddr)
+	require.NoError(t, probe.Close())
+
+	recorder = &udpPeerRecorder{reads: make(chan string, 64), inactive: make(chan string, 64)}
+	bootstrap := channel.NewServerBootstrap()
+	bootstrap.ChildHandler(recorder)
+	bootstrap.ChannelType(&ServerChannel{})
+	for key, value := range params {
+		bootstrap.SetParams(key, value)
 	}
-	assert.NoError(t, serverConn.SetReadDeadline(time.Now().Add(2*time.Second)))
 
-	_, err = otherClient.Write([]byte("wrong-client"))
-	assert.NoError(t, err)
-	_, err = targetClient.Write([]byte("target-client"))
-	assert.NoError(t, err)
-
-	readBuffer := make([]byte, 32)
-	n, err := clientConn.Read(readBuffer)
-	assert.NoError(t, err)
-	assert.Equal(t, "target-client", string(readBuffer[:n]))
+	serverCh = bootstrap.Bind(addr).Sync().Channel()
+	t.Cleanup(func() { serverCh.Close().Sync() })
+	return recorder, addr, serverCh
 }
 
-// TestUDPConnWrapper wraps a real UDP connection for testing
-type TestUDPConnWrapper struct {
-	conn       *net.UDPConn
-	clientAddr *net.UDPAddr
-	testData   []byte
-	writeData  []byte
-	mu         sync.Mutex
-	closed     bool
+func dialUDPPeer(t *testing.T, addr *net.UDPAddr) (conn *net.UDPConn) {
+	t.Helper()
+	conn, err := net.DialUDP("udp4", nil, addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	return conn
 }
 
-// getTestUDPConnection creates a real UDP connection for testing
-func getTestUDPConnection(t *testing.T) (*net.UDPConn, *net.UDPAddr) {
-	// Create a UDP connection listening on a random port
-	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	assert.NoError(t, err)
-
-	conn, err := net.ListenUDP("udp", addr)
-	assert.NoError(t, err)
-
-	clientAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 12345}
-	return conn, clientAddr
+func nextUDPRead(t *testing.T, recorder *udpPeerRecorder) (channelID string, payload string) {
+	t.Helper()
+	select {
+	case got := <-recorder.reads:
+		channelID, payload, _ = strings.Cut(got, "|")
+		return channelID, payload
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for a datagram")
+		return "", ""
+	}
 }
 
-// TestUDPClientConn_Read tests the Read functionality
+func TestServerChannel_ServesEachPeerThroughOneChild(t *testing.T) {
+	recorder, addr, _ := startUDPPeerServer(t, nil)
+	first, second := dialUDPPeer(t, addr), dialUDPPeer(t, addr)
+	perChild := map[string][]string{}
+	for i := range 3 {
+		_, err := first.Write([]byte(fmt.Sprintf("a%d", i)))
+		require.NoError(t, err)
+		id, payload := nextUDPRead(t, recorder)
+		perChild[id] = append(perChild[id], payload)
+		_, err = second.Write([]byte(fmt.Sprintf("b%d", i)))
+		require.NoError(t, err)
+		id, payload = nextUDPRead(t, recorder)
+		perChild[id] = append(perChild[id], payload)
+	}
+
+	require.Len(t, perChild, 2, "each remote address must be served by one child")
+	require.ElementsMatch(t, [][]string{{"a0", "a1", "a2"}, {"b0", "b1", "b2"}}, slices.Collect(maps.Values(perChild)))
+}
+
+func TestServerChannel_DropsNewPeersAtLimit(t *testing.T) {
+	recorder, addr, _ := startUDPPeerServer(t, map[channel.ParamKey]any{ParamMaxPeers: 1})
+	first, second := dialUDPPeer(t, addr), dialUDPPeer(t, addr)
+	_, err := first.Write([]byte("first"))
+	require.NoError(t, err)
+	_, payload := nextUDPRead(t, recorder)
+	require.Equal(t, "first", payload)
+
+	_, err = second.Write([]byte("dropped"))
+	require.NoError(t, err)
+	_, err = first.Write([]byte("served"))
+	require.NoError(t, err)
+
+	_, payload = nextUDPRead(t, recorder)
+	require.Equal(t, "served", payload, "a new address over the limit must not get a child")
+}
+
+func TestServerChannel_ClosesIdlePeer(t *testing.T) {
+	recorder, addr, _ := startUDPPeerServer(t, map[channel.ParamKey]any{ParamPeerIdleTimeout: 200})
+	peer := dialUDPPeer(t, addr)
+	_, err := peer.Write([]byte("before"))
+	require.NoError(t, err)
+	firstID, _ := nextUDPRead(t, recorder)
+
+	select {
+	case id := <-recorder.inactive:
+		require.Equal(t, firstID, id)
+	case <-time.After(3 * time.Second):
+		t.Fatal("an idle peer's child must close")
+	}
+
+	_, err = peer.Write([]byte("after"))
+	require.NoError(t, err)
+	secondID, payload := nextUDPRead(t, recorder)
+	require.Equal(t, "after", payload)
+	require.NotEqual(t, firstID, secondID, "the next datagram opens a new child")
+}
+
+func TestServerChannel_CloseWhileNewPeersArrive(t *testing.T) {
+	bootstrap := channel.NewServerBootstrap()
+	bootstrap.ChildHandler(&channel.DefaultHandler{})
+	bootstrap.ChannelType(&ServerChannel{})
+	server := bootstrap.Bind(&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}).Sync().Channel().(*ServerChannel)
+	addr := server.conn.Load().LocalAddr().(*net.UDPAddr)
+	stop := make(chan struct{})
+	sent := make(chan struct{})
+	go func() {
+		defer close(sent)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			if conn, err := net.DialUDP("udp4", nil, addr); err == nil {
+				conn.Write([]byte("hello"))
+				conn.Close()
+			}
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	closed := server.Close()
+	select {
+	case <-closed.Done():
+	case <-time.After(3 * time.Second):
+		t.Error("Close must not wait for peers that arrive while the server closes")
+	}
+
+	close(stop)
+	<-sent
+}
+
+type udpPusher struct {
+	channel.DefaultHandler
+}
+
+func (h *udpPusher) Read(ctx channel.HandlerContext, obj any) {
+	go func() {
+		for i := range 10 {
+			time.Sleep(50 * time.Millisecond)
+			ctx.Channel().Write(buf.NewByteBufString(strconv.Itoa(i)))
+		}
+	}()
+}
+
+func TestServerChannel_KeepsPeerThatOnlyReceives(t *testing.T) {
+	bootstrap := channel.NewServerBootstrap()
+	bootstrap.ChildHandler(&udpPusher{})
+	bootstrap.ChannelType(&ServerChannel{})
+	bootstrap.SetChildParams(channel.ParamReadTimeout, 20)
+	bootstrap.SetChildParams(channel.ParamReadIdleTimeout, 100)
+	server := bootstrap.Bind(&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}).Sync().Channel().(*ServerChannel)
+	t.Cleanup(func() { server.Close().Sync() })
+	peer := dialUDPPeer(t, server.conn.Load().LocalAddr().(*net.UDPAddr))
+	_, err := peer.Write([]byte("subscribe"))
+	require.NoError(t, err)
+
+	received := 0
+	peer.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for received < 10 {
+		if _, err := peer.Read(make([]byte, 16)); err != nil {
+			break
+		}
+
+		received++
+	}
+
+	require.Equal(t, 10, received, "the peer idle timeout, not the read idle timeout, decides when a UDP peer is idle")
+}
+
+func TestServerChannel_CloseReleasesPeers(t *testing.T) {
+	recorder, addr, server := startUDPPeerServer(t, map[channel.ParamKey]any{ParamPeerIdleTimeout: 0})
+	peer := dialUDPPeer(t, addr)
+	_, err := peer.Write([]byte("hello"))
+	require.NoError(t, err)
+	childID, _ := nextUDPRead(t, recorder)
+
+	server.Close().Sync()
+
+	select {
+	case id := <-recorder.inactive:
+		require.Equal(t, childID, id)
+	case <-time.After(3 * time.Second):
+		t.Fatal("closing the server must close its peer children even without an idle timeout")
+	}
+
+	require.Eventually(t, func() bool { return server.(*ServerChannel).peerCount.Load() == 0 }, 3*time.Second, 20*time.Millisecond)
+}
+
+func newTestUDPClientConn(t *testing.T) (clientConn *UDPClientConn, peer *net.UDPConn) {
+	t.Helper()
+	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { socket.Close() })
+	peer, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { peer.Close() })
+
+	clientConn = &UDPClientConn{
+		server:          &ServerChannel{},
+		socket:          socket,
+		clientAddr:      peer.LocalAddr().(*net.UDPAddr),
+		packets:         make(chan []byte, peerQueueLength),
+		closed:          make(chan struct{}),
+		deadlineChanged: make(chan struct{}, 1),
+	}
+
+	return clientConn, peer
+}
+
 func TestUDPClientConn_Read(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Read_FirstReadWithCachedData", func(t *testing.T) {
+	t.Run("Read_TruncatesToBuffer", func(t *testing.T) {
 		t.Parallel()
+		clientConn, _ := newTestUDPClientConn(t)
+		clientConn.deliver([]byte("very long datagram"))
 
-		server, clientAddr := getTestUDPConnection(t)
-		defer server.Close()
-
-		cachedData := []byte("cached data")
-
-		clientConn := &UDPClientConn{
-			server:     server,
-			clientAddr: clientAddr,
-			lastData:   cachedData,
-			firstRead:  false,
-		}
-
-		buffer := make([]byte, 100)
+		buffer := make([]byte, 4)
 		n, err := clientConn.Read(buffer)
 
-		// Should succeed with cached data
 		assert.NoError(t, err)
-		assert.Equal(t, len(cachedData), n)
-		assert.Equal(t, cachedData, buffer[:n])
-
-		// Should mark firstRead as true
-		assert.True(t, clientConn.firstRead)
-	})
-
-	t.Run("Read_FirstReadWithSmallBuffer", func(t *testing.T) {
-		t.Parallel()
-
-		server, clientAddr := getTestUDPConnection(t)
-		defer server.Close()
-
-		cachedData := []byte("very long cached data that exceeds buffer")
-
-		clientConn := &UDPClientConn{
-			server:     server,
-			clientAddr: clientAddr,
-			lastData:   cachedData,
-			firstRead:  false,
-		}
-
-		buffer := make([]byte, 10) // Small buffer
-		n, err := clientConn.Read(buffer)
-
-		// Should succeed but truncate data
-		assert.NoError(t, err)
-		assert.Equal(t, 10, n)
-		assert.Equal(t, cachedData[:10], buffer)
-
-		// Should mark firstRead as true
-		assert.True(t, clientConn.firstRead)
+		assert.Equal(t, "very", string(buffer[:n]))
 	})
 
 	t.Run("Read_WithTimeout", func(t *testing.T) {
 		t.Parallel()
+		clientConn, _ := newTestUDPClientConn(t)
+		assert.NoError(t, clientConn.SetReadDeadline(time.Now().Add(50*time.Millisecond)))
 
-		server, clientAddr := getTestUDPConnection(t)
-		defer server.Close()
+		_, err := clientConn.Read(make([]byte, 8))
 
-		clientConn := &UDPClientConn{
-			server:     server,
-			clientAddr: clientAddr,
-			firstRead:  true, // Skip cached data
-		}
+		assert.ErrorIs(t, err, os.ErrDeadlineExceeded)
+	})
 
-		// Set short read deadline to cause timeout
-		err := server.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		assert.NoError(t, err)
+	t.Run("Read_WakesOnShorterDeadline", func(t *testing.T) {
+		t.Parallel()
+		clientConn, _ := newTestUDPClientConn(t)
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			_ = clientConn.SetReadDeadline(time.Now())
+		}()
 
-		buffer := make([]byte, 100)
-		_, err = clientConn.Read(buffer)
+		started := time.Now()
+		_, err := clientConn.Read(make([]byte, 8))
 
-		// Should timeout
-		assert.Error(t, err)
+		assert.ErrorIs(t, err, os.ErrDeadlineExceeded)
+		assert.Less(t, time.Since(started), time.Second, "a blocked Read must apply a deadline set while it waits")
+	})
 
-		// Reset deadline
-		server.SetReadDeadline(time.Time{})
+	t.Run("Read_AfterClose", func(t *testing.T) {
+		t.Parallel()
+		clientConn, _ := newTestUDPClientConn(t)
+		assert.NoError(t, clientConn.Close())
+
+		_, err := clientConn.Read(make([]byte, 8))
+
+		assert.ErrorIs(t, err, net.ErrClosed)
 	})
 }
 
-// TestUDPClientConn_Write tests the Write functionality
+func TestUDPClientConn_QueueBudget(t *testing.T) {
+	t.Parallel()
+	clientConn, _ := newTestUDPClientConn(t)
+	clientConn.server.queuedBytes.Store(maxQueuedBytes - 4)
+
+	clientConn.deliver([]byte("fits"))
+	clientConn.deliver([]byte("x"))
+	buffer := make([]byte, 8)
+	n, err := clientConn.Read(buffer)
+	require.NoError(t, err)
+	assert.Equal(t, "fits", string(buffer[:n]), "a datagram over the shared budget must be dropped")
+	assert.Equal(t, int64(maxQueuedBytes-4), clientConn.server.queuedBytes.Load(), "reading releases the budget")
+
+	clientConn.deliver([]byte("abc"))
+	require.NoError(t, clientConn.Close())
+	assert.Equal(t, int64(maxQueuedBytes-4), clientConn.server.queuedBytes.Load(), "closing releases queued datagrams")
+}
+
 func TestUDPClientConn_Write(t *testing.T) {
 	t.Parallel()
+	clientConn, peer := newTestUDPClientConn(t)
 
-	t.Run("Write_SuccessfulWrite", func(t *testing.T) {
-		t.Parallel()
+	n, err := clientConn.Write([]byte("test message"))
+	require.NoError(t, err)
+	assert.Equal(t, len("test message"), n)
+	buffer := make([]byte, 32)
+	require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+	n, err = peer.Read(buffer)
+	require.NoError(t, err)
+	assert.Equal(t, "test message", string(buffer[:n]))
 
-		server, clientAddr := getTestUDPConnection(t)
-		defer server.Close()
-
-		testData := []byte("test message")
-
-		clientConn := &UDPClientConn{
-			server:     server,
-			clientAddr: clientAddr,
-		}
-
-		n, err := clientConn.Write(testData)
-
-		// Should succeed
-		assert.NoError(t, err)
-		assert.Equal(t, len(testData), n)
-	})
-
-	t.Run("Write_EmptyData", func(t *testing.T) {
-		t.Parallel()
-
-		server, clientAddr := getTestUDPConnection(t)
-		defer server.Close()
-
-		emptyData := []byte{}
-
-		clientConn := &UDPClientConn{
-			server:     server,
-			clientAddr: clientAddr,
-		}
-
-		n, err := clientConn.Write(emptyData)
-
-		// Should succeed with empty data
-		assert.NoError(t, err)
-		assert.Equal(t, 0, n)
-	})
+	require.NoError(t, clientConn.Close())
+	_, err = clientConn.Write([]byte("late"))
+	assert.ErrorIs(t, err, net.ErrClosed)
 }
 
-// TestUDPClientConn_Close tests the Close functionality
 func TestUDPClientConn_Close(t *testing.T) {
 	t.Parallel()
+	clientConn, _ := newTestUDPClientConn(t)
 
-	t.Run("Close_AlwaysSucceeds", func(t *testing.T) {
-		t.Parallel()
-
-		server, clientAddr := getTestUDPConnection(t)
-		defer server.Close()
-
-		clientConn := &UDPClientConn{
-			server:     server,
-			clientAddr: clientAddr,
-		}
-
-		err := clientConn.Close()
-
-		// Should always succeed for UDP client connections
-		assert.NoError(t, err)
-	})
-
-	t.Run("Close_MultipleCloses", func(t *testing.T) {
-		t.Parallel()
-
-		server, clientAddr := getTestUDPConnection(t)
-		defer server.Close()
-
-		clientConn := &UDPClientConn{
-			server:     server,
-			clientAddr: clientAddr,
-		}
-
-		// Multiple closes should all succeed
-		err1 := clientConn.Close()
-		err2 := clientConn.Close()
-		err3 := clientConn.Close()
-
-		assert.NoError(t, err1)
-		assert.NoError(t, err2)
-		assert.NoError(t, err3)
-	})
+	assert.NoError(t, clientConn.Close())
+	assert.NoError(t, clientConn.Close(), "multiple closes should succeed")
 }
 
 // =============================================================================

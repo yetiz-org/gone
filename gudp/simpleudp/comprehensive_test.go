@@ -1,11 +1,13 @@
 package simpleudp
 
 import (
+	"net"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
 	goneMock "github.com/yetiz-org/gone/mock"
 	"github.com/yetiz-org/gone/utils"
@@ -513,5 +515,49 @@ func TestSimpleCodec_VarIntIntegration(t *testing.T) {
 			assert.Equal(t, tt.length, decoded,
 				"TestCase: %s should decode correctly", tt.name)
 		})
+	}
+}
+
+type echoRoundTripHandler struct {
+	channel.DefaultHandler
+}
+
+func (h *echoRoundTripHandler) Read(ctx channel.HandlerContext, obj any) {
+	ctx.Write(obj, nil)
+}
+
+type receiveRoundTripHandler struct {
+	channel.DefaultHandler
+	got chan string
+}
+
+func (h *receiveRoundTripHandler) Read(ctx channel.HandlerContext, obj any) {
+	h.got <- string(obj.(buf.ByteBuf).Bytes())
+}
+
+// TestSimpleUDP_EchoRoundTrip sends framed messages through a real server and client: each frame must
+// leave as one datagram so the receiver can decode it.
+func TestSimpleUDP_EchoRoundTrip(t *testing.T) {
+	probe, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	addr := probe.LocalAddr().(*net.UDPAddr)
+	require.NoError(t, probe.Close())
+
+	server := NewServer(&echoRoundTripHandler{})
+	server.Start(addr)
+	t.Cleanup(func() { server.Stop().Sync() })
+	received := &receiveRoundTripHandler{got: make(chan string, 2)}
+	client := NewClient(received)
+	client.Start(addr)
+	t.Cleanup(func() { client.Channel().Close().Sync() })
+
+	for _, message := range []string{"hello", "world"} {
+		client.Channel().Write(buf.NewByteBufString(message))
+		select {
+		case got := <-received.got:
+			require.Equal(t, message, got)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no echo for %q", message)
+		}
 	}
 }

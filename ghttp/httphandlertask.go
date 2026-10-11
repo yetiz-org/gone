@@ -51,6 +51,13 @@ type PreCheckSkipOptions interface {
 	SkipPreCheckForOptions() bool
 }
 
+// RequestBodyStreamer lets a task read Request().Body as a stream. When StreamRequestBody reports true,
+// the dispatcher skips buffering the body before the acceptances run, so the task owns reading it and
+// handling an *http.MaxBytesError; calling Request.Body still buffers it on demand.
+type RequestBodyStreamer interface {
+	StreamRequestBody() bool
+}
+
 type SSEOperation interface {
 	WriteHeader(ctx channel.HandlerContext, header http.Header, params map[string]any) channel.Future
 	WriteMessage(ctx channel.HandlerContext, message SSEMessage, params map[string]any) channel.Future

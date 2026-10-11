@@ -67,7 +67,7 @@ func (c *Channel) UnsafeWrite(obj any) error {
 	return nil
 }
 
-func (c *Channel) UnsafeRead() (any, error) {
+func (c *Channel) UnsafeRead() (obj any, rtErr error) {
 	if c.Conn() == nil {
 		return nil, channel.ErrNilObject
 	}
@@ -76,7 +76,8 @@ func (c *Channel) UnsafeRead() (any, error) {
 		return nil, net.ErrClosed
 	}
 
-	c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, 0))
+	c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, DefaultWSReadLimit))
+	c._ExtendReadDeadline()
 	typ, bs, err := c.wsConn.ReadMessage()
 	if err != nil {
 		if c.IsActive() {
@@ -112,6 +113,7 @@ func (c *Channel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error {
 }
 
 func (c *Channel) _PingHandler(message string) error {
+	c._ExtendReadDeadline()
 	msg := &PingMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: PingMessageType,
@@ -125,6 +127,7 @@ func (c *Channel) _PingHandler(message string) error {
 }
 
 func (c *Channel) _PongHandler(message string) error {
+	c._ExtendReadDeadline()
 	msg := &PongMessage{
 		DefaultMessage: DefaultMessage{
 			MessageType: PongMessageType,
@@ -149,6 +152,14 @@ func (c *Channel) _CloseHandler(code int, text string) error {
 	c.FireRead(msg)
 	c.FireReadCompleted()
 	return nil
+}
+
+// _ExtendReadDeadline gives the peer another ParamReadIdleTimeout to send a whole message, ping or pong;
+// otherwise the read fails and the channel closes.
+func (c *Channel) _ExtendReadDeadline() {
+	if c.ReadIdleTimeout > 0 {
+		c.wsConn.SetReadDeadline(time.Now().Add(c.ReadIdleTimeout))
+	}
 }
 
 func (c *Channel) _NewWSLog(message Message, err error) *LogStruct {

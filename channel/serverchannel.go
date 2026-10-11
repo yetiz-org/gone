@@ -3,6 +3,7 @@ package channel
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 
 	concurrent "github.com/yetiz-org/goth-concurrent"
 )
@@ -21,12 +22,15 @@ type DefaultServerChannel struct {
 	childHandler Handler
 	childParams  Params
 	childMap     sync.Map
+	closingDown  atomic.Bool // set before the children are closed; a child accepted later closes itself
 }
 
 func (c *DefaultServerChannel) activeChannel() {
 	scp := c
+	scp.closingDown.Store(false)
 	scp.DefaultChannel.activeChannel()
 	scp.DefaultChannel.alive.Chainable().Then(func(parent concurrent.Future) any {
+		scp.closingDown.Store(true)
 		scp.childMap.Range(func(key, value any) bool {
 			if ch, ok := value.(Channel); ok {
 				if ch.IsActive() {
@@ -38,6 +42,11 @@ func (c *DefaultServerChannel) activeChannel() {
 
 		return parent.Get()
 	})
+}
+
+// closing reports whether the server began closing its children.
+func (c *DefaultServerChannel) closing() (closing bool) {
+	return c.closingDown.Load()
 }
 
 func (c *DefaultServerChannel) setChildHandler(handler Handler) ServerChannel {

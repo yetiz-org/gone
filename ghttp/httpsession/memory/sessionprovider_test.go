@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"encoding/json"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -275,4 +277,219 @@ func TestSessionProvider_CleanFrequency(t *testing.T) {
 // Test that SessionProvider correctly implements httpsession.SessionProvider interface
 func TestSessionProvider_ImplementsInterface(t *testing.T) {
 	var _ httpsession.SessionProvider = (*SessionProvider)(nil)
+}
+
+func TestSessionProvider_MaxSessions(t *testing.T) {
+	provider := NewSessionProvider()
+	provider.MaxSessions = 3
+	expire := time.Now().Add(time.Hour)
+	var last httpsession.Session
+	for range 5 {
+		last = provider.NewSession(expire)
+	}
+
+	if got := len(provider.Sessions()); got != 3 {
+		t.Fatalf("stored sessions = %d, want the cap 3", got)
+	}
+
+	if provider.Session(last.Id()) == nil {
+		t.Fatal("the session just saved must stay stored")
+	}
+
+	for id, session := range provider.Sessions() {
+		if err := session.Save(); err != nil || provider.Session(id) == nil {
+			t.Fatalf("saving a stored session must not evict it: %v", err)
+		}
+	}
+
+	if got := len(provider.Sessions()); got != 3 {
+		t.Fatalf("stored sessions after re-saving = %d, want 3", got)
+	}
+}
+
+// TestSessionProvider_SharedSessionConcurrentRequests mirrors concurrent requests carrying one session
+// cookie: they all receive the same stored session. Run with -race.
+func TestSessionProvider_SharedSessionConcurrentRequests(t *testing.T) {
+	provider := NewSessionProvider()
+	id := provider.NewSession(time.Now().Add(time.Hour)).Id()
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			session := provider.Session(id)
+			for j := range 100 {
+				session.PutString("key", "value")
+				session.PutInt64("n", int64(i*j))
+				_ = session.GetString("key")
+				session.Delete("missing")
+				for range session.(*httpsession.DefaultSession).Snapshot() {
+				}
+
+				_ = session.Save()
+			}
+		})
+	}
+
+	wg.Wait()
+	if got := provider.Session(id).GetString("key"); got != "value" {
+		t.Fatalf("GetString = %q, want value", got)
+	}
+
+	snapshot := provider.Session(id).(*httpsession.DefaultSession).Snapshot()
+	snapshot["key"] = "changed"
+	if got := provider.Session(id).GetString("key"); got != "value" {
+		t.Fatalf("changing a Snapshot must not change the session, GetString = %q", got)
+	}
+}
+
+// TestSessionProvider_ReloadWhileWriting reloads a copy of a stored session, as a provider that decodes
+// sessions hands out, while another request writes the stored one. Run with -race.
+func TestSessionProvider_ReloadWhileWriting(t *testing.T) {
+	provider := NewSessionProvider()
+	stored := provider.NewSession(time.Now().Add(time.Hour))
+	_ = stored.Save()
+	encoded, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session := httpsession.NewDefaultSession(provider)
+	if err := json.Unmarshal(encoded, session); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 50000 {
+			stored.PutInt64(strconv.Itoa(i%4096), int64(i))
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			session.Reload()
+		}
+	}
+}
+
+func TestSessionProvider_EvictsExpiredThenLeastRecentlySaved(t *testing.T) {
+	provider := NewSessionProvider()
+	provider.MaxSessions = 10
+	expire := time.Now().Add(time.Hour)
+	var sessions []httpsession.Session
+	for range 10 {
+		sessions = append(sessions, provider.NewSession(expire))
+	}
+
+	expired := sessions[9]
+	expired.SetExpire(time.Now().Add(-time.Second))
+	time.Sleep(1100 * time.Millisecond)
+	active := sessions[0]
+	if err := active.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	provider.NewSession(expire)
+
+	if got := len(provider.Sessions()); got != 9 {
+		t.Fatalf("stored sessions = %d, want a tenth of the cap freed", got)
+	}
+
+	if provider.Session(expired.Id()) != nil {
+		t.Fatal("an expired session must be evicted first")
+	}
+
+	if provider.Session(active.Id()) == nil {
+		t.Fatal("the most recently saved session must survive eviction")
+	}
+}
+
+// TestSessionProvider_DeletedSessionIsNotStoredAgain mirrors a request that still holds a session while
+// another request renews or deletes it.
+func TestSessionProvider_DeletedSessionIsNotStoredAgain(t *testing.T) {
+	provider := NewSessionProvider()
+	id := provider.NewSession(time.Now().Add(time.Hour)).Id()
+	inFlight := provider.Session(id)
+
+	provider.Delete(id)
+	inFlight.PutString("user", "u")
+	if err := inFlight.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if provider.Session(id) != nil {
+		t.Fatal("a deleted session must not be stored again by a request still holding it")
+	}
+
+	wrapped := wrappedSession{httpsession.NewDefaultSession(provider)}
+	_ = provider.Save(wrapped)
+	provider.Delete(wrapped.Id())
+	_ = wrapped.Save()
+	if provider.Session(wrapped.Id()) != nil {
+		t.Fatal("a deleted session that embeds DefaultSession must not be stored again")
+	}
+}
+
+type wrappedSession struct {
+	*httpsession.DefaultSession
+}
+
+// TestSessionProvider_DeleteRacesSave runs Delete against a concurrent Save of the same session many
+// times; the deleted session must never remain stored. Run with -race.
+func TestSessionProvider_DeleteRacesSave(t *testing.T) {
+	provider := NewSessionProvider()
+	for range 20000 {
+		session := provider.NewSession(time.Now().Add(time.Hour))
+		var wg sync.WaitGroup
+		wg.Go(func() { _ = session.Save() })
+		wg.Go(func() { provider.Delete(session.Id()) })
+		wg.Wait()
+		if provider.Session(session.Id()) != nil {
+			t.Fatal("a session deleted while a Save was in progress must not remain stored")
+		}
+	}
+}
+
+func TestSessionProvider_ConcurrentCreationStaysCapped(t *testing.T) {
+	provider := NewSessionProvider()
+	provider.MaxSessions = 100
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			for range 200 {
+				provider.NewSession(time.Now().Add(time.Hour))
+			}
+		})
+	}
+
+	wg.Wait()
+	provider.NewSession(time.Now().Add(time.Hour))
+	if got := len(provider.Sessions()); got > provider.MaxSessions {
+		t.Fatalf("stored sessions = %d, want at most %d", got, provider.MaxSessions)
+	}
+}
+
+// uncomparableSession is a valid Session whose value cannot be compared with ==.
+type uncomparableSession struct {
+	*httpsession.DefaultSession
+	tags []string
+}
+
+func TestSessionProvider_EvictsUncomparableSessions(t *testing.T) {
+	provider := NewSessionProvider()
+	provider.MaxSessions = 1
+	for range 3 {
+		session := uncomparableSession{DefaultSession: httpsession.NewDefaultSession(provider), tags: []string{"custom"}}
+		session.SetExpire(time.Now().Add(time.Hour))
+		if err := provider.Save(session); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := len(provider.Sessions()); got != 1 {
+		t.Fatalf("stored sessions = %d, want the cap 1", got)
+	}
 }

@@ -2,7 +2,8 @@ package ghttp
 
 import (
 	"compress/gzip"
-	"fmt"
+	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,22 +17,31 @@ const LogHandlerDefaultMaxBodySize = 204800
 const LogHandlerDefaultMaxReqBodySize = 100000
 const LogHandlerDefaultMaxRespBodySize = 100000
 
+// LogHandlerRedacted replaces the values of redacted headers in logs.
+const LogHandlerRedacted = "[REDACTED]"
+
+// LogHandlerDefaultRedactHeaders lists the credential headers NewLogHandler redacts.
+var LogHandlerDefaultRedactHeaders = []string{"Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie"}
+
 type LogHandler struct {
 	channel.DefaultHandler
 	printBody       bool
 	ReqMaxBodySize  int
 	RespMaxBodySize int
 	FilterFunc      func(req *Request, resp *Response, params map[string]any) bool
+	// RedactHeaders lists headers, matched case-insensitively, whose values are logged as LogHandlerRedacted.
+	RedactHeaders []string
 }
 
 var defaultFilter = func(req *Request, resp *Response, params map[string]any) bool { return true }
 
-func NewLogHandler(printBody bool) *LogHandler {
+func NewLogHandler(printBody bool) (logHandler *LogHandler) {
 	handler := LogHandler{}
 	handler.printBody = printBody
 	handler.ReqMaxBodySize = LogHandlerDefaultMaxReqBodySize
 	handler.RespMaxBodySize = LogHandlerDefaultMaxRespBodySize
 	handler.FilterFunc = defaultFilter
+	handler.RedactHeaders = slices.Clone(LogHandlerDefaultRedactHeaders)
 	return &handler
 }
 
@@ -66,29 +76,12 @@ func (h *LogHandler) Read(ctx channel.HandlerContext, obj any) {
 	ctx.FireRead(obj)
 }
 
-func (h *LogHandler) constructReq(req *Request) *RequestLogStruct {
+func (h *LogHandler) constructReq(req *Request) (reqLog *RequestLogStruct) {
 	logStruct := RequestLogStruct{
 		Method:  req.Method(),
-		Headers: map[string]any{},
+		Headers: h.logHeaders(req.Header()),
 		HOST:    req.Host(),
 		URI:     req.RequestURI(),
-	}
-
-	for name, value := range req.Header() {
-		valStr := ""
-		if len(value) > 1 {
-			for i := range value {
-				if i == 0 {
-					valStr = value[0]
-				} else {
-					valStr = fmt.Sprintf("%s;%s", valStr, value[i])
-				}
-			}
-		} else {
-			valStr = value[0]
-		}
-
-		logStruct.Headers[name] = valStr
 	}
 
 	bodyLength := 0
@@ -108,28 +101,26 @@ func (h *LogHandler) constructReq(req *Request) *RequestLogStruct {
 	return &logStruct
 }
 
-func (h *LogHandler) constructResp(resp *Response) *ResponseLogStruct {
-	logStruct := ResponseLogStruct{
-		StatusCode: resp.StatusCode(),
-		Headers:    map[string]any{},
-		URI:        resp.request.RequestURI(),
-	}
-
-	for name, value := range resp.Header() {
-		valStr := ""
-		if len(value) > 1 {
-			for i := range value {
-				if i == 0 {
-					valStr = value[0]
-				} else {
-					valStr = fmt.Sprintf("%s;%s", valStr, value[i])
-				}
-			}
-		} else {
-			valStr = value[0]
+// logHeaders joins each header's values with ";" and redacts the RedactHeaders values.
+func (h *LogHandler) logHeaders(header http.Header) (headers map[string]any) {
+	headers = map[string]any{}
+	for name, value := range header {
+		if slices.ContainsFunc(h.RedactHeaders, func(redact string) bool { return strings.EqualFold(redact, name) }) {
+			headers[name] = LogHandlerRedacted
+			continue
 		}
 
-		logStruct.Headers[name] = valStr
+		headers[name] = strings.Join(value, ";")
+	}
+
+	return headers
+}
+
+func (h *LogHandler) constructResp(resp *Response) (respLog *ResponseLogStruct) {
+	logStruct := ResponseLogStruct{
+		StatusCode: resp.StatusCode(),
+		Headers:    h.logHeaders(resp.Header()),
+		URI:        resp.request.RequestURI(),
 	}
 
 	if h.printBody {

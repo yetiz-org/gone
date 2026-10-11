@@ -11,6 +11,20 @@ const ParamReadBufferSize = ParamKey("read_buffer_size")
 const ParamReadTimeout = ParamKey("read_timeout")
 const ParamWriteTimeout = ParamKey("write_timeout")
 
+// ParamReadIdleTimeout closes a connection that receives nothing for this many milliseconds, so idle peers
+// do not hold descriptors forever. Connections a server accepts default to DefaultReadIdleTimeout; client
+// connections default to off. A net channel checks it each ParamReadTimeout; a WebSocket must receive each
+// whole message, ping or pong within it. A gudp child uses gudp.ParamPeerIdleTimeout instead. Nonpositive
+// values keep idle connections open.
+const ParamReadIdleTimeout = ParamKey("read_idle_timeout")
+
+// ParamMaxConnections limits the connections a server holds open at once (default: DefaultMaxConnections);
+// further connections wait to be accepted. Nonpositive values disable the limit.
+const ParamMaxConnections = ParamKey("max_connections")
+
+const DefaultReadIdleTimeout = 300000
+const DefaultMaxConnections = 10000
+
 func GetParamIntDefault(ch Channel, key ParamKey, defaultValue int) int {
 	switch v := ch.Param(key).(type) {
 	case int8:

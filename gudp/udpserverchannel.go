@@ -1,8 +1,12 @@
 package gudp
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,17 +15,28 @@ import (
 	"github.com/yetiz-org/goth-kklogger"
 )
 
-// ServerChannel represents a UDP server channel implementation
+// ServerChannel represents a UDP server channel implementation. It is the only reader of its socket and
+// serves each remote address through one child channel.
 type ServerChannel struct {
 	channel.DefaultNetServerChannel
-	conn   *net.UDPConn
-	active atomic.Bool
+	conn        atomic.Pointer[net.UDPConn]
+	active      atomic.Bool
+	peers       sync.Map // remote address string -> *UDPClientConn
+	peerCount   atomic.Int64
+	queuedBytes atomic.Int64
+	maxPeers    int64
+	idleTimeout time.Duration
 }
 
 var ErrBindTwice = fmt.Errorf("bind twice")
 
+// peerQueueLength bounds the datagrams queued for one child, and maxQueuedBytes the datagram bytes queued
+// for all children of a server; more are dropped, as a full socket buffer would.
+const peerQueueLength = 32
+const maxQueuedBytes = 64 << 20
+
 // UnsafeBind binds the UDP server to the specified local address
-func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
+func (c *ServerChannel) UnsafeBind(localAddr net.Addr) (rtErr error) {
 	if c.Name == "" {
 		c.Name = fmt.Sprintf("UDPSERV_%s", localAddr.String())
 	}
@@ -43,63 +58,89 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) error {
 		kklogger.ErrorJ("gudp:ServerChannel.UnsafeBind#unsafe_bind!bind_error", fmt.Sprintf("bind at %s fail %s", localAddr.String(), err.Error()))
 		return err
 	} else {
-		c.conn = conn
+		c.maxPeers = channel.GetParamInt64Default(c, ParamMaxPeers, DefaultMaxPeers)
+		c.idleTimeout = time.Duration(channel.GetParamInt64Default(c, ParamPeerIdleTimeout, DefaultPeerIdleTimeout)) * time.Millisecond
+		c.conn.Store(conn)
 		c.active.Store(true)
 	}
 
 	return nil
 }
 
-// UnsafeAccept for UDP servers - since UDP is connectionless, this creates a virtual channel
-// that represents communication with a specific remote address
-func (c *ServerChannel) UnsafeAccept() (channel.Channel, channel.Future) {
-	if !c.IsActive() || c.conn == nil {
+// UnsafeAccept reads datagrams and queues each one for the child of its remote address. It returns a
+// new child with the first datagram of an address it does not serve yet, unless ParamMaxPeers is reached.
+func (c *ServerChannel) UnsafeAccept() (child channel.Channel, future channel.Future) {
+	conn := c.conn.Load()
+	if !c.IsActive() || conn == nil {
 		return nil, c.Pipeline().NewFuture()
 	}
 
 	// Get buffer from pool for memory optimization - using 64KB buffer for UDP max packet size
 	buffer := utils.GetLargeBuffer()
-	defer utils.PutLargeBuffer(buffer) // Return buffer to pool when done
+	defer utils.PutLargeBuffer(buffer)
+	for {
+		n, clientAddr, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			if c.IsActive() {
+				kklogger.ErrorJ("gudp:ServerChannel.UnsafeAccept#unsafe_accept!read_error", err.Error())
+			}
 
-	// For UDP, we need to read a packet to know which client is connecting
-	n, clientAddr, err := c.conn.ReadFromUDP(buffer)
-	if err != nil {
-		if !c.IsActive() {
 			return nil, c.Pipeline().NewFuture()
 		}
 
-		kklogger.ErrorJ("gudp:ServerChannel.UnsafeAccept#unsafe_accept!read_error", err.Error())
-		return nil, c.Pipeline().NewFuture()
+		key := clientAddr.String()
+		if v, ok := c.peers.Load(key); ok {
+			v.(*UDPClientConn).deliver(buffer[:n])
+			continue
+		}
+
+		if c.maxPeers > 0 && c.peerCount.Load() >= c.maxPeers {
+			kklogger.DebugJ("gudp:ServerChannel.UnsafeAccept#unsafe_accept!peer_limit", fmt.Sprintf("drop datagram from %s, %d peers served", key, c.maxPeers))
+			continue
+		}
+
+		clientConn := &UDPClientConn{
+			server:          c,
+			socket:          conn,
+			clientAddr:      clientAddr,
+			packets:         make(chan []byte, peerQueueLength),
+			closed:          make(chan struct{}),
+			deadlineChanged: make(chan struct{}, 1),
+			idleTimeout:     c.idleTimeout,
+		}
+
+		clientConn.deliver(buffer[:n])
+		c.peers.Store(key, clientConn)
+		c.peerCount.Add(1)
+		// UnsafeClose turns the server inactive before closing the stored peers, so a peer stored after that
+		// sweep is caught here and never gets a child.
+		if !c.IsActive() {
+			clientConn.Close()
+			return nil, c.Pipeline().NewFuture()
+		}
+
+		child = c.DeriveNetChildChannel(&Channel{}, c, clientConn)
+		return child, child.Pipeline().NewFuture()
 	}
-
-	// Create a copy of the data since we're returning the buffer to the pool
-	data := make([]byte, n)
-	copy(data, buffer[:n])
-
-	// Create a virtual UDP connection for this client
-	clientConn := &UDPClientConn{
-		server:     c.conn,
-		clientAddr: clientAddr,
-		lastData:   data, // Store the first packet (copied data)
-	}
-
-	// Create child channel for this client
-	ch := c.DeriveNetChildChannel(&Channel{}, c, clientConn)
-	return ch, ch.Pipeline().NewFuture()
 }
 
 // UnsafeClose closes the UDP server connection
-func (c *ServerChannel) UnsafeClose() error {
+func (c *ServerChannel) UnsafeClose() (rtErr error) {
 	c.DefaultNetServerChannel.UnsafeClose()
 	c.active.Store(false)
 
-	// Prevent nil pointer dereference and double close - check if connection exists before closing
-	if c.conn != nil {
-		conn := c.conn
-		c.conn = nil // Set to nil first to prevent double close
-		return conn.Close()
+	// Swap the socket out first so a concurrent close or accept never uses it twice.
+	if conn := c.conn.Swap(nil); conn != nil {
+		rtErr = conn.Close()
 	}
-	return nil
+
+	// Close every peer, including one an accept in progress published after the children were closed.
+	c.peers.Range(func(_, value any) bool {
+		value.(*UDPClientConn).Close()
+		return true
+	})
+
+	return rtErr
 }
 
 // IsActive returns whether the UDP server is currently active
@@ -107,79 +148,185 @@ func (c *ServerChannel) IsActive() bool {
 	return c.active.Load()
 }
 
-// UDPClientConn represents a virtual connection to a specific UDP client
-// This allows UDP to work with the existing channel framework
+// UDPClientConn is the net.Conn of one remote address served by a ServerChannel. Its reads return the
+// datagrams the server queued for that address and io.EOF once the address stays idle past the timeout;
+// the channel then closes it, which releases the address for its next datagram.
 type UDPClientConn struct {
-	server     *net.UDPConn
-	clientAddr *net.UDPAddr
-	lastData   []byte // Buffer for the first received packet
-	firstRead  bool   // Flag to track if this is the first read
+	server       *ServerChannel
+	socket       *net.UDPConn
+	clientAddr   *net.UDPAddr
+	packets      chan []byte
+	closed       chan struct{}
+	isClosed     bool
+	mu           sync.Mutex // guards isClosed and queuing against Close
+	idleTimeout  time.Duration
+	lastActive   atomic.Int64 // UnixNano of the latest datagram received or sent
+	readDeadline atomic.Int64 // UnixNano, zero for none
+	// deadlineChanged wakes a blocked Read to apply a new read deadline.
+	deadlineChanged chan struct{}
+	truncated       atomic.Bool
+}
+
+// deliver queues a copy of datagram, which the caller reuses, unless the queue or the server budget is full.
+func (c *UDPClientConn) deliver(datagram []byte) {
+	c.lastActive.Store(time.Now().UnixNano())
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.isClosed {
+		return
+	}
+
+	size := int64(len(datagram))
+	if len(c.packets) == cap(c.packets) {
+		return
+	}
+
+	if c.server.queuedBytes.Add(size) > maxQueuedBytes {
+		c.server.queuedBytes.Add(-size)
+		return
+	}
+
+	select {
+	case c.packets <- bytes.Clone(datagram):
+	default:
+		c.server.queuedBytes.Add(-size)
+	}
 }
 
 // Read implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) Read(b []byte) (n int, err error) {
-	if !c.firstRead && len(c.lastData) > 0 {
-		// Return the first packet that was read during accept
-		c.firstRead = true
-		n = copy(b, c.lastData)
-		if n < len(c.lastData) {
-			// If the destination buffer is too small, unread packet bytes are discarded.
-			kklogger.WarnJ("gudp:UDPClientConn.Read#read!buffer_too_small",
-				fmt.Sprintf("Buffer size %d smaller than packet size %d", len(b), len(c.lastData)))
+func (c *UDPClientConn) Read(b []byte) (n int, rtErr error) {
+	var packet []byte
+	select {
+	case packet = <-c.packets:
+	default:
+		if packet, rtErr = c.waitPacket(); rtErr != nil {
+			return 0, rtErr
 		}
-		return n, nil
 	}
 
-	// For subsequent reads, we should read from the specific client
-	// Since UDP is connectionless, we need to filter packets by client address
+	c.server.queuedBytes.Add(-int64(len(packet)))
+	n = copy(b, packet)
+	if n < len(packet) && c.truncated.CompareAndSwap(false, true) {
+		// If the destination buffer is too small, unread packet bytes are discarded.
+		kklogger.WarnJ("gudp:UDPClientConn.Read#read!buffer_too_small",
+			fmt.Sprintf("Buffer size %d smaller than packet size %d; later truncations from %s are not logged", len(b), len(packet), c.clientAddr))
+	}
+
+	return n, nil
+}
+
+// waitPacket blocks until a datagram arrives, the conn closes, the read deadline passes or the peer
+// stays idle past the idle timeout.
+func (c *UDPClientConn) waitPacket() (packet []byte, rtErr error) {
 	for {
-		n, addr, err := c.server.ReadFromUDP(b)
-		if err != nil {
-			return 0, err
+		// Wake at the earlier of the read deadline and the idle expiry.
+		var until time.Time
+		if c.idleTimeout > 0 {
+			until = time.Unix(0, c.lastActive.Load()).Add(c.idleTimeout)
 		}
 
-		// Only return packets from our specific client
-		if addr.String() == c.clientAddr.String() {
-			return n, nil
+		if deadline := c.readDeadline.Load(); deadline != 0 && (until.IsZero() || deadline < until.UnixNano()) {
+			until = time.Unix(0, deadline)
 		}
-		// Otherwise, continue reading until we get a packet from our client
-		// Note: This is not ideal for performance but necessary for the channel abstraction
+
+		var wake <-chan time.Time
+		if !until.IsZero() {
+			wake = time.After(time.Until(until))
+		}
+
+		select {
+		case packet = <-c.packets:
+			return packet, nil
+		case <-c.closed:
+			return nil, net.ErrClosed
+		case <-c.deadlineChanged:
+		case <-wake:
+			now := time.Now().UnixNano()
+			if c.idleTimeout > 0 && now-c.lastActive.Load() >= int64(c.idleTimeout) {
+				return nil, io.EOF
+			}
+
+			if deadline := c.readDeadline.Load(); deadline != 0 && now >= deadline {
+				return nil, os.ErrDeadlineExceeded
+			}
+		}
 	}
 }
 
 // Write implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) Write(b []byte) (n int, err error) {
-	return c.server.WriteToUDP(b, c.clientAddr)
+func (c *UDPClientConn) Write(b []byte) (n int, rtErr error) {
+	select {
+	case <-c.closed:
+		return 0, net.ErrClosed
+	default:
+	}
+
+	if n, rtErr = c.socket.WriteToUDP(b, c.clientAddr); rtErr == nil {
+		c.lastActive.Store(time.Now().UnixNano())
+	}
+
+	return n, rtErr
 }
 
-// Close implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) Close() error {
-	// For UDP client connections, we don't actually close anything
-	// The server connection remains open for other clients
+// Close stops serving this remote address; the server socket stays open for other clients.
+func (c *UDPClientConn) Close() (rtErr error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.isClosed {
+		return nil
+	}
+
+	c.isClosed = true
+	close(c.closed)
+	for drained := false; !drained; {
+		select {
+		case packet := <-c.packets:
+			c.server.queuedBytes.Add(-int64(len(packet)))
+		default:
+			drained = true
+		}
+	}
+
+	if c.server.peers.CompareAndDelete(c.clientAddr.String(), c) {
+		c.server.peerCount.Add(-1)
+	}
+
 	return nil
 }
 
 // LocalAddr implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) LocalAddr() net.Addr {
-	return c.server.LocalAddr()
+func (c *UDPClientConn) LocalAddr() (addr net.Addr) {
+	return c.socket.LocalAddr()
 }
 
 // RemoteAddr implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) RemoteAddr() net.Addr {
+func (c *UDPClientConn) RemoteAddr() (addr net.Addr) {
 	return c.clientAddr
 }
 
-// SetDeadline implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) SetDeadline(t time.Time) error {
-	return c.server.SetDeadline(t)
+// SetDeadline sets this connection's read deadline and the shared socket's write deadline.
+func (c *UDPClientConn) SetDeadline(t time.Time) (rtErr error) {
+	c.SetReadDeadline(t)
+	return c.SetWriteDeadline(t)
 }
 
-// SetReadDeadline implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) SetReadDeadline(t time.Time) error {
-	return c.server.SetReadDeadline(t)
+// SetReadDeadline sets the read deadline of this connection only.
+func (c *UDPClientConn) SetReadDeadline(t time.Time) (rtErr error) {
+	if t.IsZero() {
+		c.readDeadline.Store(0)
+	} else {
+		c.readDeadline.Store(t.UnixNano())
+	}
+
+	select {
+	case c.deadlineChanged <- struct{}{}:
+	default:
+	}
+
+	return nil
 }
 
 // SetWriteDeadline implements net.Conn interface for UDP client connections
-func (c *UDPClientConn) SetWriteDeadline(t time.Time) error {
-	return c.server.SetWriteDeadline(t)
+func (c *UDPClientConn) SetWriteDeadline(t time.Time) (rtErr error) {
+	return c.socket.SetWriteDeadline(t)
 }

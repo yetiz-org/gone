@@ -34,6 +34,20 @@ func NewDispatchHandler(route Route) *DispatchHandler {
 	return &DispatchHandler{route: route, DefaultStatusCode: 200, DefaultStatusResponse: map[int]func(req *Request, resp *Response, params map[string]any){}}
 }
 
+// Added lets the HTTP server leave request bodies to this handler, which reads one only for a task that
+// does not stream it.
+func (h *DispatchHandler) Added(ctx channel.HandlerContext) {
+	if ch, ok := ctx.Channel().(*Channel); ok {
+		ch.bodyGated.Store(true)
+	}
+}
+
+func (h *DispatchHandler) Removed(ctx channel.HandlerContext) {
+	if ch, ok := ctx.Channel().(*Channel); ok {
+		ch.bodyGated.Store(false)
+	}
+}
+
 func (h *DispatchHandler) defaultNotFound404(req *Request, resp *Response, params map[string]any) {
 	resp.SetStatusCode(httpstatus.NotFound)
 	resp.SetBody(buf.NewByteBuf([]byte("<html><img src='https://http.cat/404' /></html>")))
@@ -72,13 +86,53 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 
 	task, ok := node.HandlerTask().(HttpHandlerTask)
 	if !ok {
+		// Handlers after this one get the body checked, as the server did before this handler took it over.
+		if h._RejectUnreadableBody(ctx, node.HandlerTask(), request, response) {
+			h.callWrite(ctx, obj)
+			return
+		}
+
 		ctx.FireRead(obj)
 		return
 	}
 
 	defer h.callWrite(ctx, obj)
 	defer h._UpdateSessionCookie(response)
+	if h._RejectUnreadableBody(ctx, task, request, response) {
+		return
+	}
+
 	h._Run(ctx, task, node, pack, isLast)
+}
+
+// _RejectUnreadableBody buffers the body unless task streams it, and answers 413 or 400 when the body
+// cannot be read.
+func (h *DispatchHandler) _RejectUnreadableBody(ctx channel.HandlerContext, task any, request *Request, response *Response) (rejected bool) {
+	if streamer, ok := task.(RequestBodyStreamer); ok && streamer.StreamRequestBody() {
+		request.streamBody()
+		return false
+	}
+
+	err := request.BodyReadError()
+	if err == nil {
+		return false
+	}
+
+	kklogger.WarnJ("ghttp:DispatchHandler.Read#body!read_error", ObjectLogStruct{
+		ChannelID:  ctx.Channel().ID(),
+		TrackID:    request.TrackID(),
+		URI:        request.RequestURI(),
+		Message:    err.Error(),
+		RemoteAddr: request.Request().RemoteAddr,
+	})
+
+	if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+		response.SetStatusCode(httpstatus.PayloadTooLarge)
+	} else {
+		response.SetStatusCode(httpstatus.BadRequest)
+	}
+
+	return true
 }
 
 // Dispatch serves r in process through the route, acceptances and handler task and returns its pack.
@@ -88,8 +142,12 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 // returns nil only when that body exceeds an http.MaxBytesReader limit.
 func (h *DispatchHandler) Dispatch(ctx channel.HandlerContext, r *http.Request, seed map[string]any) (pack *Pack) {
 	request := WrapRequest(ctx.Channel(), r)
-	if request == nil {
-		return nil
+	if err := request.BodyReadError(); err != nil {
+		// No server closes the body after an in-process dispatch.
+		request.rawBody.Close()
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return nil
+		}
 	}
 
 	request.session = httpsession.NewDefaultSession(memory.NewSessionProvider())
@@ -441,6 +499,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 	}
 
 	domain := h._SessionCookieDomain(resp.Request())
+	secure := SessionSecure || resp.Request().Request().TLS != nil || (resp.Request().forwarded && strings.EqualFold(resp.Request().Header().Get(httpheadername.XForwardedProto), "https"))
 	cke, err := resp.Request().Cookie(SessionKey)
 	if err == nil {
 		if timestamp := hash.TimestampOfTimeHash(cke.Value); timestamp < time.Now().Add(time.Second*time.Duration(SessionExpireTime/10)).Unix() {
@@ -451,7 +510,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 				MaxAge:   SessionExpireTime,
 				Domain:   domain,
 				HttpOnly: SessionHttpOnly,
-				Secure:   SessionSecure,
+				Secure:   secure,
 			})
 		}
 	} else if err == http.ErrNoCookie {
@@ -462,7 +521,7 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 			MaxAge:   SessionExpireTime,
 			Domain:   domain,
 			HttpOnly: SessionHttpOnly,
-			Secure:   SessionSecure,
+			Secure:   secure,
 		})
 	} else {
 		kklogger.WarnJ("ghttp:DispatchHandler.UpdateSessionCookie#update_session!cookie_error", fmt.Sprintf("get req cookie error [%s]", err))
