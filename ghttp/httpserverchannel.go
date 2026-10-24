@@ -20,6 +20,7 @@ type ServerChannel struct {
 	channel.DefaultNetServerChannel
 	server       *http.Server
 	active       atomic.Bool
+	drained      atomic.Bool
 	newChChan    chan *serverChannelAccept
 	chMap        sync.Map
 	maxBodyBytes int64
@@ -154,6 +155,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) (rtErr error) {
 
 	listener = channel.LimitListener(listener, int(channel.GetParamInt64Default(c, channel.ParamMaxConnections, channel.DefaultMaxConnections)))
 
+	c.drained.Store(false)
 	c.active.Store(true)
 	go c.server.Serve(listener)
 	return nil
@@ -169,31 +171,50 @@ type serverChannelAccept struct {
 	channel.Future
 }
 
+// UnsafeDrain stops accepting connections and waits up to ParamShutdownTimeout seconds for the requests in
+// flight to finish, then closes the connections still open. Close calls it before closing the children,
+// so a request being served still writes its response.
+func (c *ServerChannel) UnsafeDrain() (rtErr error) {
+	if !c.active.Load() || !c.drained.CompareAndSwap(false, true) {
+		return nil
+	}
+
+	timeout := channel.GetParamInt64Default(c, ParamShutdownTimeout, DefaultShutdownTimeout)
+	if timeout <= 0 {
+		timeout = DefaultShutdownTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+	if err := c.server.Shutdown(ctx); err != nil {
+		// Shutdown leaves the connections still serving open when it fails or times out; Close ends them.
+		return errors.Join(err, c.server.Close())
+	}
+
+	return nil
+}
+
 func (c *ServerChannel) UnsafeClose() error {
 	if !c.active.Load() {
 		return nil
 	}
 
 	c.DefaultNetServerChannel.UnsafeClose()
-
-	// First attempt graceful shutdown - this will trigger StateClosed callbacks
-	shutdownTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-	if err := c.server.Shutdown(shutdownTimeout); err != nil {
-		kklogger.WarnJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!shutdown_timeout", err.Error())
-
-		// Force close any remaining connections that didn't close gracefully
-		c.chMap.Range(func(key, value any) bool {
-			ch := value.(channel.NetChannel)
-			if ch.IsActive() {
-				kklogger.TraceJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!force_close", fmt.Sprintf("force closing channel_id: %s", ch.ID()))
-				ch.Deregister()
-			}
-
-			c.chMap.Delete(key)
-			return true
-		})
+	if err := c.UnsafeDrain(); err != nil {
+		kklogger.WarnJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!drain_error", err.Error())
 	}
+
+	// Release children whose closed connection has not reported StateClosed yet.
+	c.chMap.Range(func(key, value any) bool {
+		ch := value.(channel.NetChannel)
+		if ch.IsActive() {
+			kklogger.TraceJ("ghttp:ServerChannel.UnsafeClose#unsafe_close!force_close", fmt.Sprintf("force closing channel_id: %s", ch.ID()))
+			ch.Deregister()
+		}
+
+		c.chMap.Delete(key)
+		return true
+	})
 
 	c.active.Store(false)
 	localAddrStr := "unknown"

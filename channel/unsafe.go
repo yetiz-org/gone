@@ -235,6 +235,12 @@ func (u *DefaultUnsafe) Close(future Future) {
 
 	go func(u *DefaultUnsafe, future Future) {
 		defer u.resetState(&u.closeS)
+		if drain, ok := u.channel.(UnsafeDrain); ok {
+			if err := drain.UnsafeDrain(); err != nil {
+				kklogger.WarnJ("channel:DefaultUnsafe.Close#close!drain_error", fmt.Sprintf("channel_id: %s, error: %s", u.channel.ID(), err.Error()))
+			}
+		}
+
 		func() concurrent.Future { _, f := u.channel.inactiveChannel(); return f }().Await()
 		err := channel.UnsafeClose()
 		if err != nil {

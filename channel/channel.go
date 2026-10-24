@@ -62,6 +62,13 @@ type UnsafeClose interface {
 	UnsafeClose() error
 }
 
+// UnsafeDrain is implemented by a server channel that owns its connections' lifecycle, such as an HTTP
+// server. Close calls it before closing the children, so the channel can stop accepting and let the work
+// in flight finish while the children are still active.
+type UnsafeDrain interface {
+	UnsafeDrain() error
+}
+
 type UnsafeWrite interface {
 	UnsafeWrite(obj any) error
 }

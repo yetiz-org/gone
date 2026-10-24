@@ -145,6 +145,10 @@ func main() {
 }
 ```
 
+### Graceful Shutdown
+
+`server.Close()` drains before it closes the child channels: the listener stops accepting at once, idle keep-alive connections close, and requests in flight keep running and write their responses. After `ghttp.ParamShutdownTimeout` seconds (default 5; a nonpositive value uses the default), the connections still serving are closed and their responses are lost. Long streams such as SSE keep the drain open until that timeout, and `net/http` keeps a connection that has not sent its first request for up to 5 seconds, so either can delay Close. Close waits for HTTP responses only: goroutines a handler starts on its own are not waited for, and hijacked connections such as upgraded WebSockets are closed when the drain ends. Set the timeout below the time your platform allows between its stop signal and a forced kill.
+
 ### Request Bodies
 
 `ghttp.ParamMaxBodyBytes` limits each request body (default 4 MiB; a nonpositive value disables the limit). The body is not read until it is needed. `DispatchHandler` reads it into memory after routing and before the acceptances run, and answers `413` when it exceeds the limit or `400` when it cannot be read; a declared `Content-Length` over the limit is rejected without reading the body, and unknown routes are answered without reading it. `Request.Body()` and `Request().Body` then share one buffered copy, so treat `Body()` as read-only: do not write, `Reset`, `Clear` or `Compact` it, or change the slice from `Body().Bytes()` in place. A pipeline without `DispatchHandler` keeps the earlier behavior: the server reads the body before the pipeline and answers `413` or `400` itself.
@@ -510,6 +514,7 @@ Common parameters:
 - `gws.ParamCheckOrigin`: whether WebSocket upgrade checks request origin.
 - `gws.ParamWSReadLimit`: largest incoming WebSocket message in bytes (default 16 MiB; nonpositive disables it). Each connection can hold one such message, so lower it when many connections are open. The default ping handler waits for each pong to be written, so a peer that does not read pongs stalls only its own reads.
 - `ghttp.ParamMaxBodyBytes`: largest HTTP request body in bytes (default 4 MiB; nonpositive disables it).
+- `ghttp.ParamShutdownTimeout`: seconds closing an HTTP server waits for requests in flight before closing their connections (default 5; nonpositive uses the default).
 - `gudp.ParamMaxPeers` and `gudp.ParamPeerIdleTimeout`: UDP server address limit and idle timeout in milliseconds.
 
 ## Testing
