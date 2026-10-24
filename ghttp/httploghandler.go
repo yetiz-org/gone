@@ -66,7 +66,7 @@ func (h *LogHandler) Read(ctx channel.HandlerContext, obj any) {
 				r := sb.String()
 				return r[:len(r)-2]
 			}(pack.Request.RemoteAddrs()),
-			URI:     pack.Request.RequestURI(),
+			URI:     pack.Request.LogURI(),
 			Request: h.constructReq(pack.Request),
 		}
 
@@ -81,7 +81,7 @@ func (h *LogHandler) constructReq(req *Request) (reqLog *RequestLogStruct) {
 		Method:  req.Method(),
 		Headers: h.logHeaders(req.Header()),
 		HOST:    req.Host(),
-		URI:     req.RequestURI(),
+		URI:     req.LogURI(),
 	}
 
 	bodyLength := 0
@@ -120,7 +120,7 @@ func (h *LogHandler) constructResp(resp *Response) (respLog *ResponseLogStruct) 
 	logStruct := ResponseLogStruct{
 		StatusCode: resp.StatusCode(),
 		Headers:    h.logHeaders(resp.Header()),
-		URI:        resp.request.RequestURI(),
+		URI:        resp.request.LogURI(),
 	}
 
 	if h.printBody {
@@ -172,7 +172,7 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj any, future channel.F
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    req.TrackID(),
 			Method:     req.Method(),
-			URI:        req.RequestURI(),
+			URI:        req.LogURI(),
 			StatusCode: resp.StatusCode(),
 			RemoteAddr: req.Request().RemoteAddr,
 			RemoteAddrs: func(addrs []string) string {
@@ -220,7 +220,7 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj any, future channel.F
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    req.TrackID(),
 			Method:     req.Method(),
-			URI:        req.RequestURI(),
+			URI:        req.LogURI(),
 			StatusCode: resp.StatusCode(),
 			RemoteAddr: req.Request().RemoteAddr,
 			RemoteAddrs: func(addrs []string) string {

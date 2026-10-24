@@ -77,7 +77,7 @@ func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
 		kklogger.WarnJ("ghttp:DispatchHandler.Read#endpoint_not_exist!not_found", ObjectLogStruct{
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    request.TrackID(),
-			URI:        request.RequestURI(),
+			URI:        request.LogURI(),
 			RemoteAddr: request.Request().RemoteAddr,
 		})
 
@@ -121,7 +121,7 @@ func (h *DispatchHandler) _RejectUnreadableBody(ctx channel.HandlerContext, task
 	kklogger.WarnJ("ghttp:DispatchHandler.Read#body!read_error", ObjectLogStruct{
 		ChannelID:  ctx.Channel().ID(),
 		TrackID:    request.TrackID(),
-		URI:        request.RequestURI(),
+		URI:        request.LogURI(),
 		Message:    err.Error(),
 		RemoteAddr: request.Request().RemoteAddr,
 	})
@@ -224,7 +224,7 @@ func (h *DispatchHandler) _Run(ctx channel.HandlerContext, task HttpHandlerTask,
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    request.TrackID(),
 						State:      "Skip",
-						URI:        request.RequestURI(),
+						URI:        request.LogURI(),
 						Handler:    reflect.TypeOf(acceptance).String(),
 						RemoteAddr: request.Request().RemoteAddr,
 					})
@@ -238,7 +238,7 @@ func (h *DispatchHandler) _Run(ctx channel.HandlerContext, task HttpHandlerTask,
 				ChannelID:  ctx.Channel().ID(),
 				TrackID:    request.TrackID(),
 				State:      "Fail",
-				URI:        request.RequestURI(),
+				URI:        request.LogURI(),
 				Handler:    reflect.TypeOf(acceptance).String(),
 				Message:    err.Error(),
 				RemoteAddr: request.Request().RemoteAddr,
@@ -259,7 +259,7 @@ func (h *DispatchHandler) _Run(ctx channel.HandlerContext, task HttpHandlerTask,
 					ChannelID:  ctx.Channel().ID(),
 					TrackID:    request.TrackID(),
 					State:      "Pass",
-					URI:        request.RequestURI(),
+					URI:        request.LogURI(),
 					Handler:    reflect.TypeOf(acceptance).String(),
 					RemoteAddr: request.Request().RemoteAddr,
 				})
@@ -348,7 +348,7 @@ func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Reque
 		kklogger.ErrorJ("ghttp:DispatchHandler.Read#error_caught!error", ObjectLogStruct{
 			ChannelID:  ctx.Channel().ID(),
 			TrackID:    request.TrackID(),
-			URI:        request.RequestURI(),
+			URI:        request.LogURI(),
 			Handler:    reflect.TypeOf(task).String(),
 			RemoteAddr: request.Request().RemoteAddr,
 			Message:    err,

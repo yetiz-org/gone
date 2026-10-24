@@ -51,7 +51,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    pack.Request.TrackID(),
 						State:      "Fail",
-						URI:        pack.Request.RequestURI(),
+						URI:        pack.Request.LogURI(),
 						Handler:    reflect.TypeOf(acceptance).String(),
 						Message:    err.Error(),
 						RemoteAddr: pack.Request.Request().RemoteAddr,
@@ -75,7 +75,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 						ChannelID:  ctx.Channel().ID(),
 						TrackID:    pack.Request.TrackID(),
 						State:      "Pass",
-						URI:        pack.Request.RequestURI(),
+						URI:        pack.Request.LogURI(),
 						Handler:    reflect.TypeOf(acceptance).String(),
 						RemoteAddr: pack.Request.Request().RemoteAddr,
 					})
@@ -95,7 +95,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 			wsConn := func() *websocket.Conn {
 				wsConn, err := h.upgrade.Upgrade(pack.Writer, pack.Request.Request(), pack.Response.Header())
 				if err != nil {
-					kklogger.WarnJ("gws:UpgradeProcessor.Read#ws_upgrade!upgrade_error", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), nil, err))
+					kklogger.WarnJ("gws:UpgradeProcessor.Read#ws_upgrade!upgrade_error", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.LogURI(), nil, err))
 					ctx.Channel().Disconnect()
 					return nil
 				}
@@ -107,7 +107,7 @@ func (h *UpgradeProcessor) Read(ctx channel.HandlerContext, obj any) {
 				return
 			}
 
-			kklogger.TraceJ("gws:UpgradeProcessor.Read#ws_upgrade!upgrade_success", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.RequestURI(), wsConn, nil))
+			kklogger.TraceJ("gws:UpgradeProcessor.Read#ws_upgrade!upgrade_success", h._NewWSLog(ctx.Channel().ID(), pack.Request.TrackID(), pack.Request.LogURI(), wsConn, nil))
 			pack.Params["[gone-http]ws_upgrade_time"] = time.Now().Sub(timeMark).Nanoseconds()
 
 			// create ws channel and replace it

@@ -155,7 +155,9 @@ func main() {
 
 A task that implements `ghttp.RequestBodyStreamer` and returns true reads `Request().Body` as a stream instead, for example to spool a large upload to disk without holding it in memory. The limit still applies, so the task handles the `*http.MaxBytesError`; `Request.ContentLength()` is the declared size, and a chunked body's size is known only after reading it. Calling `Request.Body()` still buffers the body on demand: after part of the stream was read it returns only the rest, and a printing `LogHandler` (`NewLogHandler(true)`) buffers every body before routing. When buffering fails, `Request().Body` returns the same error on every read.
 
-Buffered bodies hold up to the limit per request, as Netty's `HttpObjectAggregator` does per message, so peak memory is about the number of concurrent buffered requests times `ParamMaxBodyBytes`; size the limit and the server's concurrency together. A handler placed before `DispatchHandler` may read `Request().Body`: the first read buffers the body, so `Body()` still returns all of it, and a streaming task then reads that buffered copy.
+Buffered bodies hold up to the limit per request, as Netty's `HttpObjectAggregator` does per message, so peak memory is about the number of concurrent buffered requests times `ParamMaxBodyBytes`; size the limit and the server's concurrency together, or bound the total with `ghttp.ParamMaxInflightBodyBytes`. A handler placed before `DispatchHandler` may read `Request().Body`: the first read buffers the body, so `Body()` still returns all of it, and a streaming task then reads that buffered copy.
+
+`ghttp.ParamMaxInflightBodyBytes` bounds the body bytes that the requests a server is serving may hold at once (default 0; a nonpositive value disables it). Each request with a body reserves its `Content-Length` until the server finishes serving it; a body of unknown length reserves `ParamMaxBodyBytes`, or the bound itself when that limit is disabled or larger, and is then limited to what it reserved. Without reading the body, the server answers `413` when a `Content-Length` exceeds the bound and `503` with `Retry-After: 1` when the bound has no room left, adding `Connection: close` over HTTP/1. Streamed bodies count as well; in-process `DispatchHandler.Dispatch` calls do not, nor does a body a request upgraded to a WebSocket keeps after the upgrade.
 
 ### Sessions, Client Address and Logs
 
@@ -164,6 +166,7 @@ Buffered bodies hold up to the limit per request, as Netty's `HttpObjectAggregat
 - `DefaultSession` is safe for concurrent requests sharing one session. `Data()` returns the live map, which is not synchronized; when other requests may write the same session, for example while rendering a template, read `Snapshot()` instead, which returns a copy taken under the session lock. The memory provider keeps at most `MaxSessions` sessions (default 100,000); going over it drops expired sessions and then the least recently saved ones until a tenth of the cap is free. Saves running concurrently can briefly exceed the cap until the next save evicts again. Traffic that keeps creating sessions can therefore end idle sessions early; use a shared store such as Redis, or rate-limit session creation, when that matters.
 - `WrapRequest` takes the client address from `X-Forwarded-For` only when `ghttp.TrustForwardedFor` accepts the direct peer; by default, loopback, private and other non-public peers such as a load balancer in the same network. Any host in those networks can then set the header, and so can outside clients that reach the server through NAT, such as Docker port publishing or a Kubernetes SNAT, because they arrive from a private address. Replace it at startup with your proxies' addresses for a stricter boundary, or to trust a public proxy.
 - `LogHandler` logs the headers in `RedactHeaders` (by default `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`) as `[REDACTED]`; clear it to log every value.
+- gone writes `Request.LogURI()` as the request URI in its logs (`LogHandler`, `DispatchHandler`, the server and `gws`). It is `RequestURI()` unless the server sets the child parameter `ghttp.ParamLogURI` to a `func(req *ghttp.Request) string`, whose result is logged instead, for example to keep credentials carried in a path or query out of logs. Handlers still read the full URI.
 
 ### Connection Limits and Static Files
 
@@ -514,6 +517,8 @@ Common parameters:
 - `gws.ParamCheckOrigin`: whether WebSocket upgrade checks request origin.
 - `gws.ParamWSReadLimit`: largest incoming WebSocket message in bytes (default 16 MiB; nonpositive disables it). Each connection can hold one such message, so lower it when many connections are open. The default ping handler waits for each pong to be written, so a peer that does not read pongs stalls only its own reads.
 - `ghttp.ParamMaxBodyBytes`: largest HTTP request body in bytes (default 4 MiB; nonpositive disables it).
+- `ghttp.ParamMaxInflightBodyBytes`: request body bytes an HTTP server's requests may hold at once (default 0; nonpositive disables it).
+- `ghttp.ParamLogURI` (child parameter): `func(req *ghttp.Request) string` returning the request URI gone writes in its logs (default `RequestURI()`).
 - `ghttp.ParamShutdownTimeout`: seconds closing an HTTP server waits for requests in flight before closing their connections (default 5; nonpositive uses the default).
 - `gudp.ParamMaxPeers` and `gudp.ParamPeerIdleTimeout`: UDP server address limit and idle timeout in milliseconds.
 

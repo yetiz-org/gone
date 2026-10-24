@@ -71,7 +71,7 @@ func startTestServer(t *testing.T, maxBodyBytes any, route Route, printBody bool
 	})
 }
 
-func bindTestServer(t *testing.T, maxBodyBytes any, childInit func(ch channel.Channel)) (addr string) {
+func bindTestServer(t *testing.T, maxBodyBytes any, childInit func(ch channel.Channel), configure ...func(bootstrap channel.ServerBootstrap)) (addr string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -83,6 +83,10 @@ func bindTestServer(t *testing.T, maxBodyBytes any, childInit func(ch channel.Ch
 	bootstrap.ChannelType(&ServerChannel{})
 	if maxBodyBytes != nil {
 		bootstrap.SetParams(ParamMaxBodyBytes, maxBodyBytes)
+	}
+
+	for _, apply := range configure {
+		apply(bootstrap)
 	}
 
 	serverCh := bootstrap.Bind(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}).Sync().Channel()

@@ -133,6 +133,18 @@ func (r *Request) RequestURI() string {
 	return r.request.RequestURI
 }
 
+// LogURI returns the request URI gone writes in logs: the result of the channel's ParamLogURI func when it
+// sets one, otherwise RequestURI.
+func (r *Request) LogURI() (uri string) {
+	if r.channel != nil {
+		if logURI, ok := r.channel.Param(ParamLogURI).(func(req *Request) string); ok && logURI != nil {
+			return logURI(r)
+		}
+	}
+
+	return r.RequestURI()
+}
+
 func (r *Request) RemoteAddr() (ip net.IP, port string) {
 	addr := r.request.RemoteAddr
 	if strings.Count(addr, ":") > 1 {

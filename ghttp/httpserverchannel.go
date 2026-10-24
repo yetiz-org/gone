@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yetiz-org/gone/channel"
+	"github.com/yetiz-org/gone/ghttp/httpheadername"
 	"github.com/yetiz-org/goth-kklogger"
 	kkpanic "github.com/yetiz-org/goth-panic"
 )
@@ -24,6 +25,9 @@ type ServerChannel struct {
 	newChChan    chan *serverChannelAccept
 	chMap        sync.Map
 	maxBodyBytes int64
+	// maxInflightBodyBytes is the ParamMaxInflightBodyBytes bound; inflightBodyBytes is how much of it is reserved.
+	maxInflightBodyBytes int64
+	inflightBodyBytes    atomic.Int64
 }
 
 const ConnCtx = "conn"
@@ -54,10 +58,30 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	request := WrapRequest(cch, r)
+	if c.maxInflightBodyBytes > 0 {
+		reserved, rejectStatus := c._ReserveBody(w, request)
+		if rejectStatus != 0 {
+			kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP#serve_http!body_rejected", fmt.Sprintf("conn from %s, target: %s, status: %d", r.RemoteAddr, request.LogURI(), rejectStatus))
+			if rejectStatus == http.StatusServiceUnavailable {
+				w.Header().Set(httpheadername.RetryAfter, "1")
+			}
+
+			// Closing the connection keeps net/http from reading the unread body after the reply.
+			if r.ProtoMajor == 1 {
+				w.Header().Set(httpheadername.Connection, "close")
+			}
+
+			w.WriteHeader(rejectStatus)
+			return
+		}
+
+		defer c.inflightBodyBytes.Add(-reserved)
+	}
+
 	if !cch.bodyGated.Load() {
 		// Without a DispatchHandler to answer for the body, reject an unreadable one here as before.
 		if err := request.BodyReadError(); err != nil {
-			kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP#serve_http!body_read_error", fmt.Sprintf("conn from %s, target: %s, error: %s", r.RemoteAddr, r.RequestURI, err.Error()))
+			kklogger.WarnJ("ghttp:ServerChannel.ServeHTTP#serve_http!body_read_error", fmt.Sprintf("conn from %s, target: %s, error: %s", r.RemoteAddr, request.LogURI(), err.Error()))
 			if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
 				w.WriteHeader(http.StatusRequestEntityTooLarge)
 			} else {
@@ -81,6 +105,37 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cch.FireReadCompleted()
 }
 
+// _ReserveBody reserves the ParamMaxInflightBodyBytes share of request's body and returns it, or the status that
+// rejects the request when the body cannot fit.
+func (c *ServerChannel) _ReserveBody(w http.ResponseWriter, request *Request) (reserved int64, rejectStatus int) {
+	bound, length := c.maxInflightBodyBytes, request.ContentLength()
+	switch {
+	case length == 0, c.maxBodyBytes > 0 && length > c.maxBodyBytes:
+		// An empty body holds nothing, and a body over the limit is rejected unread.
+		return 0, 0
+	case length > bound:
+		return 0, http.StatusRequestEntityTooLarge
+	case length > 0:
+		reserved = length
+	case c.maxBodyBytes > 0 && c.maxBodyBytes <= bound:
+		reserved = c.maxBodyBytes
+	default:
+		reserved = bound
+		request.rawBody = http.MaxBytesReader(w, request.rawBody, bound)
+	}
+
+	for {
+		current := c.inflightBodyBytes.Load()
+		if current > bound-reserved {
+			return 0, http.StatusServiceUnavailable
+		}
+
+		if c.inflightBodyBytes.CompareAndSwap(current, current+reserved) {
+			return reserved, 0
+		}
+	}
+}
+
 func (c *ServerChannel) panicCatch() {
 	kkpanic.Call(func(r kkpanic.Caught) {
 		kklogger.ErrorJ("ghttp:ServerChannel.PanicCatch#panic_catch!panic", r.String())
@@ -100,6 +155,7 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) (rtErr error) {
 
 	c.newChChan = make(chan *serverChannelAccept, channel.GetParamIntDefault(c, ParamAcceptWaitCount, 1024))
 	c.maxBodyBytes = channel.GetParamInt64Default(c, ParamMaxBodyBytes, 4<<20)
+	c.maxInflightBodyBytes = channel.GetParamInt64Default(c, ParamMaxInflightBodyBytes, 0)
 	c.server = &http.Server{
 		Addr:              localAddr.String(),
 		Handler:           handler,

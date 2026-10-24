@@ -166,7 +166,7 @@ func (c *Channel) _NewWSLog(message Message, err error) *LogStruct {
 	log := &LogStruct{
 		LogType:    LogType,
 		ChannelID:  c.ID(),
-		RequestURI: c.Response.Request().RequestURI(),
+		RequestURI: c.Response.Request().LogURI(),
 		Message:    message,
 		Error:      err,
 	}
