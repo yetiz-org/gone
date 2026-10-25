@@ -69,6 +69,11 @@ func (m *DefaultMessage) StringMessage() string {
 	return string(m.Message)
 }
 
+// WriteSize lets the channel account for queued payloads without encoding or copying them.
+func (m *DefaultMessage) WriteSize() (size int) {
+	return len(m.Message)
+}
+
 type CloseMessage struct {
 	DefaultMessage
 	CloseCode CloseCode `json:"close_code,omitempty"`
@@ -87,6 +92,13 @@ func (m *CloseMessage) Encoded() []byte {
 	binary.BigEndian.PutUint16(buf, uint16(m.CloseCode))
 	copy(buf[2:], m.Message)
 	return buf
+}
+
+func (m *CloseMessage) WriteSize() (size int) {
+	if m.CloseCode == CloseNoStatusReceived {
+		return 0
+	}
+	return 2 + len(m.Message)
 }
 
 type PingMessage struct {

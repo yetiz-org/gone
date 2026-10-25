@@ -1,7 +1,9 @@
 package ghttp
 
 import (
+	"bytes"
 	"compress/gzip"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -126,15 +128,11 @@ func (h *LogHandler) constructResp(resp *Response) (respLog *ResponseLogStruct) 
 	if h.printBody {
 		maxBodySize := h.RespMaxBodySize
 		if resp.GetHeader(httpheadername.ContentEncoding) == "gzip" {
-			if reader, err := gzip.NewReader(buf.NewSharedByteBuf(resp.body.Bytes())); err == nil {
+			if reader, err := gzip.NewReader(bytes.NewReader(resp.body.Bytes())); err == nil {
 				defer reader.Close()
-				bus := buf.EmptyByteBuf().WriteReader(reader)
+				bus := buf.EmptyByteBuf().WriteReader(io.LimitReader(reader, int64(maxBodySize)))
 				decoded := bus.Bytes()
-				if len(decoded) > maxBodySize {
-					logStruct.Body = string(decoded[:maxBodySize])
-				} else {
-					logStruct.Body = string(decoded)
-				}
+				logStruct.Body = string(decoded[:min(len(decoded), maxBodySize)])
 
 				logStruct.PreCompressLength = len(logStruct.Body)
 			}
@@ -160,7 +158,6 @@ func (h *LogHandler) Write(ctx channel.HandlerContext, obj any, future channel.F
 	}
 
 	req, resp, params := pack.Request, pack.Response, pack.Params
-	//go func(cid string, req *Request, resp *Response, params map[string]any) {
 	if !h.FilterFunc(req, resp, params) {
 		ctx.Write(obj, future)
 		return

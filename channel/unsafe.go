@@ -3,14 +3,22 @@ package channel
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	buf "github.com/yetiz-org/goth-bytebuf"
 	concurrent "github.com/yetiz-org/goth-concurrent"
 	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
 const DefaultAcceptTimeout = 5000
+
+// Include the queue entry and Future bookkeeping, not just payload bytes.
+const queuedWriteOverhead = 96
+
+// An idle channel keeps a small write ring for reuse but returns one grown by a burst.
+const maxIdleWriteEntries = 1024
 
 var ErrLocalAddrIsEmpty = fmt.Errorf("local addr is empty")
 var ErrRemoteAddrIsEmpty = fmt.Errorf("remote addr is empty")
@@ -19,6 +27,7 @@ var ErrChannelClosed = fmt.Errorf("channel closed")
 var ErrAcceptTimeout = fmt.Errorf("accept timeout")
 var ErrUnsupportedOperation = fmt.Errorf("unsupported operation")
 var ErrOperationInProgress = fmt.Errorf("operation in progress")
+var ErrWriteQueueFull = fmt.Errorf("write queue limit exceeded")
 
 type Unsafe interface {
 	Read()
@@ -29,16 +38,25 @@ type Unsafe interface {
 	Disconnect(future Future)
 }
 
+type queuedWrite struct {
+	future Future
+	size   int64
+}
+
 type DefaultUnsafe struct {
 	channel Channel
 	readS,
-	writeS,
 	bindS,
 	closeS,
 	connectS,
 	disconnectS int32
-	writeBuffer    concurrent.Queue
-	writeBufferLen atomic.Int64 // Push/Pop mirror — safe cross-goroutine length check
+	writeBuffer   []queuedWrite
+	writeHead     int
+	writeCount    int
+	writeMu       sync.Mutex
+	writeBytes    int64
+	maxWriteBytes int64
+	writing       bool
 }
 
 func NewUnsafe(channel Channel) Unsafe {
@@ -84,64 +102,53 @@ func (u *DefaultUnsafe) Read() {
 }
 
 func (u *DefaultUnsafe) Write(obj any, future Future) {
-	if future == nil {
-		future = u.channel.Pipeline().NewFuture()
+	future = u.ensureFuture(future)
+	if obj == nil {
+		u.futureSuccess(future)
+		return
 	}
-
-	if obj != nil && u.channel.IsActive() {
-		future.(concurrent.Settable).Set(obj)
-		u.writeBuffer.Push(future)
-		u.writeBufferLen.Add(1)
-	} else {
-		if obj == nil {
-			u.futureSuccess(future)
-		} else if !u.channel.IsActive() {
-			u.futureFail(future, ErrChannelNotActive)
-			return
+	writer, ok := u.channel.(UnsafeWrite)
+	if !ok {
+		u.futureFail(future, ErrUnsupportedOperation)
+		return
+	}
+	size := u.writeSize(obj)
+	u.writeMu.Lock()
+	if u.maxWriteBytes == 0 {
+		u.maxWriteBytes = GetParamInt64Default(u.channel, ParamMaxQueuedWriteBytes, DefaultMaxQueuedWriteBytes)
+		if u.maxWriteBytes <= 0 {
+			u.maxWriteBytes = DefaultMaxQueuedWriteBytes
 		}
 	}
-
-	if uf, ok := u.channel.(UnsafeWrite); ok && u.markState(&u.writeS) {
-		go func(u *DefaultUnsafe, uf UnsafeWrite) {
-			for u.channel.IsActive() {
-				var future Future
-				if v := u.writeBuffer.Pop(); v != nil {
-					future = v.(Future)
-					u.writeBufferLen.Add(-1)
-				}
-
-				if future == nil {
-					// pending close
-					break
-				}
-
-				if err := uf.UnsafeWrite(future.GetNow()); err != nil {
-					u.channel.inactiveChannel()
-					u.futureFail(future, err)
-				} else {
-					u.futureSuccess(future)
-				}
-
-				continue
-			}
-
-			if !u.channel.IsActive() {
-				for v := u.writeBuffer.Pop(); v != nil; v = u.writeBuffer.Pop() {
-					u.writeBufferLen.Add(-1)
-					future := v.(Future)
-					if u.channel.CloseFuture().IsDone() {
-						u.futureFail(future, ErrChannelClosed)
-					} else {
-						u.futureFail(future, ErrChannelNotActive)
-					}
-				}
-			}
-
-			u.resetState(&u.writeS)
-			if u.writeBufferLen.Load() > 0 {
-				u.Write(nil, nil)
-			}
-		}(u, uf)
+	if !u.channel.IsActive() {
+		u.writeMu.Unlock()
+		u.futureFail(future, ErrChannelNotActive)
+		return
+	}
+	if size < 0 || u.maxWriteBytes-u.writeBytes < queuedWriteOverhead || size > u.maxWriteBytes-u.writeBytes-queuedWriteOverhead {
+		u.writeMu.Unlock()
+		u.futureFail(future, ErrWriteQueueFull)
+		u.channel.inactiveChannel()
+		return
+	}
+	future.(concurrent.Settable).Set(obj)
+	size += queuedWriteOverhead
+	if u.writeCount == len(u.writeBuffer) {
+		next := make([]queuedWrite, max(8, 2*len(u.writeBuffer)))
+		copied := copy(next, u.writeBuffer[u.writeHead:])
+		copy(next[copied:], u.writeBuffer[:u.writeHead])
+		u.writeBuffer = next
+		u.writeHead = 0
+	}
+	tail := (u.writeHead + u.writeCount) % len(u.writeBuffer)
+	u.writeBuffer[tail] = queuedWrite{future: future, size: size}
+	u.writeCount++
+	u.writeBytes += size
+	start := !u.writing
+	u.writing = true
+	u.writeMu.Unlock()
+	if start {
+		go u.drainWrites(writer)
 	}
 }
 
@@ -187,6 +194,7 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 								child.Pipeline().fireRegistered()
 								child.activeChannel()
 								u.futureSuccess(future)
+
 								// A server that began closing has already closed the children it had active, so close
 								// one it accepted meanwhile; otherwise Close waits for it.
 								if server, ok := u.channel.(interface{ closing() bool }); ok && server.closing() {
@@ -195,7 +203,13 @@ func (u *DefaultUnsafe) Bind(localAddr net.Addr, future Future) {
 							}(u, child, future)
 
 							go func(u *DefaultUnsafe, child Channel, future Future) {
-								<-time.After(time.Duration(GetParamIntDefault(child, ParamAcceptTimeout, DefaultAcceptTimeout)) * time.Millisecond)
+								timer := time.NewTimer(time.Duration(GetParamIntDefault(child, ParamAcceptTimeout, DefaultAcceptTimeout)) * time.Millisecond)
+								defer timer.Stop()
+								select {
+								case <-future.Done():
+									return
+								case <-timer.C:
+								}
 								if u.futureFail(future, ErrAcceptTimeout) {
 									kklogger.ErrorJ("channel:DefaultUnsafe.UnsafeAccept#accept!accept_error", future.Error().Error())
 									child.inactiveChannel()
@@ -349,4 +363,60 @@ func (u *DefaultUnsafe) futureFail(future Future, err error) bool {
 
 func (u *DefaultUnsafe) futureCancel(future Future) bool {
 	return future.Completable().Cancel()
+}
+
+func (u *DefaultUnsafe) writeSize(obj any) (size int64) {
+	switch value := obj.(type) {
+	case buf.ByteBuf:
+		return int64(value.ReadableBytes())
+	case []byte:
+		return int64(len(value))
+	case string:
+		return int64(len(value))
+	case interface{ WriteSize() int }:
+		return int64(value.WriteSize())
+	default:
+		return 0
+	}
+}
+
+func (u *DefaultUnsafe) drainWrites(writer UnsafeWrite) {
+	for {
+		u.writeMu.Lock()
+		if u.writeCount == 0 {
+			u.writeHead = 0
+			if len(u.writeBuffer) > maxIdleWriteEntries {
+				u.writeBuffer = nil
+			}
+			u.writing = false
+			u.writeMu.Unlock()
+			return
+		}
+		item := u.writeBuffer[u.writeHead]
+		u.writeBuffer[u.writeHead] = queuedWrite{}
+		u.writeHead = (u.writeHead + 1) % len(u.writeBuffer)
+		u.writeCount--
+		u.writeMu.Unlock()
+		var writeErr error
+		if !u.channel.IsActive() {
+			if u.channel.CloseFuture().IsDone() {
+				writeErr = ErrChannelClosed
+			} else {
+				writeErr = ErrChannelNotActive
+			}
+		} else {
+			writeErr = writer.UnsafeWrite(item.future.GetNow())
+			if writeErr != nil {
+				u.channel.inactiveChannel()
+			}
+		}
+		u.writeMu.Lock()
+		u.writeBytes -= item.size
+		u.writeMu.Unlock()
+		if writeErr != nil {
+			u.futureFail(item.future, writeErr)
+		} else {
+			u.futureSuccess(item.future)
+		}
+	}
 }

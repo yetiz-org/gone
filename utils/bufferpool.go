@@ -37,11 +37,10 @@ func NewBufferPool(size int) *BufferPool {
 
 // Get retrieves a buffer from the pool and clears it to prevent dirty data
 // Returns a clean byte slice of the pool's configured size
-func (bp *BufferPool) Get() []byte {
-	buf := bp.pool.Get().([]byte)
-	// Clear the buffer to prevent dirty data leakage
-	bp.clearBuffer(buf)
-	return buf
+func (bp *BufferPool) Get() (buffer []byte) {
+	buffer = bp.pool.Get().([]byte)
+	clear(buffer)
+	return buffer
 }
 
 // GetDirty retrieves a buffer without clearing it. Callers must treat the
@@ -58,12 +57,6 @@ func (bp *BufferPool) Put(buf []byte) {
 	if cap(buf) == bp.size {
 		bp.pool.Put(buf[:bp.size])
 	}
-}
-
-// clearBuffer zeroes the buffer so pooled reuse cannot leak prior contents.
-// The builtin clear is lowered to memclr by the compiler.
-func (bp *BufferPool) clearBuffer(buf []byte) {
-	clear(buf)
 }
 
 // GetWithSize retrieves a buffer and resizes it if needed

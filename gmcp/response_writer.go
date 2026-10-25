@@ -2,6 +2,7 @@ package gmcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -20,6 +21,9 @@ type _ResponseWriter struct {
 	_Status    int
 	_Committed bool
 	_Body      bytes.Buffer
+	_Limit     int64
+	_Cancel    context.CancelFunc
+	_Error     error
 }
 
 // Header returns the underlying response header.
@@ -40,6 +44,9 @@ func (w *_ResponseWriter) WriteHeader(status int) {
 func (w *_ResponseWriter) Write(data []byte) (n int, err error) {
 	w._Mutex.Lock()
 	defer w._Mutex.Unlock()
+	if w._Error != nil {
+		return 0, w._Error
+	}
 	if w._Status == 0 {
 		w._Status = http.StatusOK
 	}
@@ -50,30 +57,65 @@ func (w *_ResponseWriter) Write(data []byte) (n int, err error) {
 		return len(data), nil
 	}
 
-	w._Body.Write(data)
 	if strings.HasPrefix(mediaType, "text/event-stream") {
-		for {
-			event, _, found := bytes.Cut(w._Body.Bytes(), []byte("\n\n"))
-			if !found {
-				break
+		consumed := 0
+		for len(data) > 0 {
+			length := len(data)
+			if newline := bytes.IndexByte(data, '\n'); newline >= 0 {
+				length = newline + 1
 			}
 
-			safe := w._SanitizeEvent(event)
-			w._Body.Next(len(event) + 2)
+			if int64(length) > w._Limit-int64(w._Body.Len()) {
+				return consumed, w._Fail()
+			}
+
+			w._Body.Write(data[:length])
+			data = data[length:]
+			consumed += length
+			if !bytes.HasSuffix(w._Body.Bytes(), []byte("\n\n")) {
+				continue
+			}
+
+			safe := w._SanitizeEvent(w._Body.Bytes()[:w._Body.Len()-2])
+			w._Body.Reset()
+			if int64(len(safe)) > w._Limit {
+				return consumed, w._Fail()
+			}
+
 			w._Commit()
 			if _, err = w._Writer.Write(safe); err != nil {
-				return 0, err
+				return consumed, err
 			}
 		}
+
+		return consumed, nil
 	}
 
+	if int64(len(data)) > w._Limit-int64(w._Body.Len()) {
+		return 0, w._Fail()
+	}
+
+	w._Body.Write(data)
 	return len(data), nil
+}
+
+func (w *_ResponseWriter) _Fail() (rtErr error) {
+	w._Error = _ErrOutputTooLarge
+	w._Body.Reset()
+	if w._Cancel != nil {
+		w._Cancel()
+	}
+
+	return w._Error
 }
 
 // FlushError flushes SSE output; an incomplete event stays buffered.
 func (w *_ResponseWriter) FlushError() (err error) {
 	w._Mutex.Lock()
 	defer w._Mutex.Unlock()
+	if w._Error != nil {
+		return w._Error
+	}
 	if strings.HasPrefix(w.Header().Get("Content-Type"), "text/event-stream") {
 		w._Commit()
 		return http.NewResponseController(w._Writer).Flush()
@@ -103,6 +145,20 @@ func (w *_ResponseWriter) _Finish() {
 	w._Mutex.Lock()
 	defer w._Mutex.Unlock()
 	defer w._Body.Reset()
+	if w._Error != nil {
+		if !w._Committed {
+			w._Status = http.StatusInternalServerError
+			w.Header().Set("Content-Type", "application/json")
+			w._Commit()
+			data := _PublicError{Category: _InternalError}._JSON()
+			if int64(len(data)) <= w._Limit {
+				_, _ = w._Writer.Write(data)
+			}
+		}
+
+		return
+	}
+
 	mediaType := w.Header().Get("Content-Type")
 	if strings.HasPrefix(mediaType, "text/event-stream") {
 		// Write already sent every complete event; an incomplete one is dropped.
@@ -113,9 +169,18 @@ func (w *_ResponseWriter) _Finish() {
 	var data []byte
 	if strings.HasPrefix(mediaType, "application/json") && w._Body.Len() > 0 {
 		data = w._SanitizeJSON(w._Body.Bytes())
+		if int64(len(data)) > w._Limit {
+			w._Status = http.StatusInternalServerError
+			data = _PublicError{Category: _InternalError}._JSON()
+		}
 	} else if w._Status >= http.StatusBadRequest {
 		w.Header().Set("Content-Type", "application/json")
 		data = _PublicError{Category: _StatusCategory(w._Status)}._JSON()
+	}
+
+	if int64(len(data)) > w._Limit {
+		w._Status = http.StatusInternalServerError
+		data = nil
 	}
 
 	w._Commit()
@@ -137,16 +202,30 @@ func (w *_ResponseWriter) _SanitizeJSON(data []byte) (safe []byte) {
 			return fallback
 		}
 
-		for i := range batch {
-			batch[i] = w._SanitizeJSON(batch[i])
+		limit := w._Limit
+		if limit == 0 {
+			limit = 16 << 20
 		}
 
-		safe, err := json.Marshal(batch)
-		if err != nil {
+		capture := &_OutputCapture{_Limit: limit}
+		_, _ = capture.Write([]byte{'['})
+		for index, message := range batch {
+			if index > 0 {
+				if _, err := capture.Write([]byte{','}); err != nil {
+					return fallback
+				}
+			}
+
+			if _, err := capture.Write(w._SanitizeJSON(message)); err != nil {
+				return fallback
+			}
+		}
+
+		if _, err := capture.Write([]byte{']'}); err != nil {
 			return fallback
 		}
 
-		return safe
+		return capture._Body.Bytes()
 	}
 
 	var envelope map[string]jsontext.Value
@@ -215,7 +294,13 @@ func (w *_ResponseWriter) _SanitizeJSON(data []byte) (safe []byte) {
 		id = jsontext.Value("null")
 	}
 
-	safe, err := json.Marshal(struct {
+	limit := w._Limit
+	if limit == 0 {
+		limit = 16 << 20
+	}
+
+	capture := &_OutputCapture{_Limit: limit}
+	err := json.MarshalWrite(capture, struct {
 		JSONRPC string         `json:"jsonrpc"`
 		ID      jsontext.Value `json:"id"`
 		Error   protocolError  `json:"error"`
@@ -224,7 +309,7 @@ func (w *_ResponseWriter) _SanitizeJSON(data []byte) (safe []byte) {
 		return fallback
 	}
 
-	return safe
+	return capture._Body.Bytes()
 }
 
 // _SanitizeEvent rewrites the data lines of one SSE event with _SanitizeJSON and keeps the other lines.

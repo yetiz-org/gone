@@ -3,6 +3,7 @@ package goai
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,4 +239,101 @@ func TestSchemaBuilderSkipsGoaiDashField(t *testing.T) {
 	// registered as a component when nothing else references it.
 	assert.NotContains(t, components.Schemas, "goai.GoaiSkipInner")
 	assert.NotContains(t, components.Schemas, "goai.GoaiSkipEmbedded")
+}
+
+func TestSchemaBuildersSkipJSONDashEmbeddedField(t *testing.T) {
+	type Secret struct {
+		Token string `json:"token" goai:"description=Private token"`
+	}
+	type Visible struct {
+		Public string `json:"public"`
+	}
+	type Payload struct {
+		Secret `json:"-"`
+		Visible
+		ID string `json:"id"`
+	}
+
+	for _, kind := range []string{"reflection", "AST"} {
+		t.Run(kind, func(t *testing.T) {
+			var schemas map[string]*Schema
+			var ref *Schema
+			if kind == "reflection" {
+				components := NewComponents()
+				ref = newSchemaBuilder(components).build(reflect.TypeFor[Payload]())
+				schemas = components.Schemas
+			} else {
+				builder := _ASTSchemaBuilderFromSource(t, "example.test/p", "package p\n"+
+					"type Secret struct { Token string `json:\"token\" goai:\"description=Private token\"` }\n"+
+					"type Visible struct { Public string `json:\"public\"` }\n"+
+					"type Payload struct { Secret `json:\"-\"`; Visible; ID string `json:\"id\"` }\n")
+				var ok bool
+				ref, ok = builder._SchemaForTypeName("Payload")
+				require.True(t, ok)
+				schemas = builder._Components
+			}
+
+			require.NotNil(t, ref)
+			payload := schemas[strings.TrimPrefix(ref.Ref, "#/components/schemas/")]
+			require.NotNil(t, payload)
+			assert.ElementsMatch(t, []string{"id", "public"}, payload.Required)
+			require.Len(t, payload.Properties, 2)
+			assert.Contains(t, payload.Properties, "id")
+			assert.Contains(t, payload.Properties, "public")
+			for name := range schemas {
+				assert.NotEqual(t, "Secret", name[strings.LastIndex(name, ".")+1:])
+			}
+		})
+	}
+}
+
+func TestSchemaBuildersUnsignedConstraintBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  *uint64
+	}{
+		{name: "absent", value: "", want: nil},
+		{name: "zero", value: "0", want: new(uint64(0))},
+		{name: "maximum", value: "18446744073709551615", want: new(^uint64(0))},
+		{name: "overflow", value: "18446744073709551616", want: nil},
+		{name: "long overflow", value: "184467440737095516160000000000000000000000", want: nil},
+		{name: "syntax", value: "1x", want: nil},
+		{name: "sign", value: "+1", want: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lengthTag := `json:"text" goai:"minLength=` + tc.value + `;maxLength=` + tc.value + `"`
+			itemsTag := `json:"items" goai:"minItems=` + tc.value + `;maxItems=` + tc.value + `"`
+			propertiesTag := `json:"object" goai:"minProperties=` + tc.value + `;maxProperties=` + tc.value + `"`
+			for _, kind := range []string{"reflection", "AST"} {
+				t.Run(kind, func(t *testing.T) {
+					var payload *Schema
+					if kind == "reflection" {
+						typ := reflect.StructOf([]reflect.StructField{
+							{Name: "Text", Type: reflect.TypeFor[string](), Tag: reflect.StructTag(lengthTag)},
+							{Name: "Items", Type: reflect.TypeFor[[]string](), Tag: reflect.StructTag(itemsTag)},
+							{Name: "Object", Type: reflect.TypeFor[map[string]string](), Tag: reflect.StructTag(propertiesTag)},
+						})
+						payload = newSchemaBuilder(NewComponents()).build(typ)
+					} else {
+						builder := _ASTSchemaBuilderFromSource(t, "example.test/p", "package p\ntype Payload struct { Text string `"+lengthTag+"`; Items []string `"+itemsTag+"`; Object map[string]string `"+propertiesTag+"` }")
+						ref, ok := builder._SchemaForTypeName("Payload")
+						require.True(t, ok)
+						payload = builder._Components[strings.TrimPrefix(ref.Ref, "#/components/schemas/")]
+					}
+
+					require.NotNil(t, payload)
+					text := payload.Properties["text"]
+					items := payload.Properties["items"]
+					object := payload.Properties["object"]
+					require.NotNil(t, text)
+					require.NotNil(t, items)
+					require.NotNil(t, object)
+					for _, got := range []*uint64{text.MinLength, text.MaxLength, items.MinItems, items.MaxItems, object.MinProperties, object.MaxProperties} {
+						assert.Equal(t, tc.want, got)
+					}
+				})
+			}
+		})
+	}
 }

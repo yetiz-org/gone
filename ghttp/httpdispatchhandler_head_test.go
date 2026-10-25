@@ -139,11 +139,14 @@ func TestDispatchHandlerInvokeMethodSupportsHTTPMethods(t *testing.T) {
 func TestDispatchHandlerUpdateSessionCookieUsesRequestHostWhenSessionDomainEmpty(t *testing.T) {
 	oldSessionDomain := SessionDomain
 	oldSessionKey := SessionKey
+	oldLegacyDomain := SessionDomainFromRequestHost
 	t.Cleanup(func() {
 		SessionDomain = oldSessionDomain
 		SessionKey = oldSessionKey
+		SessionDomainFromRequestHost = oldLegacyDomain
 	})
 
+	SessionDomainFromRequestHost = true
 	SessionDomain = ""
 	SessionKey = "HOST_DOMAIN_TEST"
 
@@ -164,11 +167,14 @@ func TestDispatchHandlerUpdateSessionCookieUsesRequestHostWhenSessionDomainEmpty
 func TestDispatchHandlerUpdateSessionCookieRefreshUsesRequestHostWhenSessionDomainEmpty(t *testing.T) {
 	oldSessionDomain := SessionDomain
 	oldSessionKey := SessionKey
+	oldLegacyDomain := SessionDomainFromRequestHost
 	t.Cleanup(func() {
 		SessionDomain = oldSessionDomain
 		SessionKey = oldSessionKey
+		SessionDomainFromRequestHost = oldLegacyDomain
 	})
 
+	SessionDomainFromRequestHost = true
 	SessionDomain = ""
 	SessionKey = "HOST_DOMAIN_REFRESH_TEST"
 
@@ -215,11 +221,14 @@ func TestDispatchHandlerUpdateSessionCookieKeepsExplicitSessionDomain(t *testing
 func TestDispatchHandlerUpdateSessionCookieSkipsIPv6HostDomain(t *testing.T) {
 	oldSessionDomain := SessionDomain
 	oldSessionKey := SessionKey
+	oldLegacyDomain := SessionDomainFromRequestHost
 	t.Cleanup(func() {
 		SessionDomain = oldSessionDomain
 		SessionKey = oldSessionKey
+		SessionDomainFromRequestHost = oldLegacyDomain
 	})
 
+	SessionDomainFromRequestHost = true
 	SessionDomain = ""
 	SessionKey = "IPV6_DOMAIN_TEST"
 

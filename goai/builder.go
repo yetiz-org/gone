@@ -26,8 +26,9 @@ type BuildOptions struct {
 	// when the candidate did not declare any via ProfileScope. nil means
 	// "use BuiltinClassify".
 	Classifier func(c OperationCandidate) []string
-	// TagSecurityClassifier provides default tags + security refs when a
-	// candidate has no explicit Spec entry. nil means "use DefaultClassifier".
+	// TagSecurityClassifier supplies missing tags and per-acceptance security
+	// metadata. Active requirements combine with Spec security; method-aware
+	// exemptions suppress only their own fallback. nil uses DefaultClassifier.
 	TagSecurityClassifier *Classifier
 	// SuppressEmptySchemas, when true, omits the application/json content
 	// block on responses where the registered response type is nil. This
@@ -278,33 +279,7 @@ func buildOperation(p _PreparedOperation, schemaBld *schemaBuilder, suppressEmpt
 		_ApplyResponseSpec(op, status, rs, schemaBld)
 	}
 
-	securityRefs := append([]SecurityRef(nil), p.SecurityRefs...)
-	if len(securityRefs) > 0 {
-		// OpenAPI 3.0.3 semantics: each map in op.Security is a Security
-		// Requirement Object. Multiple keys *within* one object combine as
-		// AND; multiple objects in the array combine as OR. The Spec API
-		// documents WithSecurity as appending OR alternatives, so each ref
-		// becomes its own requirement object. Callers that want AND
-		// composition for a single operation should declare it via the
-		// document-level GlobalSecurity.
-		sec := make([]map[string][]string, 0, len(securityRefs))
-		for _, ref := range securityRefs {
-			sec = append(sec, map[string][]string{
-				ref.Scheme: append([]string(nil), ref.Scopes...),
-			})
-		}
-
-		op.Security = &sec
-	} else if c.SecurityExplicitlyEmpty {
-		// At least one acceptance bypassed its usual security requirement
-		// on this HTTP method (e.g. bearer-less token introspection POST).
-		// Emit an explicit empty array so the operation overrides any
-		// document-level GlobalSecurity inheritance — `nil` would let the
-		// global default flow through and mark the bypass as still
-		// requiring auth.
-		empty := []map[string][]string{}
-		op.Security = &empty
-	}
+	op.Security = p._SecurityRequirements()
 
 	// Headers from Spec.ExtraHeaders must exist before doc fallback so
 	// doc parameters and response headers can only fill missing names.
@@ -670,8 +645,8 @@ func _MergeOperationDocFallback(op *Operation, docOp *Operation, spec Spec, c Op
 	_MergeOperationDocRequestBody(op, docOp.RequestBody)
 	_MergeOperationDocResponses(op, docOp.Responses, spec, c.Method)
 
-	if docOp.Security != nil && len(spec.Security()) == 0 {
-		op.Security = docOp.Security
+	if op.Security == nil && docOp.Security != nil {
+		op.Security = _CloneSecurityRequirements(docOp.Security)
 	}
 
 	if len(docOp.Extensions) > 0 {

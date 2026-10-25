@@ -4,7 +4,6 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/yetiz-org/gone/gudp"
 
@@ -45,15 +44,20 @@ func (c *Client) Start(remoteAddr net.Addr) channel.Channel {
 }
 
 // start establishes the UDP connection
-func (c *Client) start() channel.Channel {
+func (c *Client) start() (ch channel.Channel) {
 	if c.bootstrap == nil {
 		return nil // Return nil if bootstrap is not initialized
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.ch = c.bootstrap.Connect(nil, c.remoteAddr).Sync().Channel()
-	return c.ch
+	previous := c.Channel()
+	ch = c.bootstrap.Connect(nil, c.remoteAddr).Sync().Channel()
+	if ch == nil {
+		c.mu.Lock()
+		if c.ch == previous {
+			c.ch = nil
+		}
+		c.mu.Unlock()
+	}
+	return ch
 }
 
 // Channel returns the underlying channel
@@ -93,21 +97,6 @@ func failedFuture(err error) channel.Future {
 type connectionHandler struct {
 	channel.DefaultHandler
 	client *Client
-}
-
-// Active is called when the UDP connection becomes active
-func (h *connectionHandler) Active(ctx channel.HandlerContext) {
-	// UDP doesn't need keep-alive like TCP, but we can implement periodic communication if needed
-	go func(ch channel.Channel) {
-		wait := time.Second * 30 // Less frequent for UDP
-		for ch.IsActive() {
-			// For UDP, we might want to send periodic heartbeat messages
-			// This is optional and depends on application requirements
-			time.Sleep(wait)
-		}
-	}(ctx.Channel())
-
-	ctx.FireActive()
 }
 
 // Unregistered handles UDP connection cleanup and reconnection logic
@@ -158,6 +147,9 @@ func (h *clientHandlerAdapter) Unregistered(ctx channel.HandlerContext) {
 }
 
 func (h *clientHandlerAdapter) Active(ctx channel.HandlerContext) {
+	h.client.mu.Lock()
+	h.client.ch = ctx.Channel()
+	h.client.mu.Unlock()
 	if h.client.Handler != nil {
 		h.client.Handler.Active(ctx)
 	} else {

@@ -286,6 +286,13 @@ func TestParseRange(t *testing.T) {
 		}
 	})
 
+	t.Run("EmptyContentSuffix", func(t *testing.T) {
+		start, end, valid := ParseRange("bytes=-1", 0)
+		assert.False(t, valid)
+		assert.Equal(t, int64(0), start)
+		assert.Equal(t, int64(0), end)
+	})
+
 	t.Run("InvalidRanges", func(t *testing.T) {
 		tests := []string{
 			"bytes=1000-2000",

@@ -230,17 +230,11 @@ func (p *DefaultPipeline) Channel() Channel {
 	return p.channel
 }
 
-func (p *DefaultPipeline) Clear() Pipeline {
-	if next := p.head.next(); next != nil {
-		next.setPrev(nil)
+func (p *DefaultPipeline) Clear() (pipeline Pipeline) {
+	for p.head.next() != p.tail {
+		p.RemoveFirst()
 	}
 
-	if prev := p.tail.prev(); prev != nil {
-		prev.setNext(nil)
-	}
-
-	p.head.setNext(p.tail)
-	p.tail.setPrev(p.head)
 	return p
 }
 

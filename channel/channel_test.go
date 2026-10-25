@@ -5,7 +5,6 @@ package channel
 import (
 	"fmt"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -209,62 +208,91 @@ func TestDefaultChannel_ConcurrentLifecycleOperations(t *testing.T) {
 	}
 }
 
+type lifecycleTestChannel struct {
+	DefaultChannel
+}
+
+func (c *lifecycleTestChannel) UnsafeIsAutoRead() (autoRead bool) {
+	return false
+}
+
 func TestDefaultChannel_ConcurrentActivationDeactivation(t *testing.T) {
-	ResetSerialSequenceForTesting()
 	const numGoroutines = 5
-	channel := &DefaultChannel{}
+	channel := &lifecycleTestChannel{}
 	channel.init(channel)
 	var wg sync.WaitGroup
-	var activationCount, deactivationCount int32
-	done := make(chan bool, 1)
+	var activationCount, deactivationCount atomic.Int32
+	start := make(chan struct{})
+	for range numGoroutines {
+		wg.Go(func() {
+			<-start
+			channel.activeChannel()
+			activationCount.Add(1)
+			success, future := channel.inactiveChannel()
+			select {
+			case <-future.Done():
+				assert.NoError(t, future.Error())
+				assert.Same(t, &channel.DefaultChannel, future.Get())
+			case <-time.After(time.Second):
+				t.Error("inactive transition did not settle")
+			}
+			if success {
+				deactivationCount.Add(1)
+			}
+		})
+	}
+	close(start)
+	joined := make(chan struct{})
 	go func() {
-		for i := range numGoroutines {
-			wg.Add(1)
-			go func(index int) {
-				defer wg.Done()
-				channel.activeChannel()
-				atomic.AddInt32(&activationCount, 1)
-				time.Sleep(time.Millisecond)
-				success, future := channel.inactiveChannel()
-				if success && future != nil {
-					go func() {
-						select {
-						case <-time.After(100 * time.Millisecond):
-						default:
-							future.Await()
-							atomic.AddInt32(&deactivationCount, 1)
-						}
-					}()
-				}
-			}(i)
-		}
 		wg.Wait()
-		done <- true
+		close(joined)
 	}()
 	select {
-	case <-done:
+	case <-joined:
 	case <-time.After(10 * time.Second):
-		t.Fatal("Test timed out - potential deadlock detected")
+		t.Fatal("activation/deactivation workload did not finish")
 	}
-	finalActivationCount := atomic.LoadInt32(&activationCount)
-	finalDeactivationCount := atomic.LoadInt32(&deactivationCount)
-	t.Logf("Activations: %d, Deactivations: %d", finalActivationCount, finalDeactivationCount)
-	assert.Greater(t, finalActivationCount, int32(0), "Should have some activations")
+	assert.Equal(t, int32(numGoroutines), activationCount.Load())
+	assert.Greater(t, deactivationCount.Load(), int32(0))
+	assert.LessOrEqual(t, deactivationCount.Load(), int32(numGoroutines))
+	assert.False(t, channel.IsActive())
+	requireDoneFuture(t, channel.CloseFuture())
+	assert.NoError(t, channel.CloseFuture().Error())
 }
 
 func TestDefaultChannel_ConcurrentReadOperations(t *testing.T) {
-	ResetSerialSequenceForTesting()
-	runtime.GC()
-	runtime.GC()
 	channel := &DefaultChannel{}
 	channel.init(channel)
 	const totalReads = 30
+	received := make(chan any, totalReads)
+	channel.Pipeline().AddLast("capture", NewRWHandler(func(ctx HandlerContext, obj any) {
+		select {
+		case received <- obj:
+		default:
+			t.Error("more read deliveries than requested")
+		}
+	}, nil))
+	payloads := make([]*int, totalReads)
+	var wg sync.WaitGroup
 	for i := range totalReads {
-		testData := map[string]any{"index": i, "timestamp": time.Now().UnixNano()}
-		channel.FireRead(testData)
-		time.Sleep(time.Millisecond)
+		payloads[i] = new(i)
+		wg.Go(func() {
+			assert.Same(t, channel, channel.FireRead(payloads[i]))
+		})
 	}
-	t.Logf("Sequential read processing completed: %d read operations fired", totalReads)
+	wg.Wait()
+	close(received)
+	seen := make(map[*int]int, totalReads)
+	for obj := range received {
+		payload, ok := obj.(*int)
+		if assert.True(t, ok, "read payload type must be preserved") {
+			seen[payload]++
+		}
+	}
+	assert.Len(t, seen, totalReads)
+	for i, payload := range payloads {
+		assert.Equal(t, 1, seen[payload], "payload %d delivered exactly once", i)
+	}
 }
 
 func TestDefaultChannel_ConcurrentWriteOperations(t *testing.T) {
@@ -344,28 +372,27 @@ func TestDefaultChannel_MemoryConsistency(t *testing.T) {
 	channel := &DefaultChannel{}
 	channel.init(channel)
 	var wg sync.WaitGroup
-	var successCount int64
+	var successCount atomic.Int64
 	startSignal := make(chan struct{})
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
+		wg.Go(func() {
 			<-startSignal
+			key := ParamKey(fmt.Sprintf("consistency-key-%d", i))
 			for j := range iterations {
-				key := ParamKey(fmt.Sprintf("consistency-key-%d", goroutineID))
-				value := goroutineID*iterations + j
+				value := i*iterations + j
 				channel.SetParam(key, value)
 				retrieved := channel.Param(key)
-				if retrieved != nil && retrieved.(int) >= goroutineID*iterations {
-					atomic.AddInt64(&successCount, 1)
+				if retrieved == value {
+					successCount.Add(1)
+				} else {
+					t.Errorf("worker %d iteration %d: got %v, want %d", i, j, retrieved, value)
 				}
 			}
-		}(i)
+		})
 	}
 	close(startSignal)
 	wg.Wait()
-	t.Logf("Successful operations: %d out of %d", successCount, int64(numGoroutines*iterations))
-	assert.Greater(t, successCount, int64(0), "Should have successful operations")
+	assert.Equal(t, int64(numGoroutines*iterations), successCount.Load())
 }
 
 // --- Additional mocks-based tests merged from channel_core_test.go ---

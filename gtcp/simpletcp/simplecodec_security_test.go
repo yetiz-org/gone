@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ func TestSimpleCodec_RejectsOversizedFrames(t *testing.T) {
 		t.Run("length", func(t *testing.T) {
 			codec := NewSimpleCodec()
 			ctx := channel.NewMockHandlerContext()
+			ctx.On("Channel").Return(&channel.DefaultChannel{}).Maybe()
 			var caught error
 			closed := false
 			ctx.On("FireErrorCaught", mock.Anything).Run(func(args mock.Arguments) {
@@ -38,6 +40,7 @@ func TestSimpleCodec_RejectsOversizedFrames(t *testing.T) {
 func TestSimpleCodec_StreamFraming(t *testing.T) {
 	codec := NewSimpleCodec()
 	ctx := channel.NewMockHandlerContext()
+	ctx.On("Channel").Return(&channel.DefaultChannel{}).Maybe()
 	var messages [][]byte
 	ctx.On("FireRead", mock.Anything).Run(func(args mock.Arguments) {
 		messages = append(messages, args.Get(0).(buf.ByteBuf).BytesCopy())
@@ -59,6 +62,7 @@ func TestSimpleCodec_FrameBoundary(t *testing.T) {
 		t.Run("write", func(t *testing.T) {
 			codec := NewSimpleCodec()
 			ctx := channel.NewMockHandlerContext()
+			ctx.On("Channel").Return(&channel.DefaultChannel{}).Maybe()
 			future := channel.NewFuture(nil)
 			ctx.On("Disconnect", mock.Anything).Return(channel.NewFuture(nil)).Maybe()
 			var written buf.ByteBuf
@@ -91,4 +95,38 @@ func TestSimpleCodec_FrameBoundary(t *testing.T) {
 			require.Equal(t, n+5, written.ReadableBytes(), "decoding must preserve the input reader index")
 		})
 	}
+}
+
+func TestSimpleCodecAssemblyCheckpointsDoNotRenewDeadline(t *testing.T) {
+	codec := NewSimpleCodec()
+	ch := &channel.DefaultChannel{}
+	ch.SetParam(channel.ParamFrameAssemblyTimeout, 400)
+	ctx := channel.NewMockHandlerContext()
+	ctx.On("Channel").Return(ch)
+	expired := make(chan struct{}, 1)
+	caught := make(chan error, 1)
+	ctx.On("Disconnect", mock.Anything).Run(func(mock.Arguments) { expired <- struct{}{} }).Return(channel.NewFuture(nil))
+	ctx.On("FireErrorCaught", mock.Anything).Run(func(args mock.Arguments) { caught <- args.Error(0) }).Return(ctx)
+	codec.Added(ctx)
+	t.Cleanup(func() { codec.Removed(ctx) })
+	header := utils.VarIntEncode(300).BytesCopy()
+	codec.Read(ctx, buf.NewByteBuf(header[:1]))
+	time.Sleep(100 * time.Millisecond)
+	codec.Read(ctx, buf.NewByteBuf(header[1:2]))
+	time.Sleep(100 * time.Millisecond)
+	codec.Read(ctx, buf.NewByteBuf(header[2:]))
+	time.Sleep(100 * time.Millisecond)
+	codec.Read(ctx, buf.NewByteBuf([]byte{'a'}))
+	select {
+	case <-expired:
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("partial header/body checkpoints renewed the first frame's absolute deadline")
+	}
+	select {
+	case err := <-caught:
+		require.ErrorIs(t, err, channel.ErrFrameAssemblyTimeout)
+	case <-time.After(time.Second):
+		t.Fatal("assembly expiry did not report its terminal error")
+	}
+	ctx.AssertNotCalled(t, "FireRead", mock.Anything)
 }

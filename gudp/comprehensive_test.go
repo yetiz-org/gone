@@ -300,45 +300,43 @@ func TestUDPChannel_InterfaceCompliance(t *testing.T) {
 func TestUDPChannel_ConcurrentConnections(t *testing.T) {
 	const numGoroutines = 100
 	const connectionsPerGoroutine = 20
-
-	var successfulConnections int64
-	var failedConnections int64
+	peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	defer peer.Close()
+	remoteAddr := peer.LocalAddr().(*net.UDPAddr)
+	localAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
+	slots := make(chan struct{}, 10)
+	var successfulConnections atomic.Int64
+	var rejectedConnections atomic.Int64
 	var wg sync.WaitGroup
-
-	// Test concurrent connection attempts
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
+	for range numGoroutines {
+		wg.Go(func() {
 			for range connectionsPerGoroutine {
+				slots <- struct{}{}
 				ch := &Channel{}
 				ch.Init()
-
-				// Try to connect to a non-existent address (will fail, but tests thread safety)
-				localAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-				remoteAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:99999") // Non-existent port
-
-				err := ch.UnsafeConnect(localAddr, remoteAddr)
-				if err != nil {
-					atomic.AddInt64(&failedConnections, 1)
-				} else {
-					atomic.AddInt64(&successfulConnections, 1)
-					// Connection would be closed here
+				if assert.NoError(t, ch.UnsafeConnect(localAddr, remoteAddr)) {
+					assert.Equal(t, remoteAddr.String(), ch.RemoteAddr().String())
+					assert.True(t, ch.Conn().IsActive())
+					if assert.NoError(t, ch.UnsafeDisconnect()) {
+						assert.False(t, ch.Conn().IsActive())
+						successfulConnections.Add(1)
+					}
 				}
+				<-slots
 			}
-		}(i)
+			invalid := &Channel{}
+			invalid.Init()
+			if assert.ErrorIs(t, invalid.UnsafeConnect(localAddr, &net.TCPAddr{}), ErrNotUDPAddr) {
+				assert.Nil(t, invalid.Conn())
+				rejectedConnections.Add(1)
+			}
+		})
 	}
-
 	wg.Wait()
-
-	// Verify that all connections were attempted
-	totalConnections := atomic.LoadInt64(&successfulConnections) + atomic.LoadInt64(&failedConnections)
-	expectedTotal := int64(numGoroutines * connectionsPerGoroutine)
-	assert.Equal(t, expectedTotal, totalConnections, "All connection attempts should be counted")
-
-	t.Logf("Connection attempts: %d successful, %d failed out of %d total",
-		successfulConnections, failedConnections, totalConnections)
+	expected := int64(numGoroutines * connectionsPerGoroutine)
+	assert.Equal(t, expected, successfulConnections.Load())
+	assert.Equal(t, int64(numGoroutines), rejectedConnections.Load())
 }
 
 // Test concurrent server channel operations

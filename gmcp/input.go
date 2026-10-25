@@ -114,6 +114,17 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 		}
 
 		tag := _NewTag(t, field, _InputKeys)
+		placements := 0
+		for _, kind := range []string{"path", "query", "body", "file"} {
+			if tag._Has(kind) {
+				placements++
+			}
+		}
+
+		if placements != 1 {
+			panic(fmt.Sprintf("gmcp: %s.%s needs exactly one valid path, query, body, or file placement", t, field.Name))
+		}
+
 		placed := _Field{_Index: field.Index}
 		body := slices.Contains([]reflect.Kind{reflect.Struct, reflect.Slice, reflect.Array}, field.Type.Kind())
 		file := field.Type == reflect.TypeFor[*File]() || field.Type == reflect.TypeFor[File]() && !_Optional(field)
@@ -123,6 +134,25 @@ func (s *Server) _NewInput(t reflect.Type) (input *_Input) {
 
 		case tag._Has("path") && field.Type.Kind() == reflect.String && !_Optional(field):
 			placed._Kind, placed._Name = "path", tag["path"]
+			property := schema.Properties[cmp.Or(name, field.Name)]
+			if property == nil {
+				panic(fmt.Sprintf("gmcp: %s.%s has no path property in its input schema", t, field.Name))
+			}
+
+			if property.Pattern == "" {
+				property.Pattern = DefaultIDPattern
+			}
+
+			patterns := []string{DefaultIDPattern}
+			if s._Options.IDPattern != DefaultIDPattern {
+				patterns = append(patterns, "^(?:"+s._Options.IDPattern+")$")
+			}
+
+			for _, pattern := range patterns {
+				if property.Pattern != pattern && !slices.ContainsFunc(property.AllOf, func(rule *jsonschema.Schema) bool { return rule.Pattern == pattern }) {
+					property.AllOf = append(property.AllOf, &jsonschema.Schema{Pattern: pattern})
+				}
+			}
 
 		case tag._Has("query") && tag["query"] != "" && _QueryType(field.Type):
 			placed._Kind, placed._Name = "query", tag["query"]
@@ -438,7 +468,16 @@ func _Strict(schema *jsonschema.Schema) {
 // and files cannot share one request.
 func (i *_Input) _Check(name string, path string, method string, index bool) {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	placedIDs := map[string]bool{}
 	for _, field := range i._Fields {
+		if field._Kind == "path" {
+			if placedIDs[field._Name] {
+				panic(fmt.Sprintf("gmcp: tool %q has duplicate path ID placement", name))
+			}
+
+			placedIDs[field._Name] = true
+		}
+
 		switch {
 		case field._Kind == "path" && field._Name != "" && !slices.Contains(segments[:len(segments)-1], field._Name):
 			panic(fmt.Sprintf("gmcp: tool %q path ID %q is not an ancestor node of %s", name, field._Name, path))
@@ -459,14 +498,17 @@ func (i *_Input) _Check(name string, path string, method string, index bool) {
 }
 
 // _Binding places a decoded input in the REST request. Nil pointers, zero values, and empty slices are not sent as
-// query values, and a nil *File sends no part; ancestor IDs are always sent for _Target to validate. An empty endpoint
-// ID is invalid because the request would fall back to Index. An input implementing BindingAdjuster then adds its
-// fixed values.
+// query values, and a nil *File sends no part; ancestor IDs are always sent for _Target to validate. A declared
+// endpoint ID must be nonempty. An input implementing BindingAdjuster then adds its fixed values.
 func (i *_Input) _Binding(value any) (binding Binding, ok bool) {
 	input := reflect.ValueOf(value)
 	binding = Binding{IDs: map[string]string{}, Query: url.Values{}, Files: map[string]File{}}
 	for _, field := range i._Fields {
-		fieldValue := input.FieldByIndex(field._Index)
+		fieldValue, err := input.FieldByIndexErr(field._Index)
+		if err != nil {
+			fieldValue = reflect.Zero(input.Type().FieldByIndex(field._Index).Type)
+		}
+
 		switch field._Kind {
 		case "body":
 			binding.Body = fieldValue.Interface()

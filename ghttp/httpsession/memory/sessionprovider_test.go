@@ -158,8 +158,8 @@ func TestSessionProvider_CleanSessions(t *testing.T) {
 	provider := NewSessionProvider()
 
 	// Create an expired session
-	expiredTime := time.Now().Add(-1 * time.Hour)
-	expiredSession := provider.NewSession(expiredTime)
+	expiredSession := provider.NewSession(time.Now().Add(time.Hour))
+	expiredSession.SetExpire(time.Now().Add(-time.Hour))
 
 	// Create a valid session
 	validTime := time.Now().Add(1 * time.Hour)

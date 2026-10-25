@@ -1,6 +1,9 @@
 package goai
 
-import "reflect"
+import (
+	"reflect"
+	"slices"
+)
 
 // _PreparedSet is the immutable-after-prepare metadata used by sequential
 // and parallel assemblers. Example values hanging off Spec/OperationDoc
@@ -23,11 +26,42 @@ type _PreparedOperation struct {
 	RespType               reflect.Type
 	Tags                   []string
 	SecurityRefs           []SecurityRef
+	SpecSecurityRefs       []SecurityRef
 	OperationDoc           *OperationDoc
 	OperationDocOp         *Operation
 	OperationDocMatches    bool
 	PackagePath            string
 	SynthesizedOperationID string
+}
+
+func (p _PreparedOperation) _SecurityRequirements() (security *[]map[string][]string) {
+	if len(p.SecurityRefs) == 0 && len(p.SpecSecurityRefs) == 0 {
+		if p.Candidate.SecurityExplicitlyEmpty {
+			return new([]map[string][]string{})
+		}
+
+		return nil
+	}
+
+	acceptance := make(map[string][]string, len(p.SecurityRefs))
+	for _, ref := range p.SecurityRefs {
+		acceptance[ref.Scheme] = _MergeSecurityScopes(acceptance[ref.Scheme], ref.Scopes)
+	}
+	if len(p.SpecSecurityRefs) == 0 {
+		return new([]map[string][]string{acceptance})
+	}
+
+	requirements := make([]map[string][]string, 0, len(p.SpecSecurityRefs))
+	for _, ref := range p.SpecSecurityRefs {
+		requirement := make(map[string][]string, len(acceptance)+1)
+		for scheme, scopes := range acceptance {
+			requirement[scheme] = slices.Clone(scopes)
+		}
+		requirement[ref.Scheme] = _MergeSecurityScopes(requirement[ref.Scheme], ref.Scopes)
+		requirements = append(requirements, requirement)
+	}
+
+	return new(requirements)
 }
 
 func _PrepareOperationCandidates(candidates []OperationCandidate, profile *Profile, opts BuildOptions) (prepared _PreparedSet) {
@@ -61,15 +95,9 @@ func _PrepareOperationCandidates(candidates []OperationCandidate, profile *Profi
 			packagePath := handlerPackagePath(ec.Handler)
 			matches := profile == nil || profile.matches(ec.Path, packagePath, profiles, tags)
 			securityRefs := append([]SecurityRef(nil), ec.SecurityRefs...)
+			specSecurityRefs := dedupeSecurityRefs(spec.Security())
 			if matches {
-				for _, ref := range spec.Security() {
-					securityRefs = append(securityRefs, ref)
-				}
-
-				securityRefs = dedupeSecurityRefs(securityRefs)
-				if len(securityRefs) == 0 && tsClassifier != nil {
-					securityRefs = tsClassifier.ClassifySecurity(ec.Acceptances)
-				}
+				securityRefs = dedupeSecurityRefs(append(securityRefs, tsClassifier.fallbackSecurity(ec)...))
 			}
 
 			candidate := _CloneOperationCandidate(ec)
@@ -84,6 +112,7 @@ func _PrepareOperationCandidates(candidates []OperationCandidate, profile *Profi
 				RespType:               respType,
 				Tags:                   append([]string(nil), tags...),
 				SecurityRefs:           _CloneSecurityRefs(securityRefs),
+				SpecSecurityRefs:       _CloneSecurityRefs(specSecurityRefs),
 				OperationDoc:           _CloneOperationDoc(operationDoc),
 				OperationDocOp:         _CloneOperationPtr(operationDocOp),
 				OperationDocMatches:    operationDocMatches,
@@ -192,6 +221,7 @@ func _ClonePreparedOperation(op _PreparedOperation) (cloned _PreparedOperation) 
 	cloned.Spec = _CloneSpec(op.Spec)
 	cloned.Tags = append([]string(nil), op.Tags...)
 	cloned.SecurityRefs = _CloneSecurityRefs(op.SecurityRefs)
+	cloned.SpecSecurityRefs = _CloneSecurityRefs(op.SpecSecurityRefs)
 	cloned.OperationDoc = _CloneOperationDoc(op.OperationDoc)
 	cloned.OperationDocOp = _CloneOperationPtr(op.OperationDocOp)
 
@@ -253,6 +283,17 @@ func _CloneSecurityRefs(refs []SecurityRef) (cloned []SecurityRef) {
 	}
 
 	return cloned
+}
+
+func _MergeSecurityScopes(current []string, additional []string) (merged []string) {
+	merged = slices.Clone(current)
+	for _, scope := range additional {
+		if !slices.Contains(merged, scope) {
+			merged = append(merged, scope)
+		}
+	}
+
+	return merged
 }
 
 func _CloneMultiExamples(examples map[string]map[string]*Example) (cloned map[string]map[string]*Example) {

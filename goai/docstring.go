@@ -1659,24 +1659,25 @@ func _SchemaFromType(typeToken string) *Schema {
 }
 
 type _ASTSchemaBuilder struct {
-	_PkgPath         string
-	_RootPkgPath     string
-	_PackageName     string
-	_Dir             string
-	_BuildTags       []string
-	_Imports         map[string]string
-	_ImportNames     *sync.Map
-	_SelfAliases     map[string]bool
-	_ImportBuilders  map[string]*_ASTSchemaBuilder
-	_TypeSpecs       map[string]*ast.TypeSpec
-	_TypeSpecImports map[*ast.TypeSpec]map[string]string
-	_TypeSpecNames   map[*ast.TypeSpec]string
-	_TextMarshalers  map[string]bool
-	_JSONValueTypes  map[string]bool
-	_Components      map[string]*Schema
-	_ComponentPkgs   map[string]string
-	_ComponentOwners map[string]string
-	_Visiting        map[string]bool
+	_PkgPath               string
+	_RootPkgPath           string
+	_PackageName           string
+	_Dir                   string
+	_BuildTags             []string
+	_Imports               map[string]string
+	_ImportNames           *sync.Map
+	_SelfAliases           map[string]bool
+	_ImportBuilders        map[string]*_ASTSchemaBuilder
+	_TypeSpecs             map[string]*ast.TypeSpec
+	_TypeSpecImports       map[*ast.TypeSpec]map[string]string
+	_TypeSpecNames         map[*ast.TypeSpec]string
+	_TextMarshalers        map[string]bool
+	_TextMarshalerVisiting map[*ast.TypeSpec]bool
+	_JSONValueTypes        map[string]bool
+	_Components            map[string]*Schema
+	_ComponentPkgs         map[string]string
+	_ComponentOwners       map[string]string
+	_Visiting              map[string]bool
 }
 
 func _NewASTSchemaBuilder(files []*ast.File, pkgPath string) *_ASTSchemaBuilder {
@@ -2261,11 +2262,17 @@ func (b *_ASTSchemaBuilder) _TypeSpecImplementsTextMarshaler(typeSpec *ast.TypeS
 	return b._StructPromotesTextMarshaler(typeSpec)
 }
 
-func (b *_ASTSchemaBuilder) _StructPromotesTextMarshaler(typeSpec *ast.TypeSpec) bool {
+func (b *_ASTSchemaBuilder) _StructPromotesTextMarshaler(typeSpec *ast.TypeSpec) (promotes bool) {
 	st, ok := typeSpec.Type.(*ast.StructType)
-	if !ok {
+	if !ok || b._TextMarshalerVisiting[typeSpec] {
 		return false
 	}
+
+	if b._TextMarshalerVisiting == nil {
+		b._TextMarshalerVisiting = map[*ast.TypeSpec]bool{}
+	}
+	b._TextMarshalerVisiting[typeSpec] = true
+	defer delete(b._TextMarshalerVisiting, typeSpec)
 
 	imports := b._TypeSpecImports[typeSpec]
 	for _, field := range st.Fields.List {
@@ -2379,7 +2386,7 @@ func (b *_ASTSchemaBuilder) _SchemaFromExpr(expr ast.Expr, env map[string]_ASTSc
 	}
 }
 
-func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_ASTSchemaArg, imports map[string]string) *Schema {
+func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_ASTSchemaArg, imports map[string]string) (schema *Schema) {
 	props := map[string]*Schema{}
 	required := []string{}
 	embeddedSchemas := []*Schema{}
@@ -2387,12 +2394,8 @@ func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_AS
 	for _, field := range st.Fields.List {
 		jsonTag, goaiTag := _ASTStructTags(field)
 
-		// `goai:"-"` excludes a field from the generated schema while leaving
-		// its json/runtime behavior untouched, mirroring the encoding/json
-		// convention and the reflection-based builder in schema.go. Checked
-		// before the embedded-flatten path so an embedded field tagged
-		// `goai:"-"` is skipped too.
-		if goaiTag == "-" {
+		// Exclude before flattening so hidden embedded fields stay private.
+		if goaiTag == "-" || jsonTag == "-" {
 			continue
 		}
 
@@ -2413,10 +2416,6 @@ func (b *_ASTSchemaBuilder) _StructSchema(st *ast.StructType, env map[string]_AS
 				}
 			}
 
-			continue
-		}
-
-		if jsonTag == "-" {
 			continue
 		}
 

@@ -23,6 +23,10 @@ import (
 	kklogger "github.com/yetiz-org/goth-kklogger"
 )
 
+func init() {
+	kklogger.SetLogLevel("DEBUG")
+}
+
 // =============================================================================
 // Deadlock Prevention Tests (from deadlock_prevention_test.go)
 // =============================================================================
@@ -33,64 +37,38 @@ func TestDeadlockPrevention_ChannelOperations(t *testing.T) {
 	const operationsPerGoroutine = 50
 	const timeout = 10 * time.Second
 
-	var completedOperations int64
+	var completedOperations atomic.Int64
 	var wg sync.WaitGroup
-
-	done := make(chan bool, 1)
-
-	// Start deadlock prevention test
+	done := make(chan struct{})
 	go func() {
-		defer func() {
-			done <- true
-		}()
-
-		// Test concurrent channel operations that could potentially deadlock
-		for i := range numGoroutines {
-			wg.Add(1)
-			go func(routineID int) {
-				defer wg.Done()
-
+		defer close(done)
+		for range numGoroutines {
+			wg.Go(func() {
 				for range operationsPerGoroutine {
-					// Create multiple channels
 					ch1 := &channel.DefaultChannel{}
 					ch1.Init()
-
 					ch2 := &channel.DefaultChannel{}
 					ch2.Init()
-
-					// Perform operations that could potentially cause deadlocks
-					// if not properly synchronized
-					go func() {
-						ch1.IsActive()
-						ch2.IsActive()
-					}()
-
-					go func() {
-						ch2.IsActive()
-						ch1.IsActive()
-					}()
-
-					// Small delay to allow operations to complete
-					time.Sleep(1 * time.Microsecond)
-					atomic.AddInt64(&completedOperations, 1)
+					var operations sync.WaitGroup
+					operations.Go(func() {
+						assert.False(t, ch1.IsActive())
+						assert.False(t, ch2.IsActive())
+					})
+					operations.Go(func() {
+						assert.False(t, ch2.IsActive())
+						assert.False(t, ch1.IsActive())
+					})
+					operations.Wait()
+					completedOperations.Add(1)
 				}
-			}(i)
+			})
 		}
-
 		wg.Wait()
 	}()
 
-	// Wait for completion or timeout
 	select {
 	case <-done:
-		// Test completed successfully without deadlock
-		expectedOperations := int64(numGoroutines * operationsPerGoroutine)
-		assert.Equal(t, expectedOperations, atomic.LoadInt64(&completedOperations),
-			"All operations should complete without deadlock")
-
-		t.Logf("Deadlock prevention test completed: %d operations in concurrent channel access",
-			completedOperations)
-
+		assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), completedOperations.Load(), "All operations should complete without deadlock")
 	case <-time.After(timeout):
 		t.Fatalf("Deadlock prevention test timed out after %v - potential deadlock detected", timeout)
 	}
@@ -102,64 +80,39 @@ func TestDeadlockPrevention_TCPServerOperations(t *testing.T) {
 	const operationsPerGoroutine = 30
 	const timeout = 15 * time.Second
 
-	var completedOperations int64
+	var completedOperations atomic.Int64
 	var wg sync.WaitGroup
-
-	done := make(chan bool, 1)
-
-	// Start deadlock prevention test
+	done := make(chan struct{})
 	go func() {
-		defer func() {
-			done <- true
-		}()
-
-		// Test concurrent TCP server operations that could potentially deadlock
-		for i := range numGoroutines {
-			wg.Add(1)
-			go func(routineID int) {
-				defer wg.Done()
-
+		defer close(done)
+		for range numGoroutines {
+			wg.Go(func() {
 				for range operationsPerGoroutine {
 					server := &gtcp.ServerChannel{}
 					server.Init()
-
-					// Perform operations that could potentially cause deadlocks
-					// in concurrent server state management
-					go func() {
-						server.IsActive()
-					}()
-
-					go func() {
-						server.IsActive()
-					}()
-
-					// TCP Channel operations
 					tcpCh := &gtcp.Channel{}
 					tcpCh.Init()
-					tcpCh.IsActive()
-
-					time.Sleep(1 * time.Microsecond)
-					atomic.AddInt64(&completedOperations, 1)
+					assert.False(t, tcpCh.IsActive())
+					var operations sync.WaitGroup
+					operations.Go(func() {
+						assert.False(t, server.IsActive())
+					})
+					operations.Go(func() {
+						assert.False(t, server.IsActive())
+					})
+					operations.Wait()
+					completedOperations.Add(1)
 				}
-			}(i)
+			})
 		}
-
 		wg.Wait()
 	}()
 
-	// Wait for completion or timeout
 	select {
 	case <-done:
-		// Test completed successfully without deadlock
-		expectedOperations := int64(numGoroutines * operationsPerGoroutine)
-		assert.Equal(t, expectedOperations, atomic.LoadInt64(&completedOperations),
-			"All TCP server operations should complete without deadlock")
-
-		t.Logf("TCP server deadlock prevention test completed: %d operations without deadlock",
-			completedOperations)
-
+		assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), completedOperations.Load(), "All operations should complete without deadlock")
 	case <-time.After(timeout):
-		t.Fatalf("TCP server deadlock prevention test timed out after %v - potential deadlock detected", timeout)
+		t.Fatalf("Deadlock prevention test timed out after %v - potential deadlock detected", timeout)
 	}
 }
 
@@ -169,75 +122,42 @@ func TestDeadlockPrevention_WebSocketOperations(t *testing.T) {
 	const operationsPerGoroutine = 35
 	const timeout = 15 * time.Second
 
-	var completedOperations int64
+	var completedOperations atomic.Int64
 	var wg sync.WaitGroup
-
-	done := make(chan bool, 1)
-
-	// Start deadlock prevention test
+	done := make(chan struct{})
 	go func() {
-		defer func() {
-			done <- true
-		}()
-
-		// Test concurrent WebSocket operations that could potentially deadlock
-		for i := range numGoroutines {
-			wg.Add(1)
-			go func(routineID int) {
-				defer wg.Done()
-
+		defer close(done)
+		for range numGoroutines {
+			wg.Go(func() {
 				for range operationsPerGoroutine {
 					wsCh := &gws.Channel{}
 					wsCh.BootstrapPreInit()
 					wsCh.Init()
-
-					// Create messages concurrently
-					msg1 := &gws.DefaultMessage{
-						MessageType: gws.TextMessageType,
-						Message:     []byte("deadlock test 1"),
-					}
-
-					msg2 := &gws.DefaultMessage{
-						MessageType: gws.BinaryMessageType,
-						Message:     []byte{0x01, 0x02, 0x03},
-					}
-
-					// Perform concurrent message operations that could deadlock
-					go func() {
-						msg1.Encoded()
-						msg2.Encoded()
-					}()
-
-					go func() {
-						msg2.Encoded()
-						msg1.Encoded()
-					}()
-
-					// WebSocket channel operations
-					wsCh.IsActive()
-
-					time.Sleep(1 * time.Microsecond)
-					atomic.AddInt64(&completedOperations, 1)
+					msg1 := &gws.DefaultMessage{MessageType: gws.TextMessageType, Message: []byte("deadlock test 1")}
+					msg2 := &gws.DefaultMessage{MessageType: gws.BinaryMessageType, Message: []byte{0x01, 0x02, 0x03}}
+					assert.False(t, wsCh.IsActive())
+					var operations sync.WaitGroup
+					operations.Go(func() {
+						assert.Equal(t, []byte("deadlock test 1"), msg1.Encoded())
+						assert.Equal(t, []byte{0x01, 0x02, 0x03}, msg2.Encoded())
+					})
+					operations.Go(func() {
+						assert.Equal(t, []byte{0x01, 0x02, 0x03}, msg2.Encoded())
+						assert.Equal(t, []byte("deadlock test 1"), msg1.Encoded())
+					})
+					operations.Wait()
+					completedOperations.Add(1)
 				}
-			}(i)
+			})
 		}
-
 		wg.Wait()
 	}()
 
-	// Wait for completion or timeout
 	select {
 	case <-done:
-		// Test completed successfully without deadlock
-		expectedOperations := int64(numGoroutines * operationsPerGoroutine)
-		assert.Equal(t, expectedOperations, atomic.LoadInt64(&completedOperations),
-			"All WebSocket operations should complete without deadlock")
-
-		t.Logf("WebSocket deadlock prevention test completed: %d operations without deadlock",
-			completedOperations)
-
+		assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), completedOperations.Load(), "All operations should complete without deadlock")
 	case <-time.After(timeout):
-		t.Fatalf("WebSocket deadlock prevention test timed out after %v - potential deadlock detected", timeout)
+		t.Fatalf("Deadlock prevention test timed out after %v - potential deadlock detected", timeout)
 	}
 }
 
@@ -247,87 +167,56 @@ func TestDeadlockPrevention_CrossPackageInteractions(t *testing.T) {
 	const operationsPerGoroutine = 25
 	const timeout = 20 * time.Second
 
-	var completedOperations int64
+	var completedOperations atomic.Int64
 	var wg sync.WaitGroup
-
-	done := make(chan bool, 1)
-
-	// Start deadlock prevention test
+	done := make(chan struct{})
 	go func() {
-		defer func() {
-			done <- true
-		}()
-
-		// Test complex cross-package interactions that could potentially deadlock
-		for i := range numGoroutines {
-			wg.Add(1)
-			go func(routineID int) {
-				defer wg.Done()
-
+		defer close(done)
+		for range numGoroutines {
+			wg.Go(func() {
 				for range operationsPerGoroutine {
-					// Create instances from different packages
 					ch := &channel.DefaultChannel{}
 					ch.Init()
-
 					tcpCh := &gtcp.Channel{}
 					tcpCh.Init()
-
 					wsCh := &gws.Channel{}
 					wsCh.BootstrapPreInit()
 					wsCh.Init()
-
-					// Create complex interaction scenario
-					go func() {
-						// Chain of operations across packages
-						ch.IsActive()
-						tcpCh.IsActive()
-						wsCh.IsActive()
-					}()
-
-					go func() {
-						// Reverse order operations
-						wsCh.IsActive()
-						tcpCh.IsActive()
-						ch.IsActive()
-					}()
-
-					go func() {
-						// Future operations
+					var operations sync.WaitGroup
+					operations.Go(func() {
+						assert.False(t, ch.IsActive())
+						assert.False(t, tcpCh.IsActive())
+						assert.False(t, wsCh.IsActive())
+					})
+					operations.Go(func() {
+						assert.False(t, wsCh.IsActive())
+						assert.False(t, tcpCh.IsActive())
+						assert.False(t, ch.IsActive())
+					})
+					operations.Go(func() {
 						future := ch.Pipeline().NewFuture()
-						if future != nil {
-							go func() {
-								time.Sleep(1 * time.Millisecond)
-								completable := future.Completable()
-								if completable != nil {
-									completable.Complete("cross-package-test")
-								}
-							}()
-							future.Await()
-						}
-					}()
-
-					time.Sleep(2 * time.Microsecond)
-					atomic.AddInt64(&completedOperations, 1)
+						var completer sync.WaitGroup
+						completer.Go(func() {
+							assert.True(t, future.Completable().Complete("cross-package-test"))
+						})
+						future.Await()
+						completer.Wait()
+						assert.True(t, future.IsSuccess())
+						assert.Equal(t, "cross-package-test", future.GetNow())
+					})
+					operations.Wait()
+					completedOperations.Add(1)
 				}
-			}(i)
+			})
 		}
-
 		wg.Wait()
 	}()
 
-	// Wait for completion or timeout
 	select {
 	case <-done:
-		// Test completed successfully without deadlock
-		expectedOperations := int64(numGoroutines * operationsPerGoroutine)
-		assert.Equal(t, expectedOperations, atomic.LoadInt64(&completedOperations),
-			"All cross-package operations should complete without deadlock")
-
-		t.Logf("Cross-package deadlock prevention test completed: %d operations without deadlock",
-			completedOperations)
-
+		assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), completedOperations.Load(), "All operations should complete without deadlock")
 	case <-time.After(timeout):
-		t.Fatalf("Cross-package deadlock prevention test timed out after %v - potential deadlock detected", timeout)
+		t.Fatalf("Deadlock prevention test timed out after %v - potential deadlock detected", timeout)
 	}
 }
 
@@ -337,8 +226,6 @@ func TestDeadlockPrevention_CrossPackageInteractions(t *testing.T) {
 
 // Minimal test to isolate channel initialization deadlock
 func TestMinimalChannelCreation(t *testing.T) {
-	kklogger.SetLogLevel("DEBUG")
-
 	fmt.Println("=== Starting minimal channel creation test ===")
 	kklogger.DebugJ("debug_test:TestMinimalChannelCreation#test!start", "Test started")
 
@@ -376,8 +263,6 @@ func TestMinimalChannelCreation(t *testing.T) {
 
 // Test ServerBootstrap creation without binding
 func TestMinimalBootstrapCreation(t *testing.T) {
-	kklogger.SetLogLevel("DEBUG")
-
 	fmt.Println("=== Starting minimal bootstrap creation test ===")
 
 	// Step 1: Create bootstrap
@@ -402,8 +287,6 @@ func TestMinimalBootstrapCreation(t *testing.T) {
 
 // Test manual Future completion to verify Sync() mechanism
 func TestManualFutureCompletion(t *testing.T) {
-	kklogger.SetLogLevel("DEBUG")
-
 	fmt.Println("=== Starting manual future completion test ===")
 
 	// Create a simple channel and get a future from its pipeline
@@ -451,105 +334,78 @@ func TestManualFutureCompletion(t *testing.T) {
 // Resource Leak Detection Tests (from resource_leak_detection_test.go)
 // =============================================================================
 
+type cleanupLifecycleHandler struct {
+	channel.DefaultHandler
+	unregistered atomic.Int64
+	removed      atomic.Int64
+}
+
+func (h *cleanupLifecycleHandler) Removed(ctx channel.HandlerContext) {
+	h.removed.Add(1)
+}
+
+func (h *cleanupLifecycleHandler) Unregistered(ctx channel.HandlerContext) {
+	h.unregistered.Add(1)
+	ctx.FireUnregistered()
+}
+
 // Test concurrent resource cleanup and memory leak detection for channels
 func TestResourceLeakDetection_ChannelCleanup(t *testing.T) {
 	const numGoroutines = 100
 	const channelsPerGoroutine = 50
 	const cleanupCycles = 5
 
-	var allocatedChannels int64
-	var cleanedChannels int64
-
-	// Get initial memory stats
+	var allocatedChannels, cleanedChannels atomic.Int64
 	var m1, m2 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
 
-	t.Logf("Initial memory: Alloc=%d KB, Sys=%d KB, NumGC=%d",
-		m1.Alloc/1024, m1.Sys/1024, m1.NumGC)
-
-	// Test multiple cleanup cycles
 	for range cleanupCycles {
 		var wg sync.WaitGroup
-
-		// Allocate many channels concurrently
 		for i := range numGoroutines {
-			wg.Add(1)
-			go func(routineID int) {
-				defer wg.Done()
-
-				channels := make([]*channel.DefaultChannel, channelsPerGoroutine)
-
-				// Create channels
+			wg.Go(func() {
+				channels := make([]channel.Channel, channelsPerGoroutine)
+				observers := make([]*cleanupLifecycleHandler, channelsPerGoroutine)
 				for j := range channelsPerGoroutine {
+					observer := &cleanupLifecycleHandler{}
 					ch := &channel.DefaultChannel{}
 					ch.Init()
-					channels[j] = ch
-					atomic.AddInt64(&allocatedChannels, 1)
+					ch.Pipeline().AddLast("lifecycle", observer)
+					channels[j], observers[j] = ch, observer
+					allocatedChannels.Add(1)
+					assert.False(t, ch.CloseFuture().IsDone())
+					assert.Zero(t, observer.unregistered.Load())
+					assert.False(t, ch.IsActive())
+					ch.Pipeline().AddLast(fmt.Sprintf("leak-handler-%d-%d", i, j), &channel.DefaultHandler{})
+				}
 
-					// Perform some operations
-					ch.IsActive()
-
-					// Add handlers
-					pipeline := ch.Pipeline()
-					if pipeline != nil {
-						handler := &channel.DefaultHandler{}
-						handlerName := "leak-handler-" + string(rune(routineID*1000+j))
-						pipeline.AddLast(handlerName, handler)
+				for j, ch := range channels {
+					future := ch.Deregister().Sync()
+					if assert.True(t, future.IsSuccess()) && assert.Equal(t, int64(1), observers[j].unregistered.Load()) && assert.False(t, ch.IsActive()) {
+						cleanedChannels.Add(1)
 					}
-				}
 
-				// Cleanup - explicitly close/cleanup channels
-				for _, ch := range channels {
-					if ch != nil {
-						// Simulate cleanup operations
-						ch.IsActive() // Final state check
-						atomic.AddInt64(&cleanedChannels, 1)
-					}
+					// Never-active channels deregister without completing the active-lifetime CloseFuture.
+					assert.False(t, ch.CloseFuture().IsDone())
+					ch.Pipeline().Clear()
+					assert.Equal(t, int64(1), observers[j].removed.Load())
 				}
-
-				// Clear references to help GC
-				for i := range channels {
-					channels[i] = nil
-				}
-			}(i)
+				clear(channels)
+				clear(observers)
+			})
 		}
-
 		wg.Wait()
-
-		// Force garbage collection after each cycle
 		runtime.GC()
-		runtime.GC() // Double GC to ensure cleanup
-
-		// Small delay between cycles
-		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Final garbage collection and memory check
 	runtime.GC()
-	runtime.GC()
-	time.Sleep(50 * time.Millisecond)
 	runtime.ReadMemStats(&m2)
-
-	// Verify all channels were processed
-	assert.Equal(t, allocatedChannels, cleanedChannels,
-		"All allocated channels should be cleaned up")
-
-	// Memory growth analysis
+	assert.Equal(t, int64(numGoroutines*channelsPerGoroutine*cleanupCycles), allocatedChannels.Load())
+	assert.Equal(t, allocatedChannels.Load(), cleanedChannels.Load(), "All allocated channels should be cleaned up")
 	memoryGrowth := int64(m2.Alloc) - int64(m1.Alloc)
-
-	t.Logf("Channel cleanup test completed:")
-	t.Logf("  Allocated channels: %d", allocatedChannels)
-	t.Logf("  Cleaned channels: %d", cleanedChannels)
-	t.Logf("  Memory growth: %d KB", memoryGrowth/1024)
-	t.Logf("  Final memory: Alloc=%d KB, Sys=%d KB, NumGC=%d",
-		m2.Alloc/1024, m2.Sys/1024, m2.NumGC)
-	t.Logf("  GC cycles during test: %d", m2.NumGC-m1.NumGC)
-
-	// Assert reasonable memory usage (allow for some growth due to Go runtime)
-	maxExpectedGrowth := int64(10 * 1024 * 1024) // 10MB threshold
-	assert.Less(t, memoryGrowth, maxExpectedGrowth,
-		"Memory growth should be within reasonable bounds")
+	t.Logf("Channel cleanup: allocated=%d cleaned=%d memory_growth=%d KB GC_cycles=%d", allocatedChannels.Load(), cleanedChannels.Load(), memoryGrowth/1024, m2.NumGC-m1.NumGC)
+	maxExpectedGrowth := int64(10 * 1024 * 1024)
+	assert.Less(t, memoryGrowth, maxExpectedGrowth, "Memory growth should be within reasonable bounds")
 }
 
 // Test concurrent resource cleanup for TCP channels and servers
@@ -558,161 +414,98 @@ func TestResourceLeakDetection_TCPCleanup(t *testing.T) {
 	const resourcesPerGoroutine = 30
 	const cleanupCycles = 3
 
-	var allocatedResources int64
-	var cleanedResources int64
-
-	// Get initial memory stats
+	var allocatedResources, cleanedResources atomic.Int64
 	var m1, m2 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
-
-	// Test multiple cleanup cycles
 	for range cleanupCycles {
 		var wg sync.WaitGroup
-
-		// Allocate many TCP resources concurrently
-		for i := range numGoroutines {
-			wg.Add(1)
-			go func(routineID int) {
-				defer wg.Done()
-
-				tcpChannels := make([]*gtcp.Channel, resourcesPerGoroutine/2)
+		for range numGoroutines {
+			wg.Go(func() {
+				tcpChannels := make([]channel.Channel, resourcesPerGoroutine/2)
+				observers := make([]*cleanupLifecycleHandler, resourcesPerGoroutine/2)
 				serverChannels := make([]*gtcp.ServerChannel, resourcesPerGoroutine/2)
-
-				// Create TCP channels
 				for j := range resourcesPerGoroutine / 2 {
+					observer := &cleanupLifecycleHandler{}
 					ch := &gtcp.Channel{}
+					ch.DefaultChannel.Init()
+					ch.Pipeline().(channel.PipelineSetChannel).SetChannel(ch)
 					ch.Init()
-					tcpChannels[j] = ch
-					atomic.AddInt64(&allocatedResources, 1)
-
-					// Perform operations
-					ch.IsActive()
+					ch.Pipeline().AddLast("lifecycle", observer)
+					tcpChannels[j], observers[j] = ch, observer
+					allocatedResources.Add(1)
+					assert.False(t, ch.CloseFuture().IsDone())
+					assert.False(t, ch.IsActive())
 				}
 
-				// Create server channels
 				for j := range resourcesPerGoroutine / 2 {
 					server := &gtcp.ServerChannel{}
 					server.Init()
+					server.Pipeline().(channel.PipelineSetChannel).SetChannel(server)
 					serverChannels[j] = server
-					atomic.AddInt64(&allocatedResources, 1)
-
-					// Perform operations
-					server.IsActive()
+					allocatedResources.Add(1)
+					assert.False(t, server.IsActive())
 				}
 
-				// Cleanup TCP channels
-				for _, ch := range tcpChannels {
-					if ch != nil {
-						ch.IsActive() // Final state check
-						atomic.AddInt64(&cleanedResources, 1)
+				for j, ch := range tcpChannels {
+					future := ch.Deregister().Sync()
+					if assert.True(t, future.IsSuccess()) && assert.Equal(t, int64(1), observers[j].unregistered.Load()) && assert.False(t, ch.IsActive()) {
+						cleanedResources.Add(1)
 					}
+					assert.False(t, ch.CloseFuture().IsDone())
+					ch.Pipeline().Clear()
+					assert.Equal(t, int64(1), observers[j].removed.Load())
 				}
 
-				// Cleanup server channels
 				for _, server := range serverChannels {
-					if server != nil {
-						server.IsActive() // Final state check
-						atomic.AddInt64(&cleanedResources, 1)
+					future := server.Close().Sync()
+					if assert.True(t, future.IsSuccess()) && assert.True(t, server.CloseFuture().IsSuccess()) && assert.False(t, server.IsActive()) {
+						cleanedResources.Add(1)
 					}
 				}
-
-				// Clear references
-				for i := range tcpChannels {
-					tcpChannels[i] = nil
-				}
-				for i := range serverChannels {
-					serverChannels[i] = nil
-				}
-			}(i)
+				clear(tcpChannels)
+				clear(observers)
+				clear(serverChannels)
+			})
 		}
-
 		wg.Wait()
-
-		// Force garbage collection after each cycle
 		runtime.GC()
-		runtime.GC()
-		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Final cleanup and memory check
 	runtime.GC()
-	runtime.GC()
-	time.Sleep(50 * time.Millisecond)
 	runtime.ReadMemStats(&m2)
-
-	// Verify all resources were processed
-	assert.Equal(t, allocatedResources, cleanedResources,
-		"All allocated TCP resources should be cleaned up")
-
-	memoryGrowth := int64(m2.Alloc) - int64(m1.Alloc)
-
-	t.Logf("TCP cleanup test completed:")
-	t.Logf("  Allocated resources: %d", allocatedResources)
-	t.Logf("  Cleaned resources: %d", cleanedResources)
-	t.Logf("  Memory growth: %d KB", memoryGrowth/1024)
-	t.Logf("  GC cycles during test: %d", m2.NumGC-m1.NumGC)
+	assert.Equal(t, int64(numGoroutines*resourcesPerGoroutine*cleanupCycles), allocatedResources.Load())
+	assert.Equal(t, allocatedResources.Load(), cleanedResources.Load(), "All allocated TCP resources should be cleaned up")
+	t.Logf("TCP cleanup: allocated=%d cleaned=%d memory_growth=%d KB GC_cycles=%d", allocatedResources.Load(), cleanedResources.Load(), (int64(m2.Alloc)-int64(m1.Alloc))/1024, m2.NumGC-m1.NumGC)
 }
 
 // Test goroutine leak detection
 func TestResourceLeakDetection_GoroutineLeaks(t *testing.T) {
-	// Get initial goroutine count
 	initialGoroutines := runtime.NumGoroutine()
-	t.Logf("Initial goroutine count: %d", initialGoroutines)
-
 	const numOperations = 100
 	var wg sync.WaitGroup
-
-	// Perform operations that could potentially create goroutine leaks
-	for i := range numOperations {
-		wg.Add(1)
-		go func(operationID int) {
-			defer wg.Done()
-
-			// Create channel and perform operations
+	for range numOperations {
+		wg.Go(func() {
 			ch := &channel.DefaultChannel{}
 			ch.Init()
-
-			// Simulate some work
-			ch.IsActive()
-
-			// Create future (potential source of goroutine leaks)
-			pipeline := ch.Pipeline()
-			if pipeline != nil {
-				future := pipeline.NewFuture()
-				if future != nil {
-					go func() {
-						// Ensure future is completed to avoid goroutine leaks
-						time.Sleep(1 * time.Millisecond)
-						completable := future.Completable()
-						if completable != nil {
-							completable.Complete("goroutine-test")
-						}
-					}()
-					future.Await()
-				}
-			}
-
-		}(i)
+			assert.False(t, ch.IsActive())
+			future := ch.Pipeline().NewFuture()
+			var completer sync.WaitGroup
+			completer.Go(func() {
+				assert.True(t, future.Completable().Complete("goroutine-test"))
+			})
+			future.Await()
+			completer.Wait()
+			assert.True(t, future.IsSuccess())
+			assert.Equal(t, "goroutine-test", future.GetNow())
+			assert.True(t, ch.Deregister().Sync().IsSuccess())
+		})
 	}
-
 	wg.Wait()
-
-	// Allow some time for cleanup
-	time.Sleep(100 * time.Millisecond)
 	runtime.GC()
-	time.Sleep(50 * time.Millisecond)
-
-	// Check final goroutine count
-	finalGoroutines := runtime.NumGoroutine()
-	goroutineGrowth := finalGoroutines - initialGoroutines
-
-	t.Logf("Final goroutine count: %d", finalGoroutines)
-	t.Logf("Goroutine growth: %d", goroutineGrowth)
-
-	// Allow for some reasonable goroutine growth (Go runtime may create additional goroutines)
-	assert.Less(t, goroutineGrowth, 10,
-		"Goroutine growth should be minimal (< 10 goroutines)")
+	goroutineGrowth := runtime.NumGoroutine() - initialGoroutines
+	t.Logf("Goroutine growth after joined operations: %d", goroutineGrowth)
+	assert.Less(t, goroutineGrowth, 10, "Goroutine growth should be minimal (< 10 goroutines)")
 }
 
 // =============================================================================
@@ -724,138 +517,119 @@ func TestThreadSafety_SharedDataStructures(t *testing.T) {
 	const numGoroutines = 200
 	const operationsPerGoroutine = 100
 
-	var channelOperations int64
-	var tcpOperations int64
-	var wsOperations int64
-	var queueOperations int64
+	var channelOperations, tcpOperations, wsOperations, queueOperations atomic.Int64
 	var wg sync.WaitGroup
-
-	// Test concurrent operations across all shared data structures
+	ch := &channel.DefaultChannel{}
+	ch.Init()
+	tcpCh := &gtcp.Channel{}
+	tcpCh.Init()
+	server := &gtcp.ServerChannel{}
+	server.Init()
+	wsCh := &gws.Channel{}
+	wsCh.BootstrapPreInit()
+	wsCh.Init()
+	msg := &gws.DefaultMessage{MessageType: gws.TextMessageType, Message: []byte("thread safety test")}
+	queue := &utils.Queue{}
+	seen := make([]atomic.Bool, numGoroutines*operationsPerGoroutine)
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for j := range operationsPerGoroutine {
 				switch j % 4 {
 				case 0:
-					// Channel operations
-					ch := &channel.DefaultChannel{}
-					ch.Init()
-					ch.IsActive()
-					atomic.AddInt64(&channelOperations, 1)
-
+					assert.False(t, ch.IsActive())
+					channelOperations.Add(1)
 				case 1:
-					// TCP operations
-					tcpCh := &gtcp.Channel{}
-					tcpCh.Init()
-					server := &gtcp.ServerChannel{}
-					server.Init()
-					server.IsActive()
-					atomic.AddInt64(&tcpOperations, 1)
-
+					assert.False(t, tcpCh.IsActive())
+					assert.False(t, server.IsActive())
+					tcpOperations.Add(1)
 				case 2:
-					// WebSocket operations
-					wsCh := &gws.Channel{}
-					wsCh.BootstrapPreInit()
-					wsCh.Init()
-
-					msg := &gws.DefaultMessage{
-						MessageType: gws.TextMessageType,
-						Message:     []byte("thread safety test"),
-					}
-					msg.Encoded()
-					atomic.AddInt64(&wsOperations, 1)
-
+					assert.False(t, wsCh.IsActive())
+					assert.Equal(t, []byte("thread safety test"), msg.Encoded())
+					assert.Equal(t, gws.TextMessageType, msg.Type())
+					wsOperations.Add(1)
 				case 3:
-					// Queue operations (known to be non-thread-safe)
-					queue := &utils.Queue{}
-					queue.Push("thread-safety-test")
-					queue.Pop()
-					atomic.AddInt64(&queueOperations, 1)
+					queue.Push(i*operationsPerGoroutine + j)
+					value, ok := queue.Pop().(int)
+					if assert.True(t, ok, "each push must supply a queued identity") && assert.GreaterOrEqual(t, value, 0) && assert.Less(t, value, len(seen)) {
+						assert.Equal(t, 3, value%4)
+						assert.True(t, seen[value].CompareAndSwap(false, true), "queue returned an identity twice: %d", value)
+					}
+					queueOperations.Add(1)
 				}
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
-
-	// Verify all operations completed
-	totalOperations := atomic.LoadInt64(&channelOperations) + atomic.LoadInt64(&tcpOperations) +
-		atomic.LoadInt64(&wsOperations) + atomic.LoadInt64(&queueOperations)
-	expectedTotal := int64(numGoroutines * operationsPerGoroutine)
-
-	assert.Equal(t, expectedTotal, totalOperations, "All thread safety operations should complete")
-
-	t.Logf("Thread safety test completed: %d channel, %d tcp, %d ws, %d queue operations out of %d total",
-		channelOperations, tcpOperations, wsOperations, queueOperations, totalOperations)
+	for i := range numGoroutines {
+		for j := 3; j < operationsPerGoroutine; j += 4 {
+			assert.True(t, seen[i*operationsPerGoroutine+j].Load(), "queue lost identity %d", i*operationsPerGoroutine+j)
+		}
+	}
+	assert.Zero(t, queue.Size())
+	totalOperations := channelOperations.Load() + tcpOperations.Load() + wsOperations.Load() + queueOperations.Load()
+	assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), totalOperations, "All thread safety operations should complete")
+	t.Logf("Shared operations: channel=%d tcp=%d ws=%d queue=%d total=%d", channelOperations.Load(), tcpOperations.Load(), wsOperations.Load(), queueOperations.Load(), totalOperations)
 }
 
 // Test thread safety of Future operations
 func TestThreadSafety_FutureOperations(t *testing.T) {
-	const numGoroutines = 50       // Further reduced for better stability
-	const futuresPerGoroutine = 10 // Further reduced for better stability
+	const numGoroutines = 50
+	const futuresPerGoroutine = 10
 
-	var completions int64
-	var cancellations int64
-	var awaits int64
+	var completions, cancellations, awaits atomic.Int64
 	var wg sync.WaitGroup
-
-	// Test concurrent future operations with timeout and proper completion
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
+	ch := &channel.DefaultChannel{}
+	ch.Init()
+	for range numGoroutines {
+		wg.Go(func() {
 			for j := range futuresPerGoroutine {
-				ch := &channel.DefaultChannel{}
-				ch.Init()
 				future := ch.Pipeline().NewFuture()
-
-				if future == nil {
-					continue // Skip if future creation failed
+				if !assert.NotNil(t, future) {
+					return
 				}
-
 				switch j % 3 {
 				case 0:
-					// Complete future with synchronous approach
-					if completable := future.Completable(); completable != nil {
-						completable.Complete("completed")
-					}
+					assert.True(t, future.Completable().Complete("completed"))
 					future.Await()
-					atomic.AddInt64(&completions, 1)
-
+					assert.True(t, future.IsDone())
+					assert.True(t, future.IsSuccess())
+					assert.False(t, future.IsCancelled())
+					assert.NoError(t, future.Error())
+					assert.Equal(t, "completed", future.GetNow())
+					assert.Same(t, ch, future.Channel())
+					assert.False(t, future.Completable().Cancel())
+					completions.Add(1)
 				case 1:
-					// Cancel future with synchronous approach
-					if completable := future.Completable(); completable != nil {
-						completable.Cancel()
-					}
+					assert.True(t, future.Completable().Cancel())
 					future.Await()
-					atomic.AddInt64(&cancellations, 1)
-
+					assert.True(t, future.IsDone())
+					assert.True(t, future.IsCancelled())
+					assert.False(t, future.IsSuccess())
+					assert.Nil(t, future.GetNow())
+					assert.Nil(t, future.Channel())
+					assert.False(t, future.Completable().Complete("late"))
+					cancellations.Add(1)
 				case 2:
-					// Immediate completion
-					if completable := future.Completable(); completable != nil {
-						completable.Complete("immediate")
-					}
+					assert.True(t, future.Completable().Complete("immediate"))
 					future.Await()
-					atomic.AddInt64(&awaits, 1)
+					assert.True(t, future.IsDone())
+					assert.True(t, future.IsSuccess())
+					assert.False(t, future.IsCancelled())
+					assert.NoError(t, future.Error())
+					assert.Equal(t, "immediate", future.GetNow())
+					assert.Same(t, ch, future.Channel())
+					assert.False(t, future.Completable().Complete("late"))
+					awaits.Add(1)
 				}
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
-
-	// Verify operation counts
-	totalOperations := atomic.LoadInt64(&completions) + atomic.LoadInt64(&cancellations) +
-		atomic.LoadInt64(&awaits)
-	expectedTotal := int64(numGoroutines * futuresPerGoroutine)
-
-	assert.Equal(t, expectedTotal, totalOperations, "All future operations should complete")
-
-	t.Logf("Future thread safety: %d completions, %d cancellations, %d awaits out of %d total",
-		completions, cancellations, awaits, totalOperations)
+	assert.Equal(t, int64(200), completions.Load())
+	assert.Equal(t, int64(150), cancellations.Load())
+	assert.Equal(t, int64(150), awaits.Load())
+	totalOperations := completions.Load() + cancellations.Load() + awaits.Load()
+	assert.Equal(t, int64(numGoroutines*futuresPerGoroutine), totalOperations, "All future operations should complete")
 }
 
 // Test thread safety of WebSocket message encoding/decoding
@@ -863,80 +637,65 @@ func TestThreadSafety_WebSocketMessageProcessing(t *testing.T) {
 	const numGoroutines = 150
 	const messagesPerGoroutine = 40
 
-	var textMessages int64
-	var binaryMessages int64
-	var closeMessages int64
-	var parseOperations int64
+	var textMessages, binaryMessages, closeMessages, parseOperations atomic.Int64
 	var wg sync.WaitGroup
 
-	// Test concurrent WebSocket message processing
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
+	for range numGoroutines {
+		wg.Go(func() {
 
 			for j := range messagesPerGoroutine {
 				switch j % 4 {
 				case 0:
-					// Text message
 					msg := &gws.DefaultMessage{
 						MessageType: gws.TextMessageType,
 						Message:     []byte("concurrent text"),
 					}
-					msg.Encoded()
-					msg.Type()
-					atomic.AddInt64(&textMessages, 1)
+					assert.Equal(t, []byte("concurrent text"), msg.Encoded())
+					assert.Equal(t, gws.TextMessageType, msg.Type())
+					textMessages.Add(1)
 
 				case 1:
-					// Binary message
 					msg := &gws.DefaultMessage{
 						MessageType: gws.BinaryMessageType,
 						Message:     []byte{0x01, 0x02, 0x03},
 					}
-					msg.Encoded()
-					msg.Type()
-					atomic.AddInt64(&binaryMessages, 1)
+					assert.Equal(t, []byte{0x01, 0x02, 0x03}, msg.Encoded())
+					assert.Equal(t, gws.BinaryMessageType, msg.Type())
+					binaryMessages.Add(1)
 
 				case 2:
-					// Close message
 					msg := &gws.CloseMessage{
-						DefaultMessage: gws.DefaultMessage{
-							MessageType: gws.CloseMessageType,
-							Message:     []byte("close reason"),
-						},
-						CloseCode: gws.CloseNormalClosure,
+						MessageType: gws.CloseMessageType,
+						Message:     []byte("close reason"),
+						CloseCode:   gws.CloseNormalClosure,
 					}
-					msg.Encoded()
-					msg.Type()
-					atomic.AddInt64(&closeMessages, 1)
+					assert.Equal(t, append([]byte{0x03, 0xE8}, []byte("close reason")...), msg.Encoded())
+					assert.Equal(t, gws.CloseMessageType, msg.Type())
+					closeMessages.Add(1)
 
 				case 3:
-					// Ping message
 					msg := &gws.PingMessage{
-						DefaultMessage: gws.DefaultMessage{
-							MessageType: gws.PingMessageType,
-							Message:     []byte("ping data"),
-						},
+						MessageType: gws.PingMessageType,
+						Message:     []byte("ping data"),
 					}
-					msg.Encoded()
-					msg.Type()
-					atomic.AddInt64(&parseOperations, 1)
+					assert.Equal(t, []byte("ping data"), msg.Encoded())
+					assert.Equal(t, gws.PingMessageType, msg.Type())
+					parseOperations.Add(1)
 				}
 			}
-		}(i)
+		})
 	}
 
 	wg.Wait()
 
-	// Verify operation counts
-	totalOperations := atomic.LoadInt64(&textMessages) + atomic.LoadInt64(&binaryMessages) +
-		atomic.LoadInt64(&closeMessages) + atomic.LoadInt64(&parseOperations)
+	totalOperations := textMessages.Load() + binaryMessages.Load() +
+		closeMessages.Load() + parseOperations.Load()
 	expectedTotal := int64(numGoroutines * messagesPerGoroutine)
 
 	assert.Equal(t, expectedTotal, totalOperations, "All WebSocket message operations should complete")
 
 	t.Logf("WebSocket message thread safety: %d text, %d binary, %d close, %d parse out of %d total",
-		textMessages, binaryMessages, closeMessages, parseOperations, totalOperations)
+		textMessages.Load(), binaryMessages.Load(), closeMessages.Load(), parseOperations.Load(), totalOperations)
 }
 
 // =============================================================================

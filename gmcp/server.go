@@ -7,9 +7,13 @@
 package gmcp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -46,6 +50,20 @@ type Options struct {
 	// and a negative value disables the limit. A larger request is rejected with 413 and invalid_argument. Base64 makes
 	// a file argument about 4/3 of the file size.
 	MaxRequestBodyBytes int64
+	// MaxResponseBodyBytes bounds the internal REST response before it is retained or decoded. Zero uses 2 MiB.
+	MaxResponseBodyBytes int64
+	// MaxOutputBytes bounds the encoded JSON of adjusted tool output. Zero uses 5 MiB.
+	MaxOutputBytes int64
+	// MaxSchemaBytes bounds one output schema at Bind. Zero uses 256 KiB.
+	MaxSchemaBytes int64
+	// MaxResponseBytes bounds a buffered JSON response and each SSE event, independently of stream lifetime.
+	// Zero uses 16 MiB.
+	MaxResponseBytes int64
+	// MaxBatchCalls explicitly permits legacy batches of up to this many elements, including notifications.
+	// Zero rejects all batches before SDK fan-out. Negative values are invalid.
+	MaxBatchCalls int
+	// MaxConcurrentCalls bounds executing tool calls across requests. Zero uses 32; overflow fails without queueing.
+	MaxConcurrentCalls int
 	// Gateway, when set, lists only its public tools plus the "tools" discovery and "query" call tools.
 	Gateway *Gateway
 }
@@ -70,12 +88,55 @@ type Caller struct {
 type Server struct {
 	_Options     Options
 	_IDPattern   *regexp.Regexp
+	_IDInvariant *regexp.Regexp
 	_TypeSchemas map[reflect.Type]*jsonschema.Schema
 	_SDK         *mcp.Server
 	_Handler     *mcp.StreamableHTTPHandler
 	_Catalog     []*mcp.Tool
 	_Bound       atomic.Bool
 	_Tools       atomic.Pointer[[]BoundTool]
+	_InFlight    chan struct{}
+}
+
+func (s *Server) _AdmitMessages(body []byte) (admitted bool) {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return true
+	}
+
+	if body[0] != '[' {
+		return true
+	}
+
+	if s._Options.MaxBatchCalls == 0 {
+		return false
+	}
+
+	decoder := jsontext.NewDecoder(bytes.NewReader(body))
+	if _, err := decoder.ReadToken(); err != nil {
+		return false
+	}
+
+	count := 0
+	for decoder.PeekKind() != ']' {
+		if count == s._Options.MaxBatchCalls {
+			return false
+		}
+
+		_, err := decoder.ReadValue()
+		if err != nil {
+			return false
+		}
+
+		count++
+	}
+
+	_, err := decoder.ReadToken()
+	return err == nil && count > 0 && decoder.PeekKind() == 0
+}
+
+func (s *Server) _ValidID(value string) (valid bool) {
+	return s._IDInvariant.MatchString(value) && (s._Options.IDPattern == DefaultIDPattern || s._IDPattern.MatchString(value))
 }
 
 // BoundTool is one tool Bind registered and the REST request it forwards.
@@ -90,19 +151,50 @@ type BoundTool struct {
 
 type _CallerKey struct{}
 
-// New creates a Server identified by implementation. It panics when options.IDPattern is not a valid regular
-// expression.
+// New creates a Server identified by implementation. It panics for an invalid IDPattern, output limit, or call limit.
 func New(implementation *mcp.Implementation, options Options) (server *Server) {
 	if options.IDPattern == "" {
 		options.IDPattern = DefaultIDPattern
 	}
 
+	for _, setting := range []struct {
+		value    *int64
+		fallback int64
+	}{
+		{&options.MaxResponseBodyBytes, 2 << 20}, {&options.MaxOutputBytes, 5 << 20},
+		{&options.MaxSchemaBytes, 256 << 10}, {&options.MaxResponseBytes, 16 << 20},
+	} {
+		if *setting.value < 0 || *setting.value == math.MaxInt64 {
+			panic("gmcp: byte limits must be finite and non-negative")
+		}
+
+		if *setting.value == 0 {
+			*setting.value = setting.fallback
+		}
+	}
+
+	if options.MaxRequestBodyBytes == 0 {
+		options.MaxRequestBodyBytes = mcp.DefaultMaxRequestBodyBytes
+	}
+
+	if options.MaxBatchCalls < 0 || options.MaxConcurrentCalls < 0 {
+		panic("gmcp: call limits must be non-negative")
+	}
+
+	if options.MaxConcurrentCalls == 0 {
+		options.MaxConcurrentCalls = 32
+	}
+
 	dataURL := &jsonschema.Schema{Type: "string", Pattern: _DataURLPattern, Description: _InputDataURLDescription}
+	idSchema := &jsonschema.Schema{Type: "string", MinLength: new(1), Pattern: options.IDPattern}
+
 	server = &Server{
-		_Options:   options,
-		_IDPattern: regexp.MustCompile(options.IDPattern),
+		_Options:     options,
+		_IDPattern:   regexp.MustCompile("^(?:" + options.IDPattern + ")$"),
+		_IDInvariant: regexp.MustCompile(DefaultIDPattern),
+		_InFlight:    make(chan struct{}, options.MaxConcurrentCalls),
 		_TypeSchemas: map[reflect.Type]*jsonschema.Schema{
-			reflect.TypeFor[ID]():      {Type: "string", MinLength: new(1), Pattern: options.IDPattern},
+			reflect.TypeFor[ID]():      idSchema,
 			reflect.TypeFor[Date]():    {Type: "string", Description: "Date in YYYY-MM-DD form.", Pattern: `^\d{4}-\d{2}-\d{2}$`},
 			reflect.TypeFor[DataURL](): dataURL,
 			reflect.TypeFor[File](): {
@@ -123,6 +215,8 @@ func New(implementation *mcp.Implementation, options Options) (server *Server) {
 	} else {
 		server._SDK.AddReceivingMiddleware(server._VisibleMiddleware)
 	}
+
+	server._SDK.AddReceivingMiddleware(server._BudgetMiddleware)
 
 	server._Handler = mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return server._SDK
@@ -176,6 +270,14 @@ func (s *Server) Bind(dispatcher *ghttp.DispatchHandler, entries []ghttp.RouteEn
 		if tool._Definition.OutputSchema == nil {
 			tool._Definition.OutputSchema = _NewOutput(tool._OutputType)
 		}
+
+		resolved, defaults, err := s._ResolveOutput(tool._Definition.OutputSchema)
+		if err != nil {
+			panic(fmt.Sprintf("gmcp: tool %q output schema: %v", name, err))
+		}
+
+		route._ResolvedOutput, route._OutputDefaults = resolved, defaults
+		route._OutputPointer = tool._OutputType.Kind() == reflect.Pointer
 
 		tool._Definition.Annotations = route._Annotations(tool._Definition.Annotations)
 		tool._Register(s, route)
@@ -241,8 +343,48 @@ func (s *Server) Serve(writer http.ResponseWriter, caller Caller) {
 	}
 
 	request := caller.Request.Request()
+	if request.Method == http.MethodPost {
+		reader := request.Body
+		if reader == nil {
+			reader = http.NoBody
+		}
+
+		var source io.Reader = reader
+		limit := s._Options.MaxRequestBodyBytes
+		if limit > 0 && limit < math.MaxInt64 {
+			source = io.LimitReader(reader, limit+1)
+		}
+
+		body, err := io.ReadAll(source)
+		_ = reader.Close()
+		if err != nil || limit > 0 && int64(len(body)) > limit {
+			status := http.StatusRequestEntityTooLarge
+			if err != nil {
+				status = http.StatusBadRequest
+			}
+
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(status)
+			_, _ = writer.Write(_PublicError{Category: _InvalidArgument}._JSON())
+			return
+		}
+
+		if !s._AdmitMessages(body) {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusBadRequest)
+			_, _ = writer.Write(_PublicError{Category: _InvalidArgument}._JSON())
+			return
+		}
+
+		request = request.Clone(request.Context())
+		request.Body = io.NopCloser(bytes.NewReader(body))
+	}
+
+	ctx, cancel := context.WithCancel(request.Context())
+	defer cancel()
+	request = request.WithContext(ctx)
 	request = request.WithContext(context.WithValue(request.Context(), _CallerKey{}, &caller))
-	response := &_ResponseWriter{_Writer: writer}
+	response := &_ResponseWriter{_Writer: writer, _Limit: s._Options.MaxResponseBytes, _Cancel: cancel}
 	defer response._Finish()
 	s._Handler.ServeHTTP(response, request)
 }
@@ -291,14 +433,34 @@ func (s *Server) _Listed(ctx context.Context) (listed func(name string) bool) {
 	}
 }
 
-// _AddTool registers handler on s and marks every failure it returns as a tool error, so the error middleware can tell
-// application failures from SDK input validation errors. It is a function rather than a generic method because Go
-// 1.27.1 fails to link a generic method instantiated with a struct type whose tag contains "[".
+// _AddTool preserves generic input validation while owning bounded output construction and application error marks.
+// Go 1.27.3 cannot link a generic method instantiated with a struct tag containing "[".
 func _AddTool[In, Out any](s *Server, tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out]) {
-	mcp.AddTool(s._SDK, tool, func(ctx context.Context, request *mcp.CallToolRequest, input In) (result *mcp.CallToolResult, output Out, err error) {
+	var outputRoute *_Route
+	if reflect.TypeFor[Out]() != reflect.TypeFor[any]() {
+		if tool.OutputSchema == nil {
+			tool.OutputSchema = _NewOutput(reflect.TypeFor[Out]())
+		}
+
+		resolved, defaults, err := s._ResolveOutput(tool.OutputSchema)
+		if err != nil {
+			panic(fmt.Sprintf("gmcp: tool %q output schema: %v", tool.Name, err))
+		}
+
+		outputRoute = &_Route{_Server: s, _ResolvedOutput: resolved, _OutputDefaults: defaults, _OutputPointer: reflect.TypeFor[Out]().Kind() == reflect.Pointer}
+	}
+	mcp.AddTool(s._SDK, tool, func(ctx context.Context, request *mcp.CallToolRequest, input In) (result *mcp.CallToolResult, sdkOutput any, err error) {
+		var output Out
 		result, output, err = handler(ctx, request, input)
 		if err == nil && (result == nil || !result.IsError) {
-			return result, output, nil
+			if outputRoute != nil && any(output) != nil {
+				result, err = outputRoute._Output(output)
+				if err != nil {
+					return nil, nil, &_ToolError{_Category: _InternalError}
+				}
+			}
+
+			return result, nil, nil
 		}
 
 		if err == nil {
@@ -306,9 +468,9 @@ func _AddTool[In, Out any](s *Server, tool *mcp.Tool, handler mcp.ToolHandlerFor
 		}
 
 		if toolError, ok := errors.AsType[*_ToolError](err); ok {
-			return nil, output, toolError
+			return nil, nil, toolError
 		}
 
-		return nil, output, &_ToolError{_Category: _InternalError}
+		return nil, nil, &_ToolError{_Category: _InternalError}
 	})
 }

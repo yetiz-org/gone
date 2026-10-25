@@ -1,10 +1,13 @@
 package gws
 
 import (
+	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -761,74 +764,110 @@ func TestWebSocketMessage_ConcurrentParsing(t *testing.T) {
 func TestWebSocketChannel_ConcurrentWrite(t *testing.T) {
 	const numGoroutines = 100
 	const writeOperationsPerGoroutine = 30
+	const expectedWrites = numGoroutines * writeOperationsPerGoroutine * 2
 
-	var successfulWrites int64
-	var failedWrites int64
+	type receivedFrame struct {
+		typ     int
+		payload []byte
+	}
+	frames := make(chan receivedFrame, 128)
+	stop := make(chan struct{})
+	readDone := make(chan error, 1)
+	client := resourceWebSocketClient(t, nil, func(peer *websocket.Conn, done <-chan struct{}) {
+		peer.SetPingHandler(func(payload string) error {
+			select {
+			case frames <- receivedFrame{typ: websocket.PingMessage, payload: []byte(payload)}:
+			case <-stop:
+			}
+			return nil
+		})
+		for {
+			typ, payload, err := peer.ReadMessage()
+			if err != nil {
+				readDone <- err
+				return
+			}
+			select {
+			case frames <- receivedFrame{typ: typ, payload: payload}:
+			case <-stop:
+			}
+		}
+	})
+	t.Cleanup(func() {
+		close(stop)
+		closed := client.Close()
+		closed.AwaitTimeout(5 * time.Second)
+		assert.True(t, closed.IsDone(), "WebSocket close did not settle")
+		assert.NoError(t, closed.Error())
+	})
+
+	var successfulWrites atomic.Int64
 	var wg sync.WaitGroup
-
-	// Test concurrent write operations
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
-			// Create WebSocket channel for each goroutine
-			ch := &Channel{}
-			ch.BootstrapPreInit()
-			ch.Init()
-
+		wg.Go(func() {
 			for j := range writeOperationsPerGoroutine {
-				// Create different types of messages
-				var msg Message
-
-				switch j % 3 {
-				case 0:
-					msg = &DefaultMessage{
-						MessageType: TextMessageType,
-						Message:     []byte("concurrent text message"),
+				for k := range 2 {
+					payload := strconv.AppendInt(nil, int64((i*writeOperationsPerGoroutine+j)*2+k), 10)
+					var msg Message
+					switch j % 3 {
+					case 0:
+						msg = &DefaultMessage{MessageType: TextMessageType, Message: payload}
+					case 1:
+						msg = &DefaultMessage{MessageType: BinaryMessageType, Message: payload}
+					case 2:
+						msg = &PingMessage{MessageType: PingMessageType, Message: payload}
 					}
-				case 1:
-					msg = &DefaultMessage{
-						MessageType: BinaryMessageType,
-						Message:     []byte{0x01, 0x02, 0x03, 0x04},
+					written := client.Write(msg)
+					written.AwaitTimeout(5 * time.Second)
+					if !assert.True(t, written.IsDone(), "write did not settle") || !assert.NoError(t, written.Error()) {
+						return
 					}
-				case 2:
-					msg = &PingMessage{
-						DefaultMessage: DefaultMessage{
-							MessageType: PingMessageType,
-							Message:     []byte("ping data"),
-						},
-					}
-				}
-
-				// Attempt write (will fail since channel is not connected, but tests thread safety)
-				err := ch.UnsafeWrite(msg)
-				if err != nil {
-					atomic.AddInt64(&failedWrites, 1)
-				} else {
-					atomic.AddInt64(&successfulWrites, 1)
-				}
-
-				// Also test writing invalid objects
-				err = ch.UnsafeWrite("invalid object")
-				if err != nil {
-					atomic.AddInt64(&failedWrites, 1)
-				} else {
-					atomic.AddInt64(&successfulWrites, 1)
+					successfulWrites.Add(1)
 				}
 			}
-		}(i)
+		})
 	}
 
+	seen := make([]bool, expectedWrites)
+	deadline := time.After(15 * time.Second)
+	for range expectedWrites {
+		select {
+		case frame := <-frames:
+			id, err := strconv.Atoi(string(frame.payload))
+			if !assert.NoError(t, err) || !assert.GreaterOrEqual(t, id, 0) || !assert.Less(t, id, expectedWrites) {
+				continue
+			}
+			assert.Equal(t, strconv.Itoa(id), string(frame.payload), "frame payload changed")
+			assert.False(t, seen[id], "duplicate WebSocket frame %d", id)
+			seen[id] = true
+			wantType := []int{websocket.TextMessage, websocket.BinaryMessage, websocket.PingMessage}[(id/2)%writeOperationsPerGoroutine%3]
+			assert.Equal(t, wantType, frame.typ, "frame %d changed type", id)
+		case err := <-readDone:
+			t.Errorf("peer stopped before receiving all writes: %v", err)
+			wg.Wait()
+			return
+		case <-deadline:
+			t.Error("peer did not receive all writes")
+			wg.Wait()
+			return
+		}
+	}
 	wg.Wait()
-
-	// Verify write operation counts
-	totalWrites := atomic.LoadInt64(&successfulWrites) + atomic.LoadInt64(&failedWrites)
-	expectedTotal := int64(numGoroutines * writeOperationsPerGoroutine * 2) // 2 writes per iteration
-	assert.Equal(t, expectedTotal, totalWrites, "All write attempts should be counted")
-
-	t.Logf("Write results: %d successful, %d failed out of %d total",
-		successfulWrites, failedWrites, totalWrites)
+	assert.Equal(t, int64(expectedWrites), successfulWrites.Load())
+	for id, received := range seen {
+		assert.True(t, received, "missing WebSocket frame %d", id)
+	}
+	closed := client.Close()
+	closed.AwaitTimeout(5 * time.Second)
+	assert.True(t, closed.IsDone())
+	assert.NoError(t, closed.Error())
+	select {
+	case err := <-readDone:
+		assert.Error(t, err, "closing the client must terminate the peer read")
+		assert.Empty(t, frames, "peer received more frames than were written")
+	case <-time.After(5 * time.Second):
+		t.Error("WebSocket peer reader did not terminate")
+	}
 }
 
 // Test concurrent close message encoding with different close codes
@@ -908,54 +947,37 @@ func TestWebSocketChannel_StateConsistency(t *testing.T) {
 	const numGoroutines = 150
 	const operationsPerGoroutine = 40
 
-	var initOperations int64
-	var writeAttempts int64
-	var stateChecks int64
+	var initOperations atomic.Int64
+	var writeAttempts atomic.Int64
+	var stateChecks atomic.Int64
 	var wg sync.WaitGroup
-
-	// Test concurrent state operations
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
+	for range numGoroutines {
+		wg.Go(func() {
 			ch := &Channel{}
-
 			for j := range operationsPerGoroutine {
 				switch j % 3 {
 				case 0:
-					// Initialize channel
 					ch.BootstrapPreInit()
 					ch.Init()
-					atomic.AddInt64(&initOperations, 1)
-
+					assert.False(t, ch.IsActive(), "initialization must not connect a WebSocket")
+					initOperations.Add(1)
 				case 1:
-					// Check if channel is active
-					ch.IsActive()
-					atomic.AddInt64(&stateChecks, 1)
-
+					assert.False(t, ch.IsActive(), "a disconnected WebSocket must remain inactive")
+					stateChecks.Add(1)
 				case 2:
-					// Attempt write operation
-					msg := &DefaultMessage{
-						MessageType: TextMessageType,
-						Message:     []byte("state test"),
-					}
-					ch.UnsafeWrite(msg)
-					atomic.AddInt64(&writeAttempts, 1)
+					msg := &DefaultMessage{MessageType: TextMessageType, Message: []byte("state test")}
+					assert.ErrorIs(t, ch.UnsafeWrite(msg), net.ErrClosed)
+					writeAttempts.Add(1)
 				}
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
 
-	// Verify state operation counts
-	totalOperations := atomic.LoadInt64(&initOperations) + atomic.LoadInt64(&writeAttempts) + atomic.LoadInt64(&stateChecks)
-	expectedTotal := int64(numGoroutines * operationsPerGoroutine)
-	assert.Equal(t, expectedTotal, totalOperations, "All state operations should be counted")
-
-	t.Logf("State operations: %d inits, %d writes, %d state checks out of %d total",
-		initOperations, writeAttempts, stateChecks, totalOperations)
+	assert.Equal(t, int64(numGoroutines*14), initOperations.Load())
+	assert.Equal(t, int64(numGoroutines*13), stateChecks.Load())
+	assert.Equal(t, int64(numGoroutines*13), writeAttempts.Load())
+	assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), initOperations.Load()+stateChecks.Load()+writeAttempts.Load())
 }
 
 // Benchmark concurrent WebSocket message operations
@@ -1033,145 +1055,133 @@ func BenchmarkWebSocketChannel_ConcurrentOperations(b *testing.B) {
 // Test high-load stress testing with 10,000+ concurrent WebSocket operations
 func TestWebSocketChannel_HighLoadStressTesting(t *testing.T) {
 	const numGoroutines = 1000
-	const operationsPerGoroutine = 12 // Total: 12,000 operations
+	const operationsPerGoroutine = 12
 
-	var messageCreations int64
-	var channelOperations int64
-	var encodingOperations int64
+	var messageCreations atomic.Int64
+	var channelOperations atomic.Int64
+	var encodingOperations atomic.Int64
 	var wg sync.WaitGroup
-
-	startTime := time.Now()
-
-	// High-load concurrent WebSocket operations
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
+	for range numGoroutines {
+		wg.Go(func() {
 			ch := &Channel{}
 			ch.BootstrapPreInit()
 			ch.Init()
-
 			for j := range operationsPerGoroutine {
-				// Mix of WebSocket operations
 				switch j % 4 {
 				case 0:
-					// Create and encode text message
-					msg := &DefaultMessage{
-						MessageType: TextMessageType,
-						Message:     []byte("high-load text"),
-					}
-					msg.Encoded()
-					atomic.AddInt64(&messageCreations, 1)
-					atomic.AddInt64(&encodingOperations, 1)
-
+					payload := []byte("high-load text")
+					msg := &DefaultMessage{MessageType: TextMessageType, Message: payload}
+					assert.Equal(t, TextMessageType, msg.Type())
+					assert.Equal(t, payload, msg.Encoded())
+					messageCreations.Add(1)
+					encodingOperations.Add(1)
 				case 1:
-					// Create and encode close message
-					closeMsg := &CloseMessage{
-						DefaultMessage: DefaultMessage{
-							MessageType: CloseMessageType,
-							Message:     []byte("high-load close"),
-						},
-						CloseCode: CloseNormalClosure,
+					payload := []byte("high-load close")
+					msg := &CloseMessage{MessageType: CloseMessageType, Message: payload, CloseCode: CloseNormalClosure}
+					encoded := msg.Encoded()
+					assert.Equal(t, CloseMessageType, msg.Type())
+					if assert.Len(t, encoded, 2+len(payload)) {
+						assert.Equal(t, uint16(CloseNormalClosure), binary.BigEndian.Uint16(encoded[:2]))
+						assert.Equal(t, payload, encoded[2:])
 					}
-					closeMsg.Encoded()
-					atomic.AddInt64(&messageCreations, 1)
-					atomic.AddInt64(&encodingOperations, 1)
-
+					messageCreations.Add(1)
+					encodingOperations.Add(1)
 				case 2:
-					// Channel write operation
-					msg := &PingMessage{
-						DefaultMessage: DefaultMessage{
-							MessageType: PingMessageType,
-							Message:     []byte("high-load ping"),
-						},
-					}
-					ch.UnsafeWrite(msg)
-					atomic.AddInt64(&channelOperations, 1)
-
+					msg := &PingMessage{MessageType: PingMessageType, Message: []byte("high-load ping")}
+					assert.ErrorIs(t, ch.UnsafeWrite(msg), net.ErrClosed)
+					channelOperations.Add(1)
 				case 3:
-					// Channel state check
-					ch.IsActive()
-					atomic.AddInt64(&channelOperations, 1)
+					assert.False(t, ch.IsActive())
+					channelOperations.Add(1)
 				}
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
 
-	duration := time.Since(startTime)
-	totalOperations := atomic.LoadInt64(&messageCreations) + atomic.LoadInt64(&channelOperations) + atomic.LoadInt64(&encodingOperations)
-
-	// Verify high-load performance
-	assert.Greater(t, totalOperations, int64(10000), "Should perform more than 10,000 operations")
-
-	operationsPerSecond := float64(totalOperations) / duration.Seconds()
-
-	t.Logf("WebSocket high-load stress test completed: %d operations in %v (%.2f ops/sec)",
-		totalOperations, duration, operationsPerSecond)
-	t.Logf("Results: %d message creations, %d channel operations, %d encoding operations",
-		messageCreations, channelOperations, encodingOperations)
-
-	// Throughput is diagnostic-only; correctness must not depend on shared CI load.
+	assert.Equal(t, int64(6000), messageCreations.Load())
+	assert.Equal(t, int64(6000), encodingOperations.Load())
+	assert.Equal(t, int64(6000), channelOperations.Load())
+	assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), messageCreations.Load()+channelOperations.Load())
 }
 
-// Test memory consistency and WebSocket resource management
+// lifecycleWebSocketChannel isolates inherited transport cleanup without WebSocket handshakes.
+type lifecycleWebSocketChannel struct {
+	Channel
+	peer net.Conn
+}
+
+func (c *lifecycleWebSocketChannel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) (rtErr error) {
+	conn, peer := net.Pipe()
+	c.SetConn(conn)
+	c.peer = peer
+	return nil
+}
+
+func (c *lifecycleWebSocketChannel) UnsafeRead() (obj any, rtErr error) {
+	return nil, nil
+}
+
+func (c *lifecycleWebSocketChannel) UnsafeIsAutoRead() (auto bool) {
+	return false
+}
+
 func TestWebSocketChannel_MemoryConsistencyAndResourceManagement(t *testing.T) {
 	const numGoroutines = 250
 	const operationsPerGoroutine = 20
 
-	var createdChannels int64
-	var createdMessages int64
-	var processedOperations int64
+	var createdChannels atomic.Int64
+	var createdMessages atomic.Int64
+	var processedOperations atomic.Int64
+	workers := make(chan struct{}, 8)
 	var wg sync.WaitGroup
-
-	// Test memory consistency with rapid WebSocket operations
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
-			channels := make([]*Channel, operationsPerGoroutine)
+		wg.Go(func() {
+			workers <- struct{}{}
+			defer func() { <-workers }()
+			channels := make([]*lifecycleWebSocketChannel, operationsPerGoroutine)
 			messages := make([]Message, operationsPerGoroutine)
-
-			// Create channels and messages
 			for j := range operationsPerGoroutine {
-				channels[j] = &Channel{}
-				channels[j].BootstrapPreInit()
-				channels[j].Init()
-				atomic.AddInt64(&createdChannels, 1)
-
-				messages[j] = &DefaultMessage{
-					MessageType: TextMessageType,
-					Message:     []byte("memory test message"),
+				connected := channel.NewBootstrap().ChannelType(&lifecycleWebSocketChannel{}).Connect(nil, &net.TCPAddr{})
+				connected.AwaitTimeout(5 * time.Second)
+				if !assert.True(t, connected.IsDone()) || !assert.NoError(t, connected.Error()) {
+					return
 				}
-				atomic.AddInt64(&createdMessages, 1)
+				ch := connected.Channel().(*lifecycleWebSocketChannel)
+				channels[j] = ch
+				defer func() {
+					ch.Close().AwaitTimeout(5 * time.Second)
+					assert.NoError(t, ch.peer.Close())
+				}()
+				createdChannels.Add(1)
+				messages[j] = &DefaultMessage{MessageType: TextMessageType, Message: strconv.AppendInt(nil, int64(i*operationsPerGoroutine+j), 10)}
+				createdMessages.Add(1)
 			}
-
-			// Process operations
 			for j := range operationsPerGoroutine {
-				channels[j].UnsafeWrite(messages[j])
-				channels[j].IsActive()
-				messages[j].Encoded()
-				atomic.AddInt64(&processedOperations, 1)
+				ch := channels[j]
+				assert.True(t, ch.IsActive(), "successful connect must activate the channel")
+				assert.NoError(t, ch.peer.SetReadDeadline(time.Now().Add(time.Second)))
+				closed := ch.Close()
+				closed.AwaitTimeout(5 * time.Second)
+				assert.True(t, closed.IsDone(), "close did not settle")
+				assert.NoError(t, closed.Error())
+				assert.True(t, ch.CloseFuture().IsDone(), "channel lifetime did not terminate")
+				assert.False(t, ch.IsActive(), "closed channel remained active")
+				n, err := ch.peer.Read(make([]byte, 1))
+				assert.Zero(t, n)
+				assert.ErrorIs(t, err, io.EOF, "closing a channel must release its acquired transport")
+				assert.ErrorIs(t, ch.UnsafeWrite(messages[j]), net.ErrClosed)
+				assert.Equal(t, strconv.AppendInt(nil, int64(i*operationsPerGoroutine+j), 10), messages[j].Encoded())
+				processedOperations.Add(1)
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
 
-	// Verify memory consistency
-	expectedChannels := int64(numGoroutines * operationsPerGoroutine)
-	expectedMessages := int64(numGoroutines * operationsPerGoroutine)
-	expectedOperations := int64(numGoroutines * operationsPerGoroutine)
-
-	assert.Equal(t, expectedChannels, atomic.LoadInt64(&createdChannels), "All channels should be created")
-	assert.Equal(t, expectedMessages, atomic.LoadInt64(&createdMessages), "All messages should be created")
-	assert.Equal(t, expectedOperations, atomic.LoadInt64(&processedOperations), "All operations should be processed")
-
-	t.Logf("Memory consistency test: %d channels, %d messages, %d operations processed",
-		createdChannels, createdMessages, processedOperations)
+	expected := int64(numGoroutines * operationsPerGoroutine)
+	assert.Equal(t, expected, createdChannels.Load())
+	assert.Equal(t, expected, createdMessages.Load())
+	assert.Equal(t, expected, processedOperations.Load())
 }
 
 // ===== From gws_upgradeprocessor_test.go =====

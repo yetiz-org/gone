@@ -159,6 +159,48 @@ func (m SSEMessage) Validate() bool {
 	return !(m.Comment == "" && m.Event == "" && len(m.Data) == 0 && m.Id == "" && m.Retry == 0)
 }
 
+func (m SSEMessage) validate() (rtErr error) {
+	if strings.ContainsAny(m.Comment, "\r\n") {
+		return fmt.Errorf("invalid SSE comment")
+	}
+	if strings.ContainsAny(m.Event, "\r\n") {
+		return fmt.Errorf("invalid SSE event")
+	}
+	if strings.ContainsAny(m.Id, "\r\n\x00") {
+		return fmt.Errorf("invalid SSE id")
+	}
+
+	if m.Comment == "" && m.Event == "" && len(m.Data) == 0 && m.Id == "" && m.Retry <= 0 {
+		return fmt.Errorf("message is empty")
+	}
+
+	return nil
+}
+
+func (m SSEMessage) encode() (body buf.ByteBuf) {
+	body = buf.EmptyByteBuf()
+	if m.Comment != "" {
+		body.WriteString(": " + m.Comment + "\n")
+	}
+	if m.Event != "" {
+		body.WriteString("event: " + m.Event + "\n")
+	}
+	for _, datum := range m.Data {
+		datum = strings.ReplaceAll(strings.ReplaceAll(datum, "\r\n", "\n"), "\r", "\n")
+		for line := range strings.SplitSeq(datum, "\n") {
+			body.WriteString("data: " + line + "\n")
+		}
+	}
+	if m.Id != "" {
+		body.WriteString("id: " + m.Id + "\n")
+	}
+	if m.Retry > 0 {
+		body.WriteString("retry: " + strconv.Itoa(m.Retry) + "\n")
+	}
+	body.WriteByte('\n')
+	return body
+}
+
 type SSEMessages []SSEMessage
 
 func (h *DefaultSSEOperation) WriteHeader(ctx channel.HandlerContext, header http.Header, params map[string]any) channel.Future {
@@ -175,80 +217,46 @@ func (h *DefaultSSEOperation) WriteHeader(ctx channel.HandlerContext, header htt
 	return chCtx
 }
 
-func (h *DefaultSSEOperation) WriteMessage(ctx channel.HandlerContext, message SSEMessage, params map[string]any) channel.Future {
-	if obj, f := params["[gone-http]context_pack"]; f && obj != nil {
-		pack := obj.(*Pack)
-		if !pack.Response.headerWritten {
-			if !h.WriteHeader(ctx, pack.Response.Header(), params).IsSuccess() {
-				chCtx := channel.NewFuture(ctx.Channel())
-				chCtx.Completable().Fail(fmt.Errorf("header write error"))
-				return chCtx
-			}
-		}
-
-		body := buf.EmptyByteBuf()
-		if message.Comment != "" {
-			body.WriteString(fmt.Sprintf(": %s\n", message.Comment))
-		}
-
-		if message.Event != "" {
-			body.WriteString(fmt.Sprintf("event: %s\n", message.Event))
-		}
-
-		if len(message.Data) > 0 {
-			for _, datum := range message.Data {
-				body.WriteString(fmt.Sprintf("data: %s\n", datum))
-			}
-		}
-
-		if message.Id != "" {
-			body.WriteString(fmt.Sprintf("id: %s\n", message.Id))
-		}
-
-		if message.Retry > 0 {
-			body.WriteString(fmt.Sprintf("retry: %d\n", message.Retry))
-		}
-
-		if body.ReadableBytes() == 0 {
-			chCtx := channel.NewFuture(ctx.Channel())
-			chCtx.Completable().Fail(fmt.Errorf("message is empty"))
-			return chCtx
-		}
-
-		body.WriteByte('\n')
-		pack.Response.SetBody(body)
-		return ctx.Write(obj, channel.NewFuture(ctx.Channel())).Sync()
-	}
-
-	chCtx := channel.NewFuture(ctx.Channel())
-	chCtx.Completable().Fail(fmt.Errorf("not found pack"))
-	return chCtx
+func (h *DefaultSSEOperation) WriteMessage(ctx channel.HandlerContext, message SSEMessage, params map[string]any) (future channel.Future) {
+	return h.WriteMessages(ctx, []SSEMessage{message}, params)
 }
 
-func (h *DefaultSSEOperation) WriteMessages(ctx channel.HandlerContext, messages []SSEMessage, params map[string]any) channel.Future {
+func (h *DefaultSSEOperation) WriteMessages(ctx channel.HandlerContext, messages []SSEMessage, params map[string]any) (future channel.Future) {
+	future = channel.NewFuture(ctx.Channel())
 	if len(messages) == 0 {
-		chCtx := channel.NewFuture(ctx.Channel())
-		chCtx.Completable().Fail(fmt.Errorf("messages is empty"))
-		return chCtx
+		future.Completable().Fail(fmt.Errorf("messages is empty"))
+		return future
 	}
 
-	var chCtx channel.Future
 	for _, message := range messages {
-		if !message.Validate() {
-			chCtx = channel.NewFuture(ctx.Channel())
-			chCtx.Completable().Fail(fmt.Errorf("message is empty"))
-			return chCtx
+		if err := message.validate(); err != nil {
+			future.Completable().Fail(err)
+			return future
+		}
+	}
+
+	obj := params["[gone-http]context_pack"]
+	if obj == nil {
+		future.Completable().Fail(fmt.Errorf("not found pack"))
+		return future
+	}
+	pack := obj.(*Pack)
+	if !pack.Response.headerWritten {
+		if !h.WriteHeader(ctx, pack.Response.Header(), params).IsSuccess() {
+			future.Completable().Fail(fmt.Errorf("header write error"))
+			return future
 		}
 	}
 
 	for _, message := range messages {
-		chCtx = h.WriteMessage(ctx, message, params)
-		if chCtx.IsFail() {
-			return chCtx
+		pack.Response.SetBody(message.encode())
+		future = ctx.Write(obj, channel.NewFuture(ctx.Channel())).Sync()
+		if future.IsFail() {
+			return future
 		}
 	}
 
-	return chCtx
+	return future
 }
 
 func (h *DefaultHTTPHandlerTask) ThrowErrorResponse(err ErrorResponse) {
@@ -297,7 +305,11 @@ func (h *DefaultHTTPHandlerTask) SkipPreCheckForOptions() bool {
 }
 
 // ParseRange parses HTTP Range header and returns start, end, valid
-func ParseRange(rangeHeader string, contentSize int64) (int64, int64, bool) {
+func ParseRange(rangeHeader string, contentSize int64) (rangeStart, rangeEnd int64, valid bool) {
+	if contentSize <= 0 {
+		return 0, 0, false
+	}
+
 	rangeSpec, found := strings.CutPrefix(rangeHeader, "bytes=")
 	if !found {
 		return 0, 0, false

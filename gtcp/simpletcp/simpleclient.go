@@ -41,12 +41,17 @@ func (c *Client) Start(remoteAddr net.Addr) channel.Channel {
 	return c.start()
 }
 
-func (c *Client) start() channel.Channel {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.ch = c.bootstrap.Connect(nil, c.remoteAddr).Sync().Channel()
-	return c.ch
+func (c *Client) start() (ch channel.Channel) {
+	previous := c.Channel()
+	ch = c.bootstrap.Connect(nil, c.remoteAddr).Sync().Channel()
+	if ch == nil {
+		c.mu.Lock()
+		if c.ch == previous {
+			c.ch = nil
+		}
+		c.mu.Unlock()
+	}
+	return ch
 }
 
 func (c *Client) Channel() channel.Channel {
@@ -86,12 +91,16 @@ type connectionHandler struct {
 
 func (h *connectionHandler) Active(ctx channel.HandlerContext) {
 	go func(ch channel.Channel) {
-		wait := time.Second * 5
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 		for ch.IsActive() {
 			ch.Write(buf.EmptyByteBuf())
-			time.Sleep(wait)
+			select {
+			case <-ch.CloseFuture().Done():
+				return
+			case <-ticker.C:
+			}
 		}
-
 	}(ctx.Channel())
 
 	ctx.FireActive()
@@ -143,6 +152,9 @@ func (h *clientHandlerAdapter) Unregistered(ctx channel.HandlerContext) {
 }
 
 func (h *clientHandlerAdapter) Active(ctx channel.HandlerContext) {
+	h.client.mu.Lock()
+	h.client.ch = ctx.Channel()
+	h.client.mu.Unlock()
 	if h.client.Handler != nil {
 		h.client.Handler.Active(ctx)
 	} else {

@@ -54,3 +54,8 @@ func (c *Channel) UnsafeWrite(obj any) (rtErr error) {
 
 	return c.DefaultNetChannel.UnsafeWrite(obj)
 }
+
+// UnsafeClose releases this peer's connection and server admission quota without closing the shared server socket.
+func (c *Channel) UnsafeClose() (rtErr error) {
+	return c.UnsafeDisconnect()
+}

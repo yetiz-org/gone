@@ -3,11 +3,15 @@ package ghttp
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net"
 	ghttp "net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,31 +26,32 @@ import (
 	"github.com/yetiz-org/goth-base62"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	"github.com/yetiz-org/goth-kklogger"
-	"github.com/yetiz-org/goth-util/validate"
 	"golang.org/x/text/language"
 )
 
 type Request struct {
-	request     *ghttp.Request
-	channel     channel.Channel
-	trackID     string
-	createdAt   time.Time
-	remoteAddrs []string
-	body        buf.ByteBuf
-	rawBody     io.ReadCloser // the body as received, read once by bufferBody or by a streaming task
-	bodyReadErr error
-	bodyOnce    sync.Once
-	forwarded   bool // the direct peer passed TrustForwardedFor
-	session     httpsession.Session
-	op          sync.Mutex
+	request           *ghttp.Request
+	channel           channel.Channel
+	trackID           string
+	createdAt         time.Time
+	remoteAddrs       []string
+	socketAddr        string
+	body              buf.ByteBuf
+	rawBody           io.ReadCloser // the body as received, read once by bufferBody or by a streaming task
+	bodyReadErr       error
+	bodyBudget        serverBudgetBody
+	bodyOnce          sync.Once
+	forwarded         bool // the direct peer passed TrustForwardedFor
+	session           httpsession.Session
+	op                sync.Mutex
+	dispatchOperation DispatchOperation
 }
 
-// TrustForwardedFor reports whether WrapRequest may take the client address from the X-Forwarded-For
-// header sent by the direct peer. The default trusts only loopback, private and other non-public peers,
-// such as a load balancer inside the same network; clients behind NAT to the server also arrive from such
-// addresses. Set it at startup; it is read per request unsynchronized.
+// TrustForwardedFor identifies trusted proxy addresses. The default trusts none. Configure an exact
+// proxy IP/CIDR policy at startup; it is read per request unsynchronized. WrapRequest walks the
+// X-Forwarded-For chain from the socket peer toward the client and stops at the first untrusted hop.
 var TrustForwardedFor = func(peer net.IP) (trusted bool) {
-	return peer != nil && !validate.IsPublicIP(peer)
+	return false
 }
 
 // WrapRequest wraps req without reading its body. Body, BodyReadError and the first read of req.Body buffer
@@ -54,11 +59,12 @@ var TrustForwardedFor = func(peer net.IP) (trusted bool) {
 func WrapRequest(ch channel.Channel, req *ghttp.Request) (request *Request) {
 	u := uuid.New()
 	request = &Request{
-		request:   req,
-		channel:   ch,
-		trackID:   base62.FlipEncoding.EncodeToString(u[:]),
-		createdAt: time.Now(),
-		rawBody:   req.Body,
+		request:    req,
+		channel:    ch,
+		trackID:    base62.FlipEncoding.EncodeToString(u[:]),
+		createdAt:  time.Now(),
+		socketAddr: req.RemoteAddr,
+		rawBody:    req.Body,
 	}
 
 	if req.Body != nil {
@@ -66,7 +72,7 @@ func WrapRequest(ch channel.Channel, req *ghttp.Request) (request *Request) {
 	}
 
 	request.remoteAddrs = []string{req.RemoteAddr}
-	request.forwarded = TrustForwardedFor(request.RemoteIP())
+	request.forwarded = TrustForwardedFor != nil && TrustForwardedFor(request.RemoteIP())
 	xForwardFor := request.Header().Get(httpheadername.XForwardedFor)
 	if xForwardFor == "" || !request.forwarded {
 		return request
@@ -75,12 +81,16 @@ func WrapRequest(ch channel.Channel, req *ghttp.Request) (request *Request) {
 	xffu := strings.Split(xForwardFor, ",")
 	for i := range xffu {
 		xffu[i] = strings.TrimSpace(xffu[i])
+		if net.ParseIP(xffu[i]) == nil {
+			return request
+		}
 	}
 
 	rAddr := req.RemoteAddr
 	for i := len(xffu) - 1; i >= 0; i-- {
-		if ip := net.ParseIP(xffu[i]); ip != nil && validate.IsPublicIP(ip) {
-			req.RemoteAddr = xffu[i]
+		ip := net.ParseIP(xffu[i])
+		req.RemoteAddr = ip.String()
+		if !TrustForwardedFor(ip) {
 			break
 		}
 	}
@@ -207,8 +217,16 @@ func (r *Request) bufferBody() {
 		return
 	}
 
-	bs, err := io.ReadAll(r.rawBody)
+	var reader io.Reader = r.rawBody
+	if r.bodyBudget.budget != nil {
+		r.bodyBudget.Reader = r.rawBody
+		reader = &r.bodyBudget
+	}
+
+	bs, err := io.ReadAll(reader)
 	if err != nil {
+		r.bodyBudget.release()
+
 		// Leave the failed body open: net/http closes it after writing the response, while closing it here
 		// would first wait for whatever the client is still sending.
 		r.bodyReadErr = err
@@ -306,6 +324,11 @@ func (r *Request) AcceptCharset() []QualityValue {
 	return _DecodeQualityValueField(r.Header().Get(httpheadername.AcceptCharset))
 }
 
+// SocketRemoteAddr returns the original direct peer before trusted proxy processing.
+func (r *Request) SocketRemoteAddr() (address string) {
+	return r.socketAddr
+}
+
 type QualityValue struct {
 	Value  string
 	Factor float32
@@ -357,6 +380,9 @@ func (r *Request) Origin() string {
 	return r.Header().Get(httpheadername.Origin)
 }
 
+// ErrResponseBodyTooLarge means bounded internal dispatch discarded an oversized response.
+var ErrResponseBodyTooLarge = errors.New("ghttp: response body exceeds limit")
+
 type Response struct {
 	response          *ghttp.Response
 	request           *Request
@@ -367,6 +393,8 @@ type Response struct {
 	done              channel.Future
 	headerWritten     bool
 	jsonEncoderConfig func(*json.Encoder)
+	bodyLimit         int64
+	bodyErr           error
 }
 
 func WrapResponse(ch channel.NetChannel, response *ghttp.Response) (resp *Response) {
@@ -416,8 +444,16 @@ func (r *Response) ResponseError(er ErrorResponse) {
 	er = er.Clone()
 	er.ErrorData()["cid"] = r.request.Channel().ID()
 	er.ErrorData()["tid"] = r.request.TrackID()
-	r.SetStatusCode(er.ErrorStatusCode()).
-		JsonResponse(buf.NewByteBufString(er.Error()))
+	r.SetStatusCode(er.ErrorStatusCode())
+	text := er.Error()
+	if r.bodyLimit > 0 && int64(len(text)) > r.bodyLimit {
+		r.SetHeader(httpheadername.ContentType, "application/json")
+		r.bodyErr = ErrResponseBodyTooLarge
+		r.body = buf.EmptyByteBuf()
+		return
+	}
+
+	r.JsonResponse(buf.NewByteBufString(text))
 }
 
 func (r *Response) Redirect(redirectUrl string) {
@@ -478,8 +514,20 @@ func (r *Response) Body() buf.ByteBuf {
 	return r.body
 }
 
-func (r *Response) SetBody(buf buf.ByteBuf) {
-	r.body = buf
+func (r *Response) SetBody(body buf.ByteBuf) {
+	if r.bodyLimit > 0 {
+		if r.bodyErr != nil {
+			return
+		}
+
+		if body != nil && int64(body.ReadableBytes()) > r.bodyLimit {
+			r.bodyErr = ErrResponseBodyTooLarge
+			r.body = buf.EmptyByteBuf()
+			return
+		}
+	}
+
+	r.body = body
 }
 
 func (r *Response) SetContentType(ct string) {
@@ -500,6 +548,8 @@ var DefaultJsonEncoderConfig = func(enc *json.Encoder) {
 	enc.SetEscapeHTML(false)
 }
 
+var defaultJSONEncoderConfig = DefaultJsonEncoderConfig
+
 // SetJsonEncoderConfig overrides DefaultJsonEncoderConfig for this response; nil clears it.
 func (r *Response) SetJsonEncoderConfig(config func(*json.Encoder)) *Response {
 	r.jsonEncoderConfig = config
@@ -508,19 +558,41 @@ func (r *Response) SetJsonEncoderConfig(config func(*json.Encoder)) *Response {
 
 func (r *Response) JsonResponse(obj any) {
 	r.SetHeader(httpheadername.ContentType, "application/json")
+	if r.bodyLimit > 0 && r.bodyErr != nil {
+		return
+	}
 
 	switch body := obj.(type) {
 	case *bytes.Buffer:
+		if r.bodyLimit > 0 {
+			r._SetBoundedBytes(body.Bytes())
+			return
+		}
+
 		r.SetBody(buf.NewByteBuf(body.Bytes()))
 		return
 	case buf.ByteBuf:
 		r.SetBody(body)
 		return
 	case []byte:
+		if r.bodyLimit > 0 {
+			r._SetBoundedBytes(body)
+			return
+		}
+
 		r.SetBody(buf.NewByteBuf(body))
 		return
 	case string:
 		obj = struct{ Data string }{Data: body}
+	}
+
+	if r.bodyLimit > 0 {
+		if err := r._EncodeBoundedJSON(obj); err != nil {
+			r.bodyErr = err
+			r.body = buf.EmptyByteBuf()
+		}
+
+		return
 	}
 
 	config := r.jsonEncoderConfig
@@ -540,6 +612,82 @@ func (r *Response) JsonResponse(obj any) {
 	} else {
 		kklogger.ErrorJ("ghttp:Response.JsonResponse#json_marshal!marshal_error", e.Error())
 	}
+}
+
+// BodyError reports a sticky failure from bounded internal response construction.
+func (r *Response) BodyError() (rtErr error) {
+	return r.bodyErr
+}
+
+func (r *Response) _SetBoundedBytes(data []byte) {
+	if int64(len(data)) > r.bodyLimit {
+		r.bodyErr = ErrResponseBodyTooLarge
+		r.body = buf.EmptyByteBuf()
+		return
+	}
+
+	r.SetBody(buf.NewByteBuf(data))
+}
+
+func (r *Response) _EncodeBoundedJSON(obj any) (rtErr error) {
+	capture := &_ResponseBodyBuffer{limit: r.bodyLimit}
+	config := r.jsonEncoderConfig
+	if config == nil {
+		config = DefaultJsonEncoderConfig
+	}
+
+	// Go funcs are not comparable; only the unchanged default can use the equivalent streaming encoder.
+	if r.jsonEncoderConfig == nil && config != nil && reflect.ValueOf(config).Pointer() == reflect.ValueOf(defaultJSONEncoderConfig).Pointer() {
+		rtErr = jsonv2.MarshalWrite(capture, obj, json.DefaultOptionsV1(), jsontext.EscapeForHTML(false))
+	} else {
+		encoder := json.NewEncoder(capture)
+		if config != nil {
+			config(encoder)
+		}
+
+		capture.trimNewline = true
+		rtErr = encoder.Encode(obj)
+	}
+
+	if rtErr != nil {
+		return rtErr
+	}
+
+	r.SetBody(buf.NewSharedByteBuf(capture.data))
+	return nil
+}
+
+type _ResponseBodyBuffer struct {
+	data        []byte
+	limit       int64
+	trimNewline bool
+}
+
+func (b *_ResponseBodyBuffer) Write(data []byte) (written int, rtErr error) {
+	written = len(data)
+	if b.trimNewline {
+		data = bytes.TrimRight(data, "\n")
+	}
+
+	if int64(len(data)) > b.limit-int64(len(b.data)) {
+		b.data = nil
+		return 0, ErrResponseBodyTooLarge
+	}
+
+	required := len(b.data) + len(data)
+	if required > cap(b.data) {
+		capacity := b.limit
+		if int64(cap(b.data)) <= b.limit/2 {
+			capacity = max(int64(required), int64(cap(b.data))*2)
+		}
+
+		grown := make([]byte, len(b.data), int(capacity))
+		copy(grown, b.data)
+		b.data = grown
+	}
+
+	b.data = append(b.data, data...)
+	return written, nil
 }
 
 type ResponseWriter interface {

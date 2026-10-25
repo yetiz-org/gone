@@ -1,27 +1,39 @@
 package utils
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"testing"
 )
 
 func TestBufferPool_BasicOperations(t *testing.T) {
-	pool := NewBufferPool(1024)
-
-	// Test Get
+	pool := &BufferPool{
+		pool: sync.Pool{New: func() any {
+			return bytes.Repeat([]byte{0xA5}, 1024)
+		}},
+		size: 1024,
+	}
+	dirty := pool.GetDirty()
+	if !bytes.Equal(dirty, bytes.Repeat([]byte{0xA5}, 1024)) {
+		t.Fatal("GetDirty must leave producer bytes unchanged")
+	}
+	pool.Put(dirty)
 	buf := pool.Get()
 	if len(buf) != 1024 {
-		t.Errorf("Expected buffer size 1024, got %d", len(buf))
+		t.Fatalf("Expected buffer size 1024, got %d", len(buf))
 	}
-
-	// Test Put
+	if !bytes.Equal(buf, make([]byte, 1024)) {
+		t.Fatal("Get must clear every byte, including dirty producer data")
+	}
+	copy(buf, bytes.Repeat([]byte{0x5A}, len(buf)))
 	pool.Put(buf)
-
-	// Test Get again - should reuse the buffer
 	buf2 := pool.Get()
 	if len(buf2) != 1024 {
-		t.Errorf("Expected buffer size 1024, got %d", len(buf2))
+		t.Fatalf("Expected buffer size 1024, got %d", len(buf2))
+	}
+	if !bytes.Equal(buf2, make([]byte, 1024)) {
+		t.Fatal("Get must return a clean buffer after Put, whether retained or newly produced")
 	}
 }
 
@@ -118,7 +130,7 @@ func TestPutBufferForSize(t *testing.T) {
 	PutBufferForSize(buf128k) // Should be ignored
 }
 
-func TestPutBufferForSize_RecyclesBucketByCapacity(t *testing.T) {
+func TestPutBufferForSize_PreservesBucketCapacity(t *testing.T) {
 	buf := GetDirtyBufferForSize(1024)
 	if len(buf) != 1024 {
 		t.Fatalf("expected requested length 1024, got %d", len(buf))
@@ -130,11 +142,11 @@ func TestPutBufferForSize_RecyclesBucketByCapacity(t *testing.T) {
 	buf[0] = 42
 	PutBufferForSize(buf)
 
-	reused := GetDirtyBufferForSize(1024)
-	if cap(reused) != 4*1024 {
-		t.Fatalf("expected recycled small bucket capacity 4KB, got %d", cap(reused))
+	next := GetDirtyBufferForSize(1024)
+	if cap(next) != 4*1024 {
+		t.Fatalf("expected small bucket capacity 4KB, got %d", cap(next))
 	}
-	PutBufferForSize(reused)
+	PutBufferForSize(next)
 }
 
 func TestGetDirtyBufferForSize_BucketBoundaries(t *testing.T) {
@@ -192,12 +204,16 @@ func TestPutBufferForSize_ConcurrentSlicedBuffers(t *testing.T) {
 	}
 }
 
+var bufferPoolBenchmarkSink []byte
+
 func BenchmarkBufferPool_GetPut(b *testing.B) {
 	pool := NewBufferPool(4096)
 
 	b.ResetTimer()
 	for b.Loop() {
 		buf := pool.Get()
+		buf[0] = 1
+		bufferPoolBenchmarkSink = buf
 		pool.Put(buf)
 	}
 }
@@ -205,7 +221,9 @@ func BenchmarkBufferPool_GetPut(b *testing.B) {
 func BenchmarkBufferPool_DirectAllocation(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
-		_ = make([]byte, 4096)
+		buf := make([]byte, 4096)
+		buf[0] = 1
+		bufferPoolBenchmarkSink = buf
 	}
 }
 

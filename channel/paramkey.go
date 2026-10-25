@@ -11,6 +11,21 @@ const ParamReadBufferSize = ParamKey("read_buffer_size")
 const ParamReadTimeout = ParamKey("read_timeout")
 const ParamWriteTimeout = ParamKey("write_timeout")
 
+// ParamMaxInProgressBytes bounds shared incomplete input per server in bytes. Nonpositive values use the default.
+const ParamMaxInProgressBytes = ParamKey("max_in_progress_bytes")
+
+// ParamFrameAssemblyTimeout bounds one incomplete frame/message in milliseconds, regardless of incoming traffic.
+// Nonpositive values use the default.
+const ParamFrameAssemblyTimeout = ParamKey("frame_assembly_timeout")
+
+// ParamMaxQueuedWriteBytes includes in-flight and pending payloads plus per-entry overhead.
+// Nonpositive values use the default.
+const ParamMaxQueuedWriteBytes = ParamKey("max_queued_write_bytes")
+
+const DefaultMaxInProgressBytes = 64 << 20
+const DefaultFrameAssemblyTimeout = 30000
+const DefaultMaxQueuedWriteBytes = 32 << 20
+
 // ParamReadIdleTimeout closes a connection that receives nothing for this many milliseconds, so idle peers
 // do not hold descriptors forever. Connections a server accepts default to DefaultReadIdleTimeout; client
 // connections default to off. A net channel checks it each ParamReadTimeout; a WebSocket must receive each

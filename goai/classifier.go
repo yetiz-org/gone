@@ -2,14 +2,16 @@ package goai
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/yetiz-org/gone/ghttp"
 )
 
-// Classifier turns a route path and its acceptance chain into reasonable
-// default tag + security values. Builder consults it ONLY when a candidate
-// has no explicit Spec entry from SpecProvider / goai.Register / SecurityProvider.
+// Classifier turns route paths and acceptances into fallback metadata.
+// Explicit tags override path rules. Security rules describe acceptances
+// without active providers and combine with provider and Spec requirements.
+// A method-aware exemption suppresses only that acceptance's fallback.
 //
 // Classifier is the zero-config fallback: it lets a project bootstrap a spec
 // before any handler implements SpecProvider. Once handlers self-declare
@@ -73,25 +75,28 @@ func (c *Classifier) ClassifyTag(path string) string {
 
 // ClassifySecurity returns the security refs derived from the acceptance
 // chain. An acceptance that already implements SecurityProvider is honoured
-// as-is; for all others, the type-name rules are consulted.
-func (c *Classifier) ClassifySecurity(acceptances []ghttp.Acceptance) []SecurityRef {
+// as-is; for all others, the type-name rules are consulted. Scopes for the
+// same scheme are combined in acceptance order.
+func (c *Classifier) ClassifySecurity(acceptances []ghttp.Acceptance) (out []SecurityRef) {
 	if c == nil {
 		return nil
 	}
 
-	seen := map[string]struct{}{}
-	var out []SecurityRef
+	indices := map[string]int{}
 
 	add := func(ref SecurityRef) {
 		if ref.Scheme == "" {
 			return
 		}
 
-		if _, dup := seen[ref.Scheme]; dup {
+		if index, found := indices[ref.Scheme]; found {
+			out[index].Scopes = _MergeSecurityScopes(out[index].Scopes, ref.Scopes)
+
 			return
 		}
 
-		seen[ref.Scheme] = struct{}{}
+		indices[ref.Scheme] = len(out)
+		ref.Scopes = _MergeSecurityScopes(nil, ref.Scopes)
 		out = append(out, ref)
 	}
 
@@ -109,17 +114,47 @@ func (c *Classifier) ClassifySecurity(acceptances []ghttp.Acceptance) []Security
 			}
 		}
 
-		typeName := acceptanceTypeName(a)
-		for _, rule := range c.AcceptanceSecurityRules {
-			if rule.TypeName != "" && strings.Contains(typeName, rule.TypeName) {
-				add(SecurityRef{Scheme: rule.Scheme, Scopes: rule.Scopes})
-
-				break
-			}
+		if rule, found := c.securityRuleFor(a); found {
+			add(SecurityRef{Scheme: rule.Scheme, Scopes: rule.Scopes})
 		}
 	}
 
 	return out
+}
+
+// fallbackSecurity applies the type-name rules to the candidate's acceptances
+// that declared no security. A candidate built by Walk carries that set and
+// its provider refs, so providers are not asked again; for any other
+// candidate the provider refs are collected here as well.
+func (c *Classifier) fallbackSecurity(candidate OperationCandidate) (refs []SecurityRef) {
+	if c == nil {
+		return nil
+	}
+
+	unsecured := candidate.securityFallback
+	if !candidate.securityResolved {
+		refs, _, unsecured = collectSecurityForMethod(candidate.Acceptances, candidate.Method)
+	}
+
+	for _, a := range unsecured {
+		if rule, found := c.securityRuleFor(a); found {
+			refs = append(refs, SecurityRef{Scheme: rule.Scheme, Scopes: rule.Scopes})
+		}
+	}
+
+	return refs
+}
+
+func (c *Classifier) securityRuleFor(a ghttp.Acceptance) (rule AcceptanceSecurityRule, found bool) {
+	typeName := acceptanceTypeName(a)
+	index := slices.IndexFunc(c.AcceptanceSecurityRules, func(candidate AcceptanceSecurityRule) bool {
+		return candidate.TypeName != "" && strings.Contains(typeName, candidate.TypeName)
+	})
+	if index < 0 {
+		return AcceptanceSecurityRule{}, false
+	}
+
+	return c.AcceptanceSecurityRules[index], true
 }
 
 // acceptanceTypeName returns the unqualified Go type name of the acceptance

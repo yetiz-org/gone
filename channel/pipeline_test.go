@@ -15,42 +15,31 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // ===== From pipeline_additional_test.go =====
 
 // TestDefaultPipeline_AddBefore tests pipeline AddBefore functionality
 func TestDefaultPipeline_AddBefore(t *testing.T) {
-	deadline := time.Now().Add(10 * time.Second)
+	ch := &DefaultChannel{}
+	ch.init(ch)
+	pipeline := ch.Pipeline()
+	var order []string
+	pipeline.AddLast("first", NewRWHandler(func(ctx HandlerContext, obj any) {
+		order = append(order, ctx.Name())
+	}, nil))
+	pipeline.AddBefore("first", "before-first", NewRWHandler(func(ctx HandlerContext, obj any) {
+		order = append(order, ctx.Name())
+		ctx.FireRead(obj)
+	}, nil))
+	pipeline.AddBefore("before-first", "very-first", NewRWHandler(func(ctx HandlerContext, obj any) {
+		order = append(order, ctx.Name())
+		ctx.FireRead(obj)
+	}, nil))
 
-	mockChannel := NewMockChannel()
-	// Mock the setUnsafe call that _NewDefaultPipeline makes
-	mockChannel.On("setUnsafe", mock.Anything).Return()
-	pipeline := _NewDefaultPipeline(mockChannel)
-	firstHandler := NewMockHandler()
-	secondHandler := NewMockHandler()
-	thirdHandler := NewMockHandler()
-
-	// Mock the Added method calls for all handlers
-	firstHandler.On("Added", mock.Anything).Return()
-	secondHandler.On("Added", mock.Anything).Return()
-	thirdHandler.On("Added", mock.Anything).Return()
-
-	// Add initial handler
-	pipeline.AddLast("first", firstHandler)
-
-	// Add handler before the first one
-	pipeline.AddBefore("first", "before-first", secondHandler)
-
-	// Add another handler before the existing one
-	pipeline.AddBefore("before-first", "very-first", thirdHandler)
-
-	// Verify handlers exist and are in correct order
-	// The order should be: very-first -> before-first -> first
-
-	if time.Now().After(deadline) {
-		t.Fatal("Test exceeded timeout")
-	}
+	ch.FireRead("payload")
+	assert.Equal(t, []string{"very-first", "before-first", "first"}, order)
 }
 
 // TestDefaultPipeline_RemoveFirst tests pipeline RemoveFirst functionality
@@ -189,6 +178,7 @@ func TestDefaultPipeline_Clear(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 
 	mockChannel := NewMockChannel()
+
 	// Mock the setUnsafe call that _NewDefaultPipeline makes
 	mockChannel.On("setUnsafe", mock.Anything).Return()
 	pipeline := _NewDefaultPipeline(mockChannel)
@@ -211,6 +201,9 @@ func TestDefaultPipeline_Clear(t *testing.T) {
 
 	// Clear all handlers
 	pipeline.Clear()
+	handler1.AssertExpectations(t)
+	handler2.AssertExpectations(t)
+	handler3.AssertExpectations(t)
 
 	// Verify pipeline still returns itself when trying to remove from empty pipeline
 	result := pipeline.RemoveFirst()
@@ -222,98 +215,131 @@ func TestDefaultPipeline_Clear(t *testing.T) {
 	}
 }
 
-// TestDefaultPipeline_Bind tests pipeline Bind functionality
+type pipelineBoundaryChannel struct {
+	DefaultChannel
+	operations chan string
+	localAddr  net.Addr
+	remoteAddr net.Addr
+	bindError  error
+}
+
+func (c *pipelineBoundaryChannel) UnsafeIsAutoRead() (autoRead bool) {
+	return false
+}
+
+func (c *pipelineBoundaryChannel) UnsafeBind(localAddr net.Addr) (rtErr error) {
+	c.localAddr = localAddr
+	c.operations <- "bind"
+	return c.bindError
+}
+
+func (c *pipelineBoundaryChannel) UnsafeClose() (rtErr error) {
+	c.operations <- "close"
+	return nil
+}
+
+func (c *pipelineBoundaryChannel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) (rtErr error) {
+	c.localAddr = localAddr
+	c.remoteAddr = remoteAddr
+	c.operations <- "connect"
+	return nil
+}
+
+func (c *pipelineBoundaryChannel) UnsafeDisconnect() (rtErr error) {
+	c.operations <- "disconnect"
+	return nil
+}
+
 func TestDefaultPipeline_Bind(t *testing.T) {
-	deadline := time.Now().Add(5 * time.Second)
-
-	mockChannel := NewMockChannel()
-	// Mock the setUnsafe call that _NewDefaultPipeline makes
-	mockChannel.On("setUnsafe", mock.Anything).Return()
-	pipeline := _NewDefaultPipeline(mockChannel)
-	mockAddr := NewMockConn() // Mock connection that implements net.Addr interface methods
-
-	// Mock the LocalAddr method call
-	mockAddr.On("LocalAddr").Return(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080})
-
-	future := pipeline.Bind(mockAddr.LocalAddr())
-	assert.Nil(t, future)
-
-	if time.Now().After(deadline) {
-		t.Fatal("Test exceeded timeout")
+	for _, bindError := range []error{nil, ErrLocalAddrIsEmpty} {
+		ch := &pipelineBoundaryChannel{operations: make(chan string, 1), bindError: bindError}
+		ch.init(ch)
+		addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
+		future := ch.Pipeline().Bind(addr)
+		require.NotNil(t, future)
+		requireDoneFuture(t, future)
+		require.Len(t, ch.operations, 1)
+		assert.Equal(t, "bind", <-ch.operations)
+		assert.Same(t, addr, ch.localAddr)
+		assert.ErrorIs(t, future.Error(), bindError)
+		if bindError == nil {
+			assert.Same(t, ch, future.Channel())
+			assert.True(t, ch.IsActive())
+			_, inactive := ch.inactiveChannel()
+			inactive.Await()
+		} else {
+			assert.Nil(t, future.Channel())
+			assert.False(t, ch.IsActive())
+		}
 	}
 }
 
 // TestDefaultPipeline_Close tests pipeline Close functionality
 func TestDefaultPipeline_Close(t *testing.T) {
-	deadline := time.Now().Add(5 * time.Second)
-
-	mockChannel := NewMockChannel()
-	// Mock the setUnsafe call that _NewDefaultPipeline makes
-	mockChannel.On("setUnsafe", mock.Anything).Return()
-	pipeline := _NewDefaultPipeline(mockChannel)
-
-	future := pipeline.Close()
-	assert.Nil(t, future)
-
-	if time.Now().After(deadline) {
-		t.Fatal("Test exceeded timeout")
-	}
+	ch := &pipelineBoundaryChannel{operations: make(chan string, 1)}
+	ch.init(ch)
+	ch.activeChannel()
+	future := ch.Pipeline().Close()
+	require.NotNil(t, future)
+	requireDoneFuture(t, future)
+	require.Len(t, ch.operations, 1)
+	assert.Equal(t, "close", <-ch.operations)
+	assert.NoError(t, future.Error())
+	assert.Same(t, ch, future.Channel())
+	assert.False(t, ch.IsActive())
+	requireDoneFuture(t, ch.CloseFuture())
+	assert.NoError(t, ch.CloseFuture().Error())
 }
 
 // TestDefaultPipeline_Connect tests pipeline Connect functionality
 func TestDefaultPipeline_Connect(t *testing.T) {
-	deadline := time.Now().Add(5 * time.Second)
-
-	mockChannel := NewMockChannel()
-	// Mock the setUnsafe call that _NewDefaultPipeline makes
-	mockChannel.On("setUnsafe", mock.Anything).Return()
-	pipeline := _NewDefaultPipeline(mockChannel)
-	mockAddr := NewMockConn() // Mock connection for net.Addr
-
-	// Mock the LocalAddr and RemoteAddr method calls
-	mockAddr.On("LocalAddr").Return(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080})
-	mockAddr.On("RemoteAddr").Return(&net.TCPAddr{IP: net.IPv4(192, 168, 1, 100), Port: 9090})
-
-	future := pipeline.Connect(mockAddr.LocalAddr(), mockAddr.RemoteAddr())
-	assert.Nil(t, future)
-
-	if time.Now().After(deadline) {
-		t.Fatal("Test exceeded timeout")
-	}
+	ch := &pipelineBoundaryChannel{operations: make(chan string, 1)}
+	ch.init(ch)
+	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
+	remote := &net.TCPAddr{IP: net.IPv4(192, 168, 1, 100), Port: 9090}
+	future := ch.Pipeline().Connect(local, remote)
+	require.NotNil(t, future)
+	requireDoneFuture(t, future)
+	require.Len(t, ch.operations, 1)
+	assert.Equal(t, "connect", <-ch.operations)
+	assert.Same(t, local, ch.localAddr)
+	assert.Same(t, remote, ch.remoteAddr)
+	assert.NoError(t, future.Error())
+	assert.Same(t, ch, future.Channel())
+	assert.True(t, ch.IsActive())
+	_, inactive := ch.inactiveChannel()
+	inactive.Await()
 }
 
 // TestDefaultPipeline_Disconnect tests pipeline Disconnect functionality
 func TestDefaultPipeline_Disconnect(t *testing.T) {
-	deadline := time.Now().Add(5 * time.Second)
-
-	mockChannel := NewMockChannel()
-	// Mock the setUnsafe call that _NewDefaultPipeline makes
-	mockChannel.On("setUnsafe", mock.Anything).Return()
-	pipeline := _NewDefaultPipeline(mockChannel)
-
-	future := pipeline.Disconnect()
-	assert.Nil(t, future)
-
-	if time.Now().After(deadline) {
-		t.Fatal("Test exceeded timeout")
-	}
+	ch := &pipelineBoundaryChannel{operations: make(chan string, 1)}
+	ch.init(ch)
+	ch.activeChannel()
+	future := ch.Pipeline().Disconnect()
+	require.NotNil(t, future)
+	requireDoneFuture(t, future)
+	require.Len(t, ch.operations, 1)
+	assert.Equal(t, "disconnect", <-ch.operations)
+	assert.NoError(t, future.Error())
+	assert.Same(t, ch, future.Channel())
+	assert.False(t, ch.IsActive())
+	requireDoneFuture(t, ch.CloseFuture())
 }
 
 // TestDefaultPipeline_Deregister tests pipeline Deregister functionality
 func TestDefaultPipeline_Deregister(t *testing.T) {
-	deadline := time.Now().Add(5 * time.Second)
-
-	mockChannel := NewMockChannel()
-	// Mock the setUnsafe call that _NewDefaultPipeline makes
-	mockChannel.On("setUnsafe", mock.Anything).Return()
-	pipeline := _NewDefaultPipeline(mockChannel)
-
-	future := pipeline.Deregister()
-	assert.Nil(t, future)
-
-	if time.Now().After(deadline) {
-		t.Fatal("Test exceeded timeout")
-	}
+	ch := &lifecycleTestChannel{}
+	ch.init(ch)
+	ch.activeChannel()
+	future := ch.Pipeline().Deregister()
+	require.NotNil(t, future)
+	requireDoneFuture(t, future)
+	assert.NoError(t, future.Error())
+	assert.Same(t, ch, future.Channel())
+	assert.False(t, ch.IsActive())
+	requireDoneFuture(t, ch.CloseFuture())
+	assert.NoError(t, ch.CloseFuture().Error())
 }
 
 // TestDefaultPipeline_Param tests pipeline parameter functionality
@@ -345,21 +371,24 @@ func TestDefaultPipeline_Param(t *testing.T) {
 
 // TestDefaultPipeline_FireReadCompleted tests fireReadCompleted functionality
 func TestDefaultPipeline_FireReadCompleted(t *testing.T) {
-	deadline := time.Now().Add(5 * time.Second)
-
-	mockChannel := NewMockChannel()
-	// Mock the setUnsafe call that _NewDefaultPipeline makes
-	mockChannel.On("setUnsafe", mock.Anything).Return()
-	pipeline := _NewDefaultPipeline(mockChannel)
-
-	// Test fireReadCompleted - this is an internal method but we can test it exists
-	// by calling it through the pipeline's internal mechanism
-	// This is a basic smoke test to ensure the method doesn't panic
-	assert.NotNil(t, pipeline) // Use pipeline to avoid unused variable error
-
-	if time.Now().After(deadline) {
-		t.Fatal("Test exceeded timeout")
+	ch := &DefaultChannel{}
+	ch.init(ch)
+	var order []string
+	for _, name := range []string{"first", "second", "third"} {
+		handler := NewMockHandler()
+		handler.On("Added", mock.Anything).Return().Once()
+		handler.On("ReadCompleted", mock.Anything).Run(func(args mock.Arguments) {
+			ctx := args.Get(0).(HandlerContext)
+			assert.Equal(t, name, ctx.Name())
+			order = append(order, ctx.Name())
+			ctx.FireReadCompleted()
+		}).Return().Once()
+		ch.Pipeline().AddLast(name, handler)
+		t.Cleanup(func() { handler.AssertExpectations(t) })
 	}
+
+	assert.Same(t, ch, ch.FireReadCompleted())
+	assert.Equal(t, []string{"first", "second", "third"}, order)
 }
 
 // ===== From pipeline_test.go =====
@@ -936,4 +965,42 @@ func TestDefaultPipeline_ConcurrentHandlerReplacement(t *testing.T) {
 	// Verify final state - check if handler exists in pipeline
 	// Note: Pipeline interface doesn't expose Get method, so we verify through Channel
 	assert.NotNil(t, pipeline.Channel(), "Pipeline should have valid channel after replacements")
+}
+
+type removalCallbackHandler struct {
+	DefaultHandler
+	removed func(HandlerContext)
+}
+
+func (h *removalCallbackHandler) Removed(ctx HandlerContext) {
+	h.removed(ctx)
+}
+
+func TestDefaultPipeline_ClearHandlesRemovalCallbacks(t *testing.T) {
+	ch := &DefaultChannel{}
+	ch.init(ch)
+	pipeline := ch.Pipeline()
+	removed := []string{}
+	first := &removalCallbackHandler{removed: func(ctx HandlerContext) {
+		removed = append(removed, ctx.Name())
+		pipeline.RemoveByName(ctx.Name())
+		pipeline.RemoveByName("second")
+	}}
+	second := &removalCallbackHandler{removed: func(ctx HandlerContext) {
+		removed = append(removed, ctx.Name())
+		pipeline.RemoveByName(ctx.Name())
+	}}
+	third := &removalCallbackHandler{removed: func(ctx HandlerContext) {
+		removed = append(removed, ctx.Name())
+		pipeline.Clear()
+	}}
+	pipeline.AddLast("first", first).AddLast("second", second).AddLast("third", third)
+
+	assert.Same(t, pipeline, pipeline.Clear())
+
+	assert.Equal(t, []string{"first", "second", "third"}, removed)
+	reads := 0
+	pipeline.AddLast("replacement", NewRWHandler(func(ctx HandlerContext, obj any) { reads++ }, nil))
+	ch.FireRead(nil)
+	assert.Equal(t, 1, reads)
 }

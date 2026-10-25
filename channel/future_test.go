@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	concurrent "github.com/yetiz-org/goth-concurrent"
 )
 
 // Test Future interface compliance and basic functionality
@@ -154,75 +155,72 @@ func TestDefaultFuture_ConcurrentListeners(t *testing.T) {
 
 	const numFutures = 50
 	const listenersPerFuture = 20
-
+	const expectedCalls = numFutures * listenersPerFuture
 	futures := make([]Future, numFutures)
-
-	// Create futures
+	results := make([]any, numFutures)
+	errors := make([]error, numFutures)
+	calls := make([]atomic.Int32, expectedCalls)
+	completed := make(chan struct{}, expectedCalls)
+	complete := func(i int) {
+		if errors[i] == nil {
+			assert.True(t, futures[i].Completable().Complete(results[i]))
+		} else {
+			assert.True(t, futures[i].Completable().Fail(errors[i]))
+		}
+	}
 	for i := range numFutures {
 		futures[i] = NewFuture(channel)
+		if i%3 == 0 {
+			results[i] = fmt.Sprintf("result-%d", i)
+		} else {
+			errors[i] = fmt.Errorf("listener failure %d", i)
+		}
+		if i%2 == 0 {
+			complete(i)
+		}
 	}
 
-	var wg sync.WaitGroup
-	var totalListenerCalls int64
-
-	// Register listeners concurrently
+	var registrations sync.WaitGroup
 	for i := range numFutures {
 		for j := range listenersPerFuture {
-			wg.Add(1)
-			go func(futureIndex, listenerID int) {
-				defer wg.Done()
-
-				future := futures[futureIndex]
-
-				// Register listener (simulated through checking completion)
-				listenerCalled := false
-
-				// Poll for completion (in real implementation would use AddListener)
-				timeout := time.After(time.Second)
-				ticker := time.NewTicker(time.Microsecond * 100)
-				defer ticker.Stop()
-
-				for {
+			registrations.Go(func() {
+				futures[i].AddListener(concurrent.NewFutureListener(func(result concurrent.Future) {
+					assert.True(t, result.IsDone(), "future %d listener %d", i, j)
+					assert.Equal(t, errors[i] == nil, result.IsSuccess())
+					assert.Equal(t, results[i], result.Get())
+					assert.Equal(t, results[i], result.GetNow())
+					assert.ErrorIs(t, result.Error(), errors[i])
+					calls[i*listenersPerFuture+j].Add(1)
 					select {
-					case <-ticker.C:
-						if future.IsDone() {
-							if !listenerCalled {
-								listenerCalled = true
-								atomic.AddInt64(&totalListenerCalls, 1)
-
-								// Verify completion state after ensuring completion
-								future.Await()
-								_ = future.Error()
-							}
-							return
-						}
-					case <-timeout:
-						t.Errorf("Listener timeout for future %d, listener %d", futureIndex, listenerID)
-						return
+					case completed <- struct{}{}:
+					default:
+						t.Errorf("extra callback for future %d listener %d", i, j)
 					}
-				}
-			}(i, j)
+				}))
+			})
 		}
 	}
-
-	// Complete futures after listeners are registered
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		for i, future := range futures {
-			if i%3 == 0 {
-				future.Completable().Complete(channel)
-			} else {
-				future.Completable().Fail(fmt.Errorf("test error %d", i))
-			}
+	registrations.Wait()
+	for i := range numFutures {
+		if i%2 != 0 {
+			complete(i)
 		}
-	}()
+		assert.False(t, futures[i].Completable().Complete(nil))
+		assert.False(t, futures[i].Completable().Fail(fmt.Errorf("second completion")))
+	}
 
-	wg.Wait()
-
-	expectedCalls := int64(numFutures * listenersPerFuture)
-	t.Logf("Total listener calls: %d out of %d", totalListenerCalls, expectedCalls)
-
-	assert.Equal(t, expectedCalls, totalListenerCalls, "All listeners should be called")
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
+	for i := range expectedCalls {
+		select {
+		case <-completed:
+		case <-timeout.C:
+			t.Fatalf("received %d of %d listener callbacks", i, expectedCalls)
+		}
+	}
+	for i := range calls {
+		assert.Equal(t, int32(1), calls[i].Load(), "listener %d must run exactly once", i)
+	}
 }
 
 // Test future cancellation under concurrent access
@@ -234,66 +232,72 @@ func TestDefaultFuture_ConcurrentCancellation(t *testing.T) {
 	const operationsPerFuture = 10
 
 	var wg sync.WaitGroup
-	var cancelledCount, completedCount, totalOperations int64
-
+	var totalOperations atomic.Int64
 	for i := range numFutures {
-		wg.Add(1)
-		go func(futureID int) {
-			defer wg.Done()
-
+		wg.Go(func() {
 			future := NewFuture(channel)
-
-			// Concurrent operations on the same future
-			var futureWg sync.WaitGroup
-
+			var accepted [operationsPerFuture]bool
+			var errors [operationsPerFuture]error
+			var operations sync.WaitGroup
 			for j := range operationsPerFuture {
-				futureWg.Add(1)
-				go func(operationID int) {
-					defer futureWg.Done()
-					atomic.AddInt64(&totalOperations, 1)
-
-					opType := (futureID + operationID) % 4
-
-					switch opType {
-					case 0: // Try to cancel
-						if completable := future.Completable(); completable != nil {
-							if completable.Cancel() {
-								atomic.AddInt64(&cancelledCount, 1)
-							}
-						}
-
-					case 1: // Try to complete with success
-						if future.Completable().Complete(channel) {
-							atomic.AddInt64(&completedCount, 1)
-						}
-
-					case 2: // Try to complete with failure
-						if future.Completable().Fail(fmt.Errorf("operation error %d-%d", futureID, operationID)) {
-							atomic.AddInt64(&completedCount, 1)
-						}
-
-					case 3: // Check status
+				operations.Go(func() {
+					totalOperations.Add(1)
+					switch (i + j) % 4 {
+					case 0:
+						accepted[j] = future.Completable().Cancel()
+					case 1:
+						accepted[j] = future.Completable().Complete(i*operationsPerFuture + j)
+					case 2:
+						errors[j] = fmt.Errorf("operation error %d-%d", i, j)
+						accepted[j] = future.Completable().Fail(errors[j])
+					case 3:
 						if future.IsDone() {
 							future.Await()
-							_ = future.Error()
+							assert.True(t, future.IsDone(), "future %d remains done", i)
 						}
 					}
-				}(j)
+				})
+			}
+			operations.Wait()
+
+			winner, winners := -1, 0
+			for j, ok := range accepted {
+				if ok {
+					winner = j
+					winners++
+				}
+			}
+			if !assert.Equal(t, 1, winners, "future %d must accept exactly one terminal transition", i) {
+				return
+			}
+			select {
+			case <-future.Done():
+			default:
+				t.Errorf("future %d winner %d did not close Done", i, winner)
+				return
 			}
 
-			futureWg.Wait()
-		}(i)
+			opType := (i + winner) % 4
+			var result any
+			if opType == 1 {
+				result = i*operationsPerFuture + winner
+			}
+			assert.True(t, future.IsDone(), "future %d", i)
+			assert.Equal(t, opType == 0, future.IsCancelled(), "future %d", i)
+			assert.Equal(t, opType == 1, future.IsSuccess(), "future %d", i)
+			assert.Equal(t, opType == 2, future.IsFail(), "future %d", i)
+			assert.Equal(t, result, future.Get(), "future %d winner %d", i, winner)
+			assert.Equal(t, result, future.GetNow(), "future %d winner %d", i, winner)
+			assert.ErrorIs(t, future.Error(), errors[winner], "future %d winner %d", i, winner)
+			if opType == 1 {
+				assert.Same(t, channel, future.Channel(), "future %d", i)
+			} else {
+				assert.Nil(t, future.Channel(), "future %d", i)
+			}
+		})
 	}
-
 	wg.Wait()
-
-	t.Logf("Total operations: %d, Completed: %d, Cancelled: %d",
-		totalOperations, completedCount, cancelledCount)
-
-	assert.Equal(t, int64(numFutures*operationsPerFuture), totalOperations,
-		"All operations should execute")
-	assert.Greater(t, completedCount+cancelledCount, int64(0),
-		"Should have some completions or cancellations")
+	assert.Equal(t, int64(numFutures*operationsPerFuture), totalOperations.Load())
 }
 
 // Test future result retrieval under concurrent access
@@ -303,59 +307,45 @@ func TestDefaultFuture_ConcurrentResultRetrieval(t *testing.T) {
 
 	const numFutures = 100
 	const retrieversPerFuture = 15
-
 	futures := make([]Future, numFutures)
 	expectedResults := make([]any, numFutures)
-
-	// Create and complete futures
+	expectedErrors := make([]error, numFutures)
 	for i := range numFutures {
 		futures[i] = NewFuture(channel)
-
 		if i%2 == 0 {
-			// Success cases
 			expectedResults[i] = fmt.Sprintf("result-%d", i)
-			futures[i].Completable().Complete(expectedResults[i])
+			assert.True(t, futures[i].Completable().Complete(expectedResults[i]))
 		} else {
-			// Failure cases
-			expectedResults[i] = fmt.Errorf("error-%d", i)
-			futures[i].Completable().Fail(expectedResults[i].(error))
+			expectedErrors[i] = fmt.Errorf("error-%d", i)
+			assert.True(t, futures[i].Completable().Fail(expectedErrors[i]))
 		}
 	}
 
 	var wg sync.WaitGroup
-	var successfulRetrievals int64
-
-	// Concurrent result retrieval
+	var successfulRetrievals atomic.Int64
 	for i := range numFutures {
-		for j := range retrieversPerFuture {
-			wg.Add(1)
-			go func(futureIndex, retrieverID int) {
-				defer wg.Done()
-
-				future := futures[futureIndex]
-
-				// Retrieve result
-				if future.IsDone() {
-					// Check if completed successfully or with error
-					if future.Error() == nil {
-						// Success case - check that result is available
-						atomic.AddInt64(&successfulRetrievals, 1)
-					} else {
-						// Failure case - check that error is available
-						atomic.AddInt64(&successfulRetrievals, 1)
-					}
+		for range retrieversPerFuture {
+			wg.Go(func() {
+				future := futures[i]
+				valid := assert.True(t, future.IsDone())
+				valid = assert.Equal(t, expectedResults[i], future.Get()) && valid
+				valid = assert.Equal(t, expectedResults[i], future.GetNow()) && valid
+				valid = assert.ErrorIs(t, future.Error(), expectedErrors[i]) && valid
+				if expectedErrors[i] == nil {
+					valid = assert.True(t, future.IsSuccess()) && valid
+					valid = assert.Same(t, channel, future.Channel()) && valid
+				} else {
+					valid = assert.True(t, future.IsFail()) && valid
+					valid = assert.Nil(t, future.Channel()) && valid
 				}
-			}(i, j)
+				if valid {
+					successfulRetrievals.Add(1)
+				}
+			})
 		}
 	}
-
 	wg.Wait()
-
-	expectedRetrievals := int64(numFutures * retrieversPerFuture)
-	t.Logf("Successful retrievals: %d out of %d", successfulRetrievals, expectedRetrievals)
-
-	assert.Equal(t, expectedRetrievals, successfulRetrievals,
-		"All retrievals should be successful")
+	assert.Equal(t, int64(numFutures*retrieversPerFuture), successfulRetrievals.Load())
 }
 
 // Test memory consistency in future operations
@@ -369,60 +359,91 @@ func TestDefaultFuture_MemoryConsistency(t *testing.T) {
 
 	const numGoroutines = 200
 	const operationsPerGoroutine = 100
+	rejectedError := fmt.Errorf("second completion")
 
 	var wg sync.WaitGroup
-	var operationCount int64
-
-	// Mixed concurrent operations for memory consistency testing
+	var operationCount atomic.Int64
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-
+		wg.Go(func() {
+			requests := make(chan Future)
+			var publisher sync.WaitGroup
+			var payload [2]int
+			var expectedError error
+			publisher.Go(func() {
+				j := 0
+				for future := range requests {
+					payload = [2]int{i, j}
+					switch (i + j) % 6 {
+					case 0, 3, 4, 5:
+						assert.True(t, future.Completable().Complete(&payload))
+					case 1:
+						assert.True(t, future.Completable().Fail(expectedError))
+					case 2:
+						assert.True(t, future.Completable().Cancel())
+					}
+					j++
+				}
+			})
+			defer func() {
+				close(requests)
+				publisher.Wait()
+			}()
+			timeout := time.NewTimer(5 * time.Second)
+			defer timeout.Stop()
 			for j := range operationsPerGoroutine {
 				future := NewFuture(channel)
-
-				opType := (goroutineID + j) % 6
-
-				switch opType {
-				case 0: // Create and complete with success
-					future.Completable().Complete(channel)
-					_ = future.IsDone()
-
-				case 1: // Create and complete with failure
-					future.Completable().Fail(fmt.Errorf("error %d-%d", goroutineID, j))
-					_ = future.Error()
-
-				case 2: // Create and cancel
-					if completable := future.Completable(); completable != nil {
-						completable.Cancel()
-					}
-
-				case 3: // Status checks
-					_ = future.IsDone()
-					_ = future.Error()
-
-				case 4: // Channel access
-					_ = future.Channel()
-
-				case 5: // Multiple state changes
-					future.Completable().Complete(channel)
-					if completable := future.Completable(); completable != nil {
-						completable.Cancel()
-					}
-					_ = future.IsDone()
+				assert.False(t, future.IsDone())
+				assert.False(t, future.IsSuccess())
+				assert.False(t, future.IsFail())
+				assert.False(t, future.IsCancelled())
+				assert.Nil(t, future.GetNow())
+				assert.NoError(t, future.Error())
+				assert.Nil(t, future.Channel())
+				select {
+				case <-future.Done():
+					t.Errorf("future %d-%d closed Done before a transition", i, j)
+					return
+				default:
 				}
 
-				atomic.AddInt64(&operationCount, 1)
+				opType := (i + j) % 6
+				expectedError = nil
+				if opType == 1 {
+					expectedError = fmt.Errorf("error %d-%d", i, j)
+				}
+				requests <- future
+				select {
+				case <-future.Done():
+				case <-timeout.C:
+					t.Errorf("future %d-%d did not publish completion", i, j)
+					return
+				}
+
+				// Done, not a separate producer join, publishes these writes.
+				assert.Equal(t, [2]int{i, j}, payload)
+				assert.False(t, future.Completable().Complete(nil))
+				assert.False(t, future.Completable().Fail(rejectedError))
+				assert.False(t, future.Completable().Cancel())
+				assert.True(t, future.IsDone())
+				assert.Equal(t, opType != 1 && opType != 2, future.IsSuccess())
+				assert.Equal(t, opType == 1, future.IsFail())
+				assert.Equal(t, opType == 2, future.IsCancelled())
+				assert.ErrorIs(t, future.Error(), expectedError)
+				var result any
+				if opType != 1 && opType != 2 {
+					result = &payload
+					assert.Same(t, channel, future.Channel())
+				} else {
+					assert.Nil(t, future.Channel())
+				}
+				assert.Equal(t, result, future.Get())
+				assert.Equal(t, result, future.GetNow())
+				operationCount.Add(1)
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
-
-	expectedOperations := int64(numGoroutines * operationsPerGoroutine)
-	assert.Equal(t, expectedOperations, operationCount,
-		"All operations should complete")
+	assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), operationCount.Load())
 }
 
 // Benchmark concurrent future operations

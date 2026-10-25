@@ -23,6 +23,32 @@ import (
 	"github.com/yetiz-org/goth-util/hash"
 )
 
+// DispatchOperation selects one exact handler operation without collection fallbacks.
+type DispatchOperation string
+
+const (
+	DispatchIndex         DispatchOperation = "Index"
+	DispatchGet           DispatchOperation = "Get"
+	DispatchCreate        DispatchOperation = "Create"
+	DispatchPost          DispatchOperation = "Post"
+	DispatchPut           DispatchOperation = "Put"
+	DispatchPatch         DispatchOperation = "Patch"
+	DispatchDelete        DispatchOperation = "Delete"
+	DispatchHead          DispatchOperation = "Head"
+	DispatchOptionsMethod DispatchOperation = "Options"
+	DispatchTrace         DispatchOperation = "Trace"
+	DispatchConnect       DispatchOperation = "Connect"
+)
+
+// DispatchOptions fixes the bound route, operation and path IDs of an internal call. MaxResponseBytes
+// must be positive. IDs includes the endpoint name with an empty value for collection operations.
+type DispatchOptions struct {
+	Operation        DispatchOperation
+	Node             RouteNode
+	IDs              map[string]string
+	MaxResponseBytes int64
+}
+
 type DispatchHandler struct {
 	channel.DefaultHandler
 	route                 Route
@@ -50,7 +76,8 @@ func (h *DispatchHandler) Removed(ctx channel.HandlerContext) {
 
 func (h *DispatchHandler) defaultNotFound404(req *Request, resp *Response, params map[string]any) {
 	resp.SetStatusCode(httpstatus.NotFound)
-	resp.SetBody(buf.NewByteBuf([]byte("<html><img src='https://http.cat/404' /></html>")))
+	resp.SetContentType("text/plain; charset=utf-8")
+	resp.SetBody(buf.NewByteBufString("404 Not Found\n"))
 }
 
 func (h *DispatchHandler) Read(ctx channel.HandlerContext, obj any) {
@@ -141,40 +168,7 @@ func (h *DispatchHandler) _RejectUnreadableBody(ctx channel.HandlerContext, task
 // the session lives in a private store that is never shared. The caller bounds r's body; Dispatch
 // returns nil only when that body exceeds an http.MaxBytesReader limit.
 func (h *DispatchHandler) Dispatch(ctx channel.HandlerContext, r *http.Request, seed map[string]any) (pack *Pack) {
-	request := WrapRequest(ctx.Channel(), r)
-	if err := request.BodyReadError(); err != nil {
-		// No server closes the body after an in-process dispatch.
-		request.rawBody.Close()
-		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
-			return nil
-		}
-	}
-
-	request.session = httpsession.NewDefaultSession(memory.NewSessionProvider())
-	pack = &Pack{Request: request, Response: NewResponse(request), Params: map[string]any{}}
-	maps.Copy(pack.Params, seed)
-	if request.BodyReadError() != nil {
-		pack.Response.SetStatusCode(httpstatus.BadRequest)
-		return pack
-	}
-
-	node, isLast, found := h._Locate(pack)
-	if !found {
-		pack.Response.SetStatusCode(httpstatus.NotFound)
-		return pack
-	}
-
-	task, ok := node.HandlerTask().(HttpHandlerTask)
-	if !ok {
-		pack.Response.SetStatusCode(httpstatus.NotFound)
-		return pack
-	}
-
-	h._Run(ctx, task, node, pack, isLast)
-	if pack.Response.StatusCode() == 0 {
-		pack.Response.SetStatusCode(h.DefaultStatusCode)
-	}
-
+	pack, _ = h._Dispatch(ctx, r, seed, nil)
 	return pack
 }
 
@@ -234,6 +228,7 @@ func (h *DispatchHandler) _Run(ctx channel.HandlerContext, task HttpHandlerTask,
 			}
 
 			params["[gone-http]h_acceptance_time"] = time.Since(timeMark).Nanoseconds()
+
 			kklogger.WarnJ("ghttp:DispatchHandler.Acceptance#acceptance!warn", ObjectLogStruct{
 				ChannelID:  ctx.Channel().ID(),
 				TrackID:    request.TrackID(),
@@ -372,18 +367,153 @@ func (h *DispatchHandler) _PanicCatch(ctx channel.HandlerContext, request *Reque
 		erErr.ErrorData()["tid"] = request.TrackID()
 		timeMark = time.Now()
 		err := task.ErrorCaught(request, response, params, erErr)
-		params["[gone-http]h_error_time"] = time.Now().Sub(timeMark).Nanoseconds()
+		params["[gone-http]h_error_time"] = time.Since(timeMark).Nanoseconds()
 		if err != nil {
 			h.ErrorCaught(ctx, err)
 		}
 	}
 }
 
+func (h *DispatchHandler) _Dispatch(ctx channel.HandlerContext, r *http.Request, seed map[string]any, options *DispatchOptions) (pack *Pack, rtErr error) {
+	if options != nil {
+		method := ""
+		switch options.Operation {
+		case DispatchIndex, DispatchGet:
+			method = MethodGet
+		case DispatchCreate, DispatchPost:
+			method = MethodPost
+		case DispatchPut:
+			method = MethodPut
+		case DispatchPatch:
+			method = MethodPatch
+		case DispatchDelete:
+			method = MethodDelete
+		case DispatchHead:
+			method = MethodHead
+		case DispatchOptionsMethod:
+			method = MethodOptions
+		case DispatchTrace:
+			method = MethodTrace
+		case DispatchConnect:
+			method = MethodConnect
+		}
+
+		if options.Node == nil || method == "" || method != r.Method || options.MaxResponseBytes <= 0 || options.MaxResponseBytes > int64(^uint(0)>>1) {
+			return nil, errors.New("ghttp: invalid exact dispatch options")
+		}
+	}
+
+	request := WrapRequest(ctx.Channel(), r)
+	if err := request.BodyReadError(); err != nil {
+		// No server closes the body after an in-process dispatch.
+		request.rawBody.Close()
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return nil, err
+		}
+	}
+
+	request.session = httpsession.NewDefaultSession(memory.NewSessionProvider())
+	pack = &Pack{Request: request, Response: NewResponse(request), Params: map[string]any{}}
+	if options != nil {
+		pack.Response.bodyLimit = options.MaxResponseBytes
+		request.dispatchOperation = options.Operation
+	}
+
+	maps.Copy(pack.Params, seed)
+	if request.BodyReadError() != nil {
+		pack.Response.SetStatusCode(httpstatus.BadRequest)
+		return pack, nil
+	}
+
+	node, isLast, found := h._Locate(pack)
+	if !found {
+		if options != nil {
+			return nil, errors.New("ghttp: exact dispatch target mismatch")
+		}
+
+		pack.Response.SetStatusCode(httpstatus.NotFound)
+		return pack, nil
+	}
+
+	if options != nil {
+		actualNode, expectedNode := node, options.Node
+		for {
+			wrapper, ok := actualNode.(*_SimpleNodeWrapper)
+			if !ok {
+				break
+			}
+
+			actualNode = wrapper.RouteNode
+		}
+		for {
+			wrapper, ok := expectedNode.(*_SimpleNodeWrapper)
+			if !ok {
+				break
+			}
+
+			expectedNode = wrapper.RouteNode
+		}
+		if actualNode != expectedNode || (options.Operation == DispatchIndex || options.Operation == DispatchCreate) && !isLast {
+			return nil, errors.New("ghttp: exact dispatch target mismatch")
+		}
+
+		if _, present := options.IDs[actualNode.Name()]; !present {
+			return nil, errors.New("ghttp: exact dispatch needs the endpoint ID")
+		}
+
+		helper := TaskHelper{}
+		for name, id := range options.IDs {
+			resolvedID := helper.GetID(name, pack.Params)
+			for current := node; current != nil; current = current.Parent() {
+				wrapper, ok := current.(*_SimpleNodeWrapper)
+				if ok && wrapper.RouteNode.Name() == name {
+					resolvedID, _ = pack.Params[wrapper.paramKey].(string)
+					break
+				}
+			}
+			if resolvedID != id {
+				return nil, errors.New("ghttp: exact dispatch ID mismatch")
+			}
+		}
+	}
+
+	task, ok := node.HandlerTask().(HttpHandlerTask)
+	if !ok {
+		pack.Response.SetStatusCode(httpstatus.NotFound)
+		return pack, nil
+	}
+
+	h._Run(ctx, task, node, pack, isLast)
+	if pack.Response.StatusCode() == 0 {
+		pack.Response.SetStatusCode(h.DefaultStatusCode)
+	}
+
+	if options != nil {
+		if pack.Response.body != nil && int64(pack.Response.body.ReadableBytes()) > options.MaxResponseBytes {
+			pack.Response.body = buf.EmptyByteBuf()
+			pack.Response.bodyErr = ErrResponseBodyTooLarge
+		}
+
+		if err := pack.Response.BodyError(); err != nil {
+			return pack, err
+		}
+	}
+
+	return pack, nil
+}
+
+// DispatchExact serves only the declared operation and bounds the retained REST response. It rejects
+// route/ID/method mismatches before acceptances or task hooks, and returns no partial oversized body.
+// Error and panic handling uses the same application callbacks as ordinary Dispatch.
+func (h *DispatchHandler) DispatchExact(ctx channel.HandlerContext, r *http.Request, seed map[string]any, options DispatchOptions) (pack *Pack, rtErr error) {
+	return h._Dispatch(ctx, r, seed, &options)
+}
+
 type ReturnCatch struct {
 	err ErrorResponse
 }
 
-func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHandlerTask, request *Request, response *Response, params map[string]any, isLast bool) ErrorResponse {
+func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHandlerTask, request *Request, response *Response, params map[string]any, isLast bool) (errResponse ErrorResponse) {
 	// Check if we should skip PreCheck for OPTIONS method
 	// Default behavior: if task doesn't implement PreCheckSkipOptions, PreCheck will be executed
 	shouldSkipPreCheck := false
@@ -404,6 +534,14 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 	if invokeErr := func() ErrorResponse {
 		switch {
 		case request.Method() == MethodGet:
+			if request.dispatchOperation == DispatchGet {
+				return task.Get(ctx, request, response, params)
+			}
+
+			if request.dispatchOperation == DispatchIndex {
+				return task.Index(ctx, request, response, params)
+			}
+
 			if isLast {
 				if err := task.Index(ctx, request, response, params); err == nil {
 					return nil
@@ -416,6 +554,14 @@ func (h *DispatchHandler) invokeMethod(ctx channel.HandlerContext, task HttpHand
 		case request.Method() == MethodHead:
 			return task.Head(ctx, request, response, params)
 		case request.Method() == MethodPost:
+			if request.dispatchOperation == DispatchPost {
+				return task.Post(ctx, request, response, params)
+			}
+
+			if request.dispatchOperation == DispatchCreate {
+				return task.Create(ctx, request, response, params)
+			}
+
 			if isLast {
 				if err := task.Create(ctx, request, response, params); err == nil {
 					return nil
@@ -530,8 +676,8 @@ func (h *DispatchHandler) _UpdateSessionCookie(resp *Response) {
 	resp.request.session.Save()
 }
 
-func (h *DispatchHandler) _SessionCookieDomain(req *Request) string {
-	if SessionDomain != "" || req == nil {
+func (h *DispatchHandler) _SessionCookieDomain(req *Request) (domain string) {
+	if SessionDomain != "" || req == nil || !SessionDomainFromRequestHost {
 		return SessionDomain
 	}
 

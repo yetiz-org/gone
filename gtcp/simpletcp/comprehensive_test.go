@@ -7,7 +7,9 @@ package simpletcp
 // Original files will be archived to avoid duplicate execution.
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -18,6 +20,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/yetiz-org/gone/channel"
 	goneMock "github.com/yetiz-org/gone/mock"
+	"github.com/yetiz-org/gone/utils"
 	buf "github.com/yetiz-org/goth-bytebuf"
 	concurrent "github.com/yetiz-org/goth-concurrent"
 )
@@ -40,241 +43,182 @@ func TestSimpleCodec_MockHandlerContext(t *testing.T) {
 	ctx.AssertExpectations(t)
 }
 
-// Test concurrent decoding with multiple goroutines
+type codecTestContext struct {
+	channel.HandlerContext
+	ch          channel.Channel
+	written     [][]byte
+	reads       [][]byte
+	errors      []error
+	disconnects int
+}
+
+func (c *codecTestContext) Channel() (ch channel.Channel) {
+	return c.ch
+}
+
+func (c *codecTestContext) Write(obj any, future channel.Future) (result channel.Future) {
+	c.written = append(c.written, obj.(buf.ByteBuf).BytesCopy())
+	return future
+}
+
+func (c *codecTestContext) FireRead(obj any) (ctx channel.HandlerContext) {
+	c.reads = append(c.reads, obj.(buf.ByteBuf).BytesCopy())
+	return c
+}
+
+func (c *codecTestContext) FireErrorCaught(err error) (ctx channel.HandlerContext) {
+	c.errors = append(c.errors, err)
+	return c
+}
+
+func (c *codecTestContext) Disconnect(future channel.Future) (result channel.Future) {
+	c.disconnects++
+	return future
+}
+
 func TestSimpleCodec_ConcurrentDecoding(t *testing.T) {
 	t.Parallel()
 
-	codec := &SimpleCodec{}
-
 	const numGoroutines = 100
 	const operationsPerGoroutine = 50
-
+	var decoded atomic.Int64
 	var wg sync.WaitGroup
-	var successCount int64
-	var errorCount int64
-
-	// Test concurrent decode operations
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-
+		wg.Go(func() {
+			codec := NewSimpleCodec()
+			ctx := &codecTestContext{ch: &channel.DefaultChannel{}}
+			codec.Added(ctx)
+			defer codec.Removed(ctx)
 			for j := range operationsPerGoroutine {
-				// Create test data with length prefix
-				testData := fmt.Appendf(nil, "test data %d-%d", goroutineID, j)
-				lengthPrefixedData := make([]byte, 4+len(testData))
-				// Write length in big-endian format
-				lengthPrefixedData[0] = byte((len(testData) >> 24) & 0xFF)
-				lengthPrefixedData[1] = byte((len(testData) >> 16) & 0xFF)
-				lengthPrefixedData[2] = byte((len(testData) >> 8) & 0xFF)
-				lengthPrefixedData[3] = byte(len(testData) & 0xFF)
-				copy(lengthPrefixedData[4:], testData)
-
-				ctx := goneMock.NewMockHandlerContext()
-				ctx.On("FireRead", mock.Anything).Return().Maybe()
-
-				byteBuf := buf.EmptyByteBuf().WriteBytes(lengthPrefixedData)
-
-				// Decode doesn't return error, just call it
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							atomic.AddInt64(&errorCount, 1)
-						} else {
-							atomic.AddInt64(&successCount, 1)
-						}
-					}()
-					codec.Decode(ctx, byteBuf, nil)
-				}()
+				payload := fmt.Appendf(bytes.Repeat([]byte{'x'}, 260), "%d-%d", i, j)
+				frame := append(utils.VarIntEncode(uint64(len(payload))).BytesCopy(), payload...)
+				codec.Read(ctx, buf.NewByteBuf(frame[:2]))
+				if !assert.Empty(t, ctx.reads, "partial header must not emit a message") {
+					return
+				}
+				codec.Read(ctx, buf.NewByteBuf(frame[2:]))
+				if !assert.Equal(t, [][]byte{payload}, ctx.reads) || !assert.Empty(t, ctx.errors) || !assert.Zero(t, ctx.disconnects) {
+					return
+				}
+				ctx.reads = ctx.reads[:0]
+				decoded.Add(1)
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
-
-	// Verify results
-	totalOperations := successCount + errorCount
-	expectedTotal := int64(numGoroutines * operationsPerGoroutine)
-	assert.Equal(t, expectedTotal, totalOperations, "All decode operations should be counted")
-
-	t.Logf("Concurrent decoding: %d success, %d errors out of %d total",
-		successCount, errorCount, totalOperations)
+	assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), decoded.Load())
 }
 
 // Test concurrent writing with multiple goroutines
 func TestSimpleCodec_ConcurrentWriting(t *testing.T) {
 	t.Parallel()
 
-	codec := &SimpleCodec{}
-
 	const numGoroutines = 100
 	const operationsPerGoroutine = 50
-
+	codec := NewSimpleCodec()
+	var written atomic.Int64
 	var wg sync.WaitGroup
-	var successCount int64
-	var errorCount int64
-
-	// Test concurrent write operations
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-
+		wg.Go(func() {
+			ctx := &codecTestContext{}
 			for j := range operationsPerGoroutine {
-				testData := fmt.Appendf(nil, "write test %d-%d", goroutineID, j)
-
-				ctx := goneMock.NewMockHandlerContext()
-				mockFuture := goneMock.NewMockFuture(nil)
-				ctx.On("Write", mock.Anything, mockFuture).Return(mockFuture).Maybe()
-
-				byteBuf := buf.EmptyByteBuf().WriteBytes(testData)
-
-				// Use Write method instead of Encode
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							atomic.AddInt64(&errorCount, 1)
-						} else {
-							atomic.AddInt64(&successCount, 1)
-						}
-					}()
-					codec.Write(ctx, byteBuf, mockFuture)
-				}()
+				payload := fmt.Appendf(bytes.Repeat([]byte{'w'}, 260), "%d-%d", i, j)
+				future := channel.NewFuture(nil)
+				codec.Write(ctx, buf.NewByteBuf(payload), future)
+				expected := append(utils.VarIntEncode(uint64(len(payload))).BytesCopy(), payload...)
+				if !assert.Equal(t, [][]byte{expected}, ctx.written) || !assert.Empty(t, ctx.errors) || !assert.NoError(t, future.Error()) {
+					return
+				}
+				ctx.written = ctx.written[:0]
+				written.Add(1)
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
-
-	// Verify results
-	totalOperations := successCount + errorCount
-	expectedTotal := int64(numGoroutines * operationsPerGoroutine)
-	assert.Equal(t, expectedTotal, totalOperations, "All encode operations should be counted")
-
-	t.Logf("Concurrent encoding: %d success, %d errors out of %d total",
-		successCount, errorCount, totalOperations)
+	assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), written.Load())
 }
 
 // Test SimpleCodec state consistency under concurrent access
 func TestSimpleCodec_StateConsistency(t *testing.T) {
 	t.Parallel()
 
-	codec := &SimpleCodec{}
-
 	const numGoroutines = 50
 	const operationsPerGoroutine = 100
-
+	var completed atomic.Int64
 	var wg sync.WaitGroup
-	var stateErrors int64
-
-	// Test that codec maintains consistent state under concurrent access
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-
+		wg.Go(func() {
+			codec := NewSimpleCodec()
+			ctx := &codecTestContext{ch: &channel.DefaultChannel{}}
+			codec.Added(ctx)
+			defer codec.Removed(ctx)
 			for j := range operationsPerGoroutine {
-				// Alternate between encode and decode operations
+				payload := fmt.Appendf(nil, "state %d-%d", i, j)
+				expected := append(utils.VarIntEncode(uint64(len(payload))).BytesCopy(), payload...)
 				if j%2 == 0 {
-					// Test encode
-					testData := fmt.Appendf(nil, "state test %d-%d", goroutineID, j)
-					ctx := goneMock.NewMockHandlerContext()
-					mockFuture := goneMock.NewMockFuture(nil)
-					ctx.On("Write", mock.Anything, mockFuture).Return(mockFuture).Maybe()
-
-					byteBuf := buf.EmptyByteBuf().WriteBytes(testData)
-					// Use Write method instead of Encode
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								atomic.AddInt64(&stateErrors, 1)
-							}
-						}()
-						codec.Write(ctx, byteBuf, mockFuture)
-					}()
+					codec.Write(ctx, buf.NewByteBuf(payload), channel.NewFuture(nil))
+					if !assert.Equal(t, [][]byte{expected}, ctx.written) {
+						return
+					}
+					ctx.written = ctx.written[:0]
 				} else {
-					// Test decode
-					testData := fmt.Appendf(nil, "decode test %d-%d", goroutineID, j)
-					lengthPrefixedData := make([]byte, 4+len(testData))
-					lengthPrefixedData[0] = byte((len(testData) >> 24) & 0xFF)
-					lengthPrefixedData[1] = byte((len(testData) >> 16) & 0xFF)
-					lengthPrefixedData[2] = byte((len(testData) >> 8) & 0xFF)
-					lengthPrefixedData[3] = byte(len(testData) & 0xFF)
-					copy(lengthPrefixedData[4:], testData)
-
-					ctx := goneMock.NewMockHandlerContext()
-					ctx.On("FireRead", mock.Anything).Return().Maybe()
-
-					byteBuf := buf.EmptyByteBuf().WriteBytes(lengthPrefixedData)
-					// Decode doesn't return error, handle via defer/recover
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								atomic.AddInt64(&stateErrors, 1)
-							}
-						}()
-						codec.Decode(ctx, byteBuf, nil)
-					}()
+					codec.Read(ctx, buf.NewByteBuf(expected[:1]))
+					if !assert.Empty(t, ctx.reads) {
+						return
+					}
+					codec.Read(ctx, buf.NewByteBuf(expected[1:]))
+					if !assert.Equal(t, [][]byte{payload}, ctx.reads) {
+						return
+					}
+					ctx.reads = ctx.reads[:0]
 				}
+				if !assert.Empty(t, ctx.errors) || !assert.Zero(t, ctx.disconnects) {
+					return
+				}
+				completed.Add(1)
 			}
-		}(i)
+		})
 	}
-
 	wg.Wait()
-
-	// In concurrent environment, some state errors are expected due to race conditions
-	// The important thing is that the codec doesn't crash and operations complete
-	assert.True(t, stateErrors >= 0, "State errors should be non-negative")
-
-	t.Logf("State consistency test completed with %d state errors", stateErrors)
+	assert.Equal(t, int64(numGoroutines*operationsPerGoroutine), completed.Load())
 }
 
 // Test error handling in codec operations
 func TestSimpleCodec_ErrorHandling(t *testing.T) {
 	t.Parallel()
 
-	codec := &SimpleCodec{}
-
 	t.Run("Decode_InvalidLength", func(t *testing.T) {
 		t.Parallel()
-
-		// Test with buffer too small for length prefix
-		shortBuf := buf.EmptyByteBuf().WriteBytes([]byte{0x00, 0x00}) // Only 2 bytes
-		ctx := goneMock.NewMockHandlerContext()
-
-		// Decode doesn't return error, use defer/recover to check for panic
-		var didPanic bool
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					didPanic = true
-				}
-			}()
-			codec.Decode(ctx, shortBuf, nil)
-		}()
-		assert.True(t, didPanic, "Should panic with insufficient data for length prefix")
+		codec := NewSimpleCodec()
+		ctx := &codecTestContext{ch: &channel.DefaultChannel{}}
+		codec.Added(ctx)
+		defer codec.Removed(ctx)
+		frame := append(utils.VarIntEncode(300).BytesCopy(), bytes.Repeat([]byte{'x'}, 300)...)
+		codec.Read(ctx, buf.NewByteBuf(frame[:2]))
+		assert.Empty(t, ctx.reads)
+		assert.Empty(t, ctx.errors)
+		assert.Zero(t, ctx.disconnects)
+		codec.Read(ctx, buf.NewByteBuf(frame[2:]))
+		assert.Equal(t, [][]byte{bytes.Repeat([]byte{'x'}, 300)}, ctx.reads)
+		assert.Empty(t, ctx.errors)
+		assert.Zero(t, ctx.disconnects)
 	})
 
 	t.Run("Decode_NegativeLength", func(t *testing.T) {
 		t.Parallel()
-
-		// Test with negative length (first bit set)
-		negativeLengthBuf := buf.EmptyByteBuf().WriteBytes([]byte{0xFF, 0xFF, 0xFF, 0xFF})
-		ctx := goneMock.NewMockHandlerContext()
-
-		// Decode doesn't return error, use defer/recover to check for panic
-		var didPanic bool
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					didPanic = true
-				}
-			}()
-			codec.Decode(ctx, negativeLengthBuf, nil)
-		}()
-		assert.True(t, didPanic, "Should panic with negative length")
+		codec := NewSimpleCodec()
+		ctx := &codecTestContext{ch: &channel.DefaultChannel{}}
+		codec.Added(ctx)
+		defer codec.Removed(ctx)
+		codec.Read(ctx, utils.VarIntEncode(math.MaxUint64))
+		assert.Empty(t, ctx.reads)
+		if assert.Len(t, ctx.errors, 1) {
+			assert.ErrorIs(t, ctx.errors[0], channel.ErrFrameTooLarge)
+		}
+		assert.Equal(t, 1, ctx.disconnects)
 	})
 
+	codec := NewSimpleCodec()
 	t.Run("Write_InvalidDataFailsFuture", func(t *testing.T) {
 		t.Parallel()
 
@@ -298,75 +242,48 @@ func TestSimpleCodec_ErrorHandling(t *testing.T) {
 
 // Test high-frequency operations stress test
 func TestSimpleCodec_HighFrequencyOperations(t *testing.T) {
-	t.Parallel()
-
-	codec := &SimpleCodec{}
-
 	const duration = 2 * time.Second
 	const numGoroutines = 20
-
+	stop := make(chan struct{})
+	var operations atomic.Int64
 	var wg sync.WaitGroup
-	var operationCount int64
-
-	stopChan := make(chan struct{})
-
-	// Start stress test goroutines
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-
-			localCount := 0
+		wg.Go(func() {
+			codec := NewSimpleCodec()
+			ctx := &codecTestContext{ch: &channel.DefaultChannel{}}
+			codec.Added(ctx)
+			defer codec.Removed(ctx)
+			var localCount int64
+			defer func() { operations.Add(localCount) }()
 			for {
 				select {
-				case <-stopChan:
-					atomic.AddInt64(&operationCount, int64(localCount))
+				case <-stop:
 					return
 				default:
-					// Perform high frequency encode/decode operations
-					testData := fmt.Appendf(nil, "stress %d-%d", goroutineID, localCount)
-
-					// Write (instead of Encode)
-					ctx := goneMock.NewMockHandlerContext()
-					mockFuture := goneMock.NewMockFuture(nil)
-					ctx.On("Write", mock.Anything, mockFuture).Return(mockFuture).Maybe()
-					byteBuf := buf.EmptyByteBuf().WriteBytes(testData)
-					codec.Write(ctx, byteBuf, mockFuture)
-
-					// Decode with proper error handling
-					lengthPrefixedData := make([]byte, 4+len(testData))
-					lengthPrefixedData[0] = byte((len(testData) >> 24) & 0xFF)
-					lengthPrefixedData[1] = byte((len(testData) >> 16) & 0xFF)
-					lengthPrefixedData[2] = byte((len(testData) >> 8) & 0xFF)
-					lengthPrefixedData[3] = byte(len(testData) & 0xFF)
-					copy(lengthPrefixedData[4:], testData)
-
-					ctx2 := goneMock.NewMockHandlerContext()
-					ctx2.On("FireRead", mock.Anything).Return().Maybe()
-					decodeBuf := buf.EmptyByteBuf().WriteBytes(lengthPrefixedData)
-					// Wrap Decode call with defer/recover since it can panic
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								// Decode panicked, which is expected behavior for some cases
-							}
-						}()
-						codec.Decode(ctx2, decodeBuf, nil)
-					}()
-
-					localCount++
 				}
+				payload := fmt.Appendf(nil, "stress %d-%d", i, localCount)
+				codec.Write(ctx, buf.NewByteBuf(payload), nil)
+				expected := append(utils.VarIntEncode(uint64(len(payload))).BytesCopy(), payload...)
+				if len(ctx.written) != 1 || !bytes.Equal(expected, ctx.written[0]) {
+					t.Errorf("stream %d write did not produce its complete frame", i)
+					return
+				}
+				codec.Read(ctx, buf.NewByteBuf(ctx.written[0]))
+				if len(ctx.reads) != 1 || !bytes.Equal(payload, ctx.reads[0]) || len(ctx.errors) != 0 || ctx.disconnects != 0 {
+					t.Errorf("stream %d round trip failed: reads=%d errors=%v disconnects=%d", i, len(ctx.reads), ctx.errors, ctx.disconnects)
+					return
+				}
+				ctx.written = ctx.written[:0]
+				ctx.reads = ctx.reads[:0]
+				localCount++
 			}
-		}(i)
+		})
 	}
-
-	// Run for specified duration
 	time.Sleep(duration)
-	close(stopChan)
+	close(stop)
 	wg.Wait()
-
-	t.Logf("High frequency stress test completed: %d operations in %v", operationCount, duration)
-	assert.Greater(t, operationCount, int64(0), "Should complete at least some operations")
+	assert.Positive(t, operations.Load())
+	t.Logf("verified %d encode/decode pairs across %d streams in %v", operations.Load(), numGoroutines, duration)
 }
 
 // =============================================================================

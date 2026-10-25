@@ -44,6 +44,7 @@ type _SimpleNode struct {
 type _SimpleNodeWrapper struct {
 	RouteNode
 	customName    string
+	paramKey      string
 	wrappedParent RouteNode
 }
 
@@ -91,9 +92,9 @@ func (n *_SimpleNode) path() string {
 // nodeToParamKey is the fully-assembled "[gone-http]<name>" or "[gone-http]p:<name>"
 // string, resolved once at registration so the router hot path avoids fmt.Sprintf.
 type endpointParamMapping struct {
-	nodeToParamName           map[string]string
-	nodeToParamUsePrefixedKey map[string]bool
-	nodeToParamKey            map[string]string
+	node            RouteNode
+	nodeToParamName map[string]string
+	nodeToParamKey  map[string]string
 }
 
 type SimpleRoute struct {
@@ -235,7 +236,7 @@ func (r *SimpleRoute) SetGroup(path string, acceptances ...Acceptance) *SimpleRo
 	return r
 }
 
-func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances ...Acceptance) *SimpleRoute {
+func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances ...Acceptance) (route *SimpleRoute) {
 	path = strings.TrimLeft(strings.TrimRight(path, "/"), "/")
 	if path == "" {
 		r.panicOnDuplicateEndpoint("/")
@@ -250,22 +251,20 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	partsLen := len(parts)
 
 	mapping := &endpointParamMapping{
-		nodeToParamName:           make(map[string]string),
-		nodeToParamUsePrefixedKey: make(map[string]bool),
-		nodeToParamKey:            make(map[string]string),
+		nodeToParamName: make(map[string]string),
+		nodeToParamKey:  make(map[string]string),
 	}
 	hasCustomParams := false
 
 	for idx, part := range parts {
-		// Support both :param and {param} syntax
 		paramName := extractParamName(part)
 		if paramName != "" {
 			isBraceParam := strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}")
+
 			// Brace syntax always uses explicit param name; colon syntax keeps _id requirement
 			if isBraceParam {
 				nodeName := current.(*_SimpleNode).name
 				mapping.nodeToParamName[nodeName] = paramName
-				mapping.nodeToParamUsePrefixedKey[nodeName] = true
 				mapping.nodeToParamKey[nodeName] = "[gone-http]p:" + paramName
 				hasCustomParams = true
 			} else if strings.HasSuffix(paramName, "_id") {
@@ -335,6 +334,7 @@ func (r *SimpleRoute) SetEndpoint(path string, handler HandlerTask, acceptances 
 	}
 
 	if hasCustomParams {
+		mapping.node = current
 		r.endpointMappings[path] = mapping
 	}
 
@@ -409,11 +409,21 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 	nodeLens := len(parts)
 	current := r.root
 	next := r.root
-	var matchedNodes []RouteNode
+	defer func() {
+		if node == nil {
+			return
+		}
+
+		mapping := r.findBestMatchingMapping(node, parts)
+		if mapping == nil {
+			return
+		}
+
+		node = r.wrapNodeChainIfNeeded(node, mapping, parameters)
+	}()
 
 	for idx, part := range parts {
 		next = current.Resources()[part]
-		matchedNodes = append(matchedNodes, current)
 
 		switch current.RouteType() {
 		case RouteTypeRootEndPoint, RouteTypeEndPoint:
@@ -422,19 +432,17 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 					if current == r.root && part != "" {
 						return nil, nil, false
 					} else {
-						paramKey := r.getParamKeyForPath(current, matchedNodes, parts)
+						paramKey := current.(*_SimpleNode).paramKey
 						params[paramKey] = part
-						returnNode := r.wrapNodeChainIfNeeded(current, matchedNodes, parts)
-						return returnNode, params, false
+						return current, params, false
 					}
 				} else {
-					returnNode := r.wrapNodeChainIfNeeded(next, append(matchedNodes, next), parts)
-					return returnNode, params, true
+					return next, params, true
 				}
 			} else {
 				if next == nil {
 					if _, f := current.Resources()[parts[idx+1]]; f {
-						paramKey := r.getParamKeyForPath(current, matchedNodes, parts)
+						paramKey := current.(*_SimpleNode).paramKey
 						params[paramKey] = part
 						continue
 					} else {
@@ -449,8 +457,7 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 				params[current.Name()] = part
 			}
 
-			returnNode := r.wrapNodeChainIfNeeded(current, matchedNodes, parts)
-			return returnNode, params, false
+			return current, params, false
 		case RouteTypeGroup:
 			if next == nil {
 				if wildcardNode, hasWildcard := current.Resources()["*"]; hasWildcard {
@@ -469,40 +476,58 @@ func (r *SimpleRoute) RouteNode(path string) (node RouteNode, parameters map[str
 		return nil, nil, false
 	}
 
-	finalNode := r.wrapNodeChainIfNeeded(current, matchedNodes, parts)
-	return finalNode, params, current == next
+	return current, params, current == next
 }
 
-func (r *SimpleRoute) findBestMatchingMapping(matchedNodes []RouteNode, pathParts []string) *endpointParamMapping {
+func (r *SimpleRoute) findBestMatchingMapping(node RouteNode, pathParts []string) (mapping *endpointParamMapping) {
 	if len(r.endpointMappings) == 0 {
 		return nil
 	}
 
-	for endpointPath, mapping := range r.endpointMappings {
-		if r.pathMatchesEndpoint(matchedNodes, pathParts, endpointPath) {
+	for current := node; current != nil; current = current.Parent() {
+		bestParts := 0
+		for path, candidate := range r.endpointMappings {
+			if candidate.node != current || !r.pathMatchesEndpoint(pathParts, path) {
+				continue
+			}
+
+			if parts := strings.Count(path, "/") + 1; parts > bestParts {
+				mapping, bestParts = candidate, parts
+			}
+		}
+		if mapping != nil {
 			return mapping
+		}
+		if path, ok := r.endpointPaths[current]; ok && r.pathMatchesEndpoint(pathParts, path) {
+			return nil
 		}
 	}
 
 	return nil
 }
 
-func (r *SimpleRoute) pathMatchesEndpoint(matchedNodes []RouteNode, pathParts []string, endpointPath string) bool {
-	patternParts := strings.Split(strings.TrimLeft(endpointPath, "/"), "/")
-
-	if len(patternParts) > len(pathParts) {
-		return false
-	}
-
-	for i, patternPart := range patternParts {
-		// Support both :param and {param} syntax
-		if isParamPlaceholder(patternPart) {
-			continue
-		}
-
-		if i >= len(pathParts) || pathParts[i] != patternPart {
+func (r *SimpleRoute) pathMatchesEndpoint(pathParts []string, endpointPath string) (matched bool) {
+	current := r.root
+	i := 0
+	for patternPart := range strings.SplitSeq(strings.TrimPrefix(endpointPath, "/"), "/") {
+		if i >= len(pathParts) {
 			return false
 		}
+
+		next := current.Resources()[pathParts[i]]
+		if isParamPlaceholder(patternPart) {
+			if next != nil {
+				return false
+			}
+		} else {
+			if pathParts[i] != patternPart || next == nil {
+				return false
+			}
+
+			current = next
+		}
+
+		i++
 	}
 
 	return true
@@ -525,31 +550,28 @@ func isParamPlaceholder(part string) bool {
 	return strings.HasPrefix(part, ":") || (strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}"))
 }
 
-func (r *SimpleRoute) getParamKeyForPath(node RouteNode, matchedNodes []RouteNode, pathParts []string) string {
-	if len(r.endpointMappings) > 0 {
-		if mapping := r.findBestMatchingMapping(matchedNodes, pathParts); mapping != nil {
-			if key, ok := mapping.nodeToParamKey[node.Name()]; ok {
-				return key
-			}
-		}
-	}
-	if sn, ok := node.(*_SimpleNode); ok && sn.paramKey != "" {
-		return sn.paramKey
-	}
-	return defaultParamKey(node.Name())
-}
-
-func (r *SimpleRoute) wrapNodeChainIfNeeded(node RouteNode, matchedNodes []RouteNode, pathParts []string) RouteNode {
-	mapping := r.findBestMatchingMapping(matchedNodes, pathParts)
+func (r *SimpleRoute) wrapNodeChainIfNeeded(node RouteNode, mapping *endpointParamMapping, parameters map[string]any) (wrappedNode RouteNode) {
 	if mapping == nil || len(mapping.nodeToParamName) == 0 {
 		return node
 	}
 
-	var wrappedParent RouteNode
-	if node.Parent() != nil {
-		wrappedParent = r.wrapNodeChainIfNeeded(node.Parent(), matchedNodes, pathParts)
+	paramKey := node.(*_SimpleNode).paramKey
+	value, exists := parameters[paramKey]
+	if exists {
+		delete(parameters, paramKey)
 	}
 
+	var wrappedParent RouteNode
+	if node.Parent() != nil {
+		wrappedParent = r.wrapNodeChainIfNeeded(node.Parent(), mapping, parameters)
+	}
+
+	if key, ok := mapping.nodeToParamKey[node.Name()]; ok {
+		paramKey = key
+	}
+	if exists {
+		parameters[paramKey] = value
+	}
 	if paramName, ok := mapping.nodeToParamName[node.Name()]; ok {
 		customName := paramName
 		if before, ok0 := strings.CutSuffix(paramName, "_id"); ok0 {
@@ -559,6 +581,7 @@ func (r *SimpleRoute) wrapNodeChainIfNeeded(node RouteNode, matchedNodes []Route
 		return &_SimpleNodeWrapper{
 			RouteNode:     node,
 			customName:    customName,
+			paramKey:      mapping.nodeToParamKey[node.Name()],
 			wrappedParent: wrappedParent,
 		}
 	}
@@ -567,6 +590,7 @@ func (r *SimpleRoute) wrapNodeChainIfNeeded(node RouteNode, matchedNodes []Route
 		return &_SimpleNodeWrapper{
 			RouteNode:     node,
 			customName:    node.Name(),
+			paramKey:      paramKey,
 			wrappedParent: wrappedParent,
 		}
 	}

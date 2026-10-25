@@ -2,6 +2,7 @@ package ghttp
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -2537,4 +2538,113 @@ func TestTaskHelper_GetID(t *testing.T) {
 	if id := taskHelper.GetID("post_id", params); id != "post456" {
 		t.Errorf("TaskHelper.GetID(\"post_id\") = %q, want \"post456\"", id)
 	}
+}
+
+func TestSimpleRouteOverlappingEndpointMappings(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		for _, syntax := range []struct {
+			name    string
+			user    string
+			post    string
+			userKey string
+			postKey string
+		}{
+			{name: "brace", user: "{user_id}", post: "{post_id}", userKey: "[gone-http]p:user_id", postKey: "[gone-http]p:post_id"},
+			{name: "colon", user: ":user_id", post: ":post_id", userKey: "[gone-http]user_id", postKey: "[gone-http]post_id"},
+		} {
+			t.Run(syntax.name+"/reverse="+strconv.FormatBool(reverse), func(t *testing.T) {
+				route := NewSimpleRoute()
+				paths := []string{"/users/" + syntax.user, "/users/" + syntax.user + "/posts/" + syntax.post}
+				if reverse {
+					slices.Reverse(paths)
+				}
+
+				for _, path := range paths {
+					route.SetEndpoint(path, nil)
+				}
+
+				for range 32 {
+					node, params, isLast := route.RouteNode("/users/u/posts/p")
+					if node == nil {
+						t.Fatal("expected nested endpoint")
+					}
+					if node.Name() != "post" || node.Parent().Name() != "user" || isLast {
+						t.Fatalf("unexpected endpoint context: name=%q parent=%q isLast=%v", node.Name(), node.Parent().Name(), isLast)
+					}
+					if len(params) != 2 || params[syntax.userKey] != "u" || params[syntax.postKey] != "p" {
+						t.Fatalf("nested endpoint lost its parameter mapping: %v", params)
+					}
+				}
+
+				node, params, isLast := route.RouteNode("/users/u/posts")
+				if node == nil || node.Name() != "posts" || node.Parent().Name() != "user" || !isLast {
+					t.Fatalf("intermediate collection lost ancestor mapping: node=%v, isLast=%v", node, isLast)
+				}
+				if len(params) != 1 || params[syntax.userKey] != "u" {
+					t.Fatalf("intermediate collection lost ancestor ID: %v", params)
+				}
+
+				route.SetEndpoint("/users/me/posts", nil)
+				node, params, isLast = route.RouteNode("/users/me/posts/p")
+				if node == nil {
+					t.Fatal("expected literal endpoint")
+				}
+				if node.Name() != "posts" || node.Parent().Name() != "me" || node.Parent().Parent().Name() != "users" || isLast {
+					t.Fatalf("custom prefix changed a different endpoint: %q/%q/%q, isLast=%v", node.Parent().Parent().Name(), node.Parent().Name(), node.Name(), isLast)
+				}
+				if len(params) != 1 || params["[gone-http]posts_id"] != "p" {
+					t.Fatalf("literal endpoint lost default ID mapping: %v", params)
+				}
+			})
+		}
+	}
+
+	t.Run("same node collection and custom item", func(t *testing.T) {
+		for _, paths := range [][]string{
+			{"/items/{item_id}", "/items"},
+			{"/items", "/items/{item_id}"},
+		} {
+			route := NewSimpleRoute()
+			for _, path := range paths {
+				route.SetEndpoint(path, nil)
+			}
+
+			node, params, isLast := route.RouteNode("/items/i")
+			if node == nil || node.Name() != "item" || isLast || len(params) != 1 || params["[gone-http]p:item_id"] != "i" {
+				t.Fatalf("custom item mapping depends on registration order %v: node=%v params=%v isLast=%v", paths, node, params, isLast)
+			}
+		}
+	})
+
+	t.Run("custom key overlaps another default key", func(t *testing.T) {
+		route := NewSimpleRoute().SetEndpoint("/users/:posts_id/posts/:users_id", nil)
+		node, params, isLast := route.RouteNode("/users/u/posts/p")
+		if node == nil || node.Name() != "users" || node.Parent().Name() != "posts" || isLast {
+			t.Fatalf("unexpected overlapping-key context: node=%v isLast=%v", node, isLast)
+		}
+		helper := TaskHelper{}
+		if len(params) != 2 || helper.GetID("posts", params) != "u" || helper.GetID("users", params) != "p" {
+			t.Fatalf("custom remapping overwrote a different path ID: %v", params)
+		}
+	})
+
+	t.Run("literal child wins over compatible placeholder", func(t *testing.T) {
+		for _, paths := range [][]string{
+			{"/users/{very_long_user_id}/posts", "/users/posts/{post_id}"},
+			{"/users/posts/{post_id}", "/users/{very_long_user_id}/posts"},
+		} {
+			route := NewSimpleRoute()
+			for _, path := range paths {
+				route.SetEndpoint(path, nil)
+			}
+
+			node, params, isLast := route.RouteNode("/users/posts/posts")
+			if node == nil || node.Name() != "post" || node.Parent().Name() != "users" || isLast {
+				t.Fatalf("placeholder mapping overrode literal selection: node=%v isLast=%v", node, isLast)
+			}
+			if len(params) != 1 || params["[gone-http]p:post_id"] != "posts" {
+				t.Fatalf("literal endpoint lost its custom item ID: %v", params)
+			}
+		}
+	})
 }

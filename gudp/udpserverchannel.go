@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -19,13 +20,20 @@ import (
 // serves each remote address through one child channel.
 type ServerChannel struct {
 	channel.DefaultNetServerChannel
-	conn        atomic.Pointer[net.UDPConn]
-	active      atomic.Bool
-	peers       sync.Map // remote address string -> *UDPClientConn
-	peerCount   atomic.Int64
-	queuedBytes atomic.Int64
-	maxPeers    int64
-	idleTimeout time.Duration
+	conn            atomic.Pointer[net.UDPConn]
+	active          atomic.Bool
+	peers           sync.Map // remote address string -> *UDPClientConn
+	peerCount       atomic.Int64
+	queuedBytes     atomic.Int64
+	maxPeers        int64
+	idleTimeout     time.Duration
+	peerMu          sync.Mutex // guards peer publication/removal and admission accounting
+	sourcePeers     map[netip.Addr]int64
+	maxPeersPerIP   int64
+	newPeersRate    float64
+	newPeerBurst    float64
+	newPeerTokens   float64
+	newPeerRefilled time.Time
 }
 
 var ErrBindTwice = fmt.Errorf("bind twice")
@@ -58,8 +66,33 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) (rtErr error) {
 		kklogger.ErrorJ("gudp:ServerChannel.UnsafeBind#unsafe_bind!bind_error", fmt.Sprintf("bind at %s fail %s", localAddr.String(), err.Error()))
 		return err
 	} else {
+		c.peerMu.Lock()
 		c.maxPeers = channel.GetParamInt64Default(c, ParamMaxPeers, DefaultMaxPeers)
 		c.idleTimeout = time.Duration(channel.GetParamInt64Default(c, ParamPeerIdleTimeout, DefaultPeerIdleTimeout)) * time.Millisecond
+		c.maxPeersPerIP = channel.GetParamInt64Default(c, ParamMaxPeersPerIP, DefaultMaxPeersPerIP)
+		if c.maxPeersPerIP <= 0 {
+			c.maxPeersPerIP = DefaultMaxPeersPerIP
+		}
+
+		rate := channel.GetParamInt64Default(c, ParamNewPeersPerSecond, DefaultNewPeersPerSecond)
+		if rate <= 0 {
+			rate = DefaultNewPeersPerSecond
+		}
+
+		burst := channel.GetParamInt64Default(c, ParamNewPeerBurst, DefaultNewPeerBurst)
+		if burst <= 0 {
+			burst = DefaultNewPeerBurst
+		}
+
+		if c.sourcePeers == nil {
+			c.sourcePeers = make(map[netip.Addr]int64)
+		}
+
+		c.newPeersRate = float64(rate)
+		c.newPeerBurst = float64(burst)
+		c.newPeerTokens = c.newPeerBurst
+		c.newPeerRefilled = time.Now()
+		c.peerMu.Unlock()
 		c.conn.Store(conn)
 		c.active.Store(true)
 	}
@@ -68,7 +101,8 @@ func (c *ServerChannel) UnsafeBind(localAddr net.Addr) (rtErr error) {
 }
 
 // UnsafeAccept reads datagrams and queues each one for the child of its remote address. It returns a
-// new child with the first datagram of an address it does not serve yet, unless ParamMaxPeers is reached.
+// new child with the first datagram of an address it does not serve yet, subject to global,
+// per-source and new-peer rate limits. Existing peers continue receiving at an admission limit.
 func (c *ServerChannel) UnsafeAccept() (child channel.Channel, future channel.Future) {
 	conn := c.conn.Load()
 	if !c.IsActive() || conn == nil {
@@ -94,11 +128,34 @@ func (c *ServerChannel) UnsafeAccept() (child channel.Channel, future channel.Fu
 			continue
 		}
 
+		sourceIP := clientAddr.AddrPort().Addr().Unmap().WithZone("")
+		c.peerMu.Lock()
+		if !c.IsActive() || c.conn.Load() != conn {
+			c.peerMu.Unlock()
+			return nil, c.Pipeline().NewFuture()
+		}
+
 		if c.maxPeers > 0 && c.peerCount.Load() >= c.maxPeers {
-			kklogger.DebugJ("gudp:ServerChannel.UnsafeAccept#unsafe_accept!peer_limit", fmt.Sprintf("drop datagram from %s, %d peers served", key, c.maxPeers))
+			limit := c.maxPeers
+			c.peerMu.Unlock()
+			kklogger.DebugJ("gudp:ServerChannel.UnsafeAccept#unsafe_accept!peer_limit", fmt.Sprintf("drop datagram from %s, %d peers served", key, limit))
 			continue
 		}
 
+		if c.sourcePeers[sourceIP] >= c.maxPeersPerIP {
+			c.peerMu.Unlock()
+			continue
+		}
+
+		now := time.Now()
+		c.newPeerTokens = min(c.newPeerBurst, c.newPeerTokens+now.Sub(c.newPeerRefilled).Seconds()*c.newPeersRate)
+		c.newPeerRefilled = now
+		if c.newPeerTokens < 1 {
+			c.peerMu.Unlock()
+			continue
+		}
+
+		c.newPeerTokens--
 		clientConn := &UDPClientConn{
 			server:          c,
 			socket:          conn,
@@ -112,9 +169,12 @@ func (c *ServerChannel) UnsafeAccept() (child channel.Channel, future channel.Fu
 		clientConn.deliver(buffer[:n])
 		c.peers.Store(key, clientConn)
 		c.peerCount.Add(1)
+		c.sourcePeers[sourceIP]++
+		c.peerMu.Unlock()
+
 		// UnsafeClose turns the server inactive before closing the stored peers, so a peer stored after that
 		// sweep is caught here and never gets a child.
-		if !c.IsActive() {
+		if !c.IsActive() || c.conn.Load() != conn {
 			clientConn.Close()
 			return nil, c.Pipeline().NewFuture()
 		}
@@ -287,9 +347,17 @@ func (c *UDPClientConn) Close() (rtErr error) {
 		}
 	}
 
+	c.server.peerMu.Lock()
 	if c.server.peers.CompareAndDelete(c.clientAddr.String(), c) {
 		c.server.peerCount.Add(-1)
+		sourceIP := c.clientAddr.AddrPort().Addr().Unmap().WithZone("")
+		if c.server.sourcePeers[sourceIP] <= 1 {
+			delete(c.server.sourcePeers, sourceIP)
+		} else {
+			c.server.sourcePeers[sourceIP]--
+		}
 	}
+	c.server.peerMu.Unlock()
 
 	return nil
 }

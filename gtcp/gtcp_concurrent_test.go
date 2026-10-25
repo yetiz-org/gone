@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
 )
 
@@ -25,45 +26,60 @@ func TestTCPChannel_InterfaceCompliance(t *testing.T) {
 func TestTCPChannel_ConcurrentConnections(t *testing.T) {
 	const numGoroutines = 100
 	const connectionsPerGoroutine = 20
-
-	var successfulConnections int64
-	var failedConnections int64
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { listener.Close() })
+	require.NoError(t, listener.(*net.TCPListener).SetDeadline(time.Now().Add(15*time.Second)))
+	var accepted atomic.Int64
+	var acceptWG sync.WaitGroup
+	acceptWG.Go(func() {
+		for range numGoroutines * connectionsPerGoroutine {
+			peer, err := listener.Accept()
+			if err != nil {
+				t.Errorf("accept: %v", err)
+				return
+			}
+			accepted.Add(1)
+			assert.NoError(t, peer.Close())
+		}
+	})
+	remoteAddr := listener.Addr().(*net.TCPAddr)
+	localAddr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)}
+	slots := make(chan struct{}, 10)
+	var successfulConnections atomic.Int64
+	var rejectedConnections atomic.Int64
 	var wg sync.WaitGroup
-
-	// Test concurrent connection attempts
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(routineID int) {
-			defer wg.Done()
-
+	for range numGoroutines {
+		wg.Go(func() {
 			for range connectionsPerGoroutine {
+				slots <- struct{}{}
 				ch := &Channel{}
 				ch.Init()
-
-				// Try to connect to a non-existent address (will fail, but tests thread safety)
-				localAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
-				remoteAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:99999") // Non-existent port
-
-				err := ch.UnsafeConnect(localAddr, remoteAddr)
-				if err != nil {
-					atomic.AddInt64(&failedConnections, 1)
-				} else {
-					atomic.AddInt64(&successfulConnections, 1)
-					// Connection would be closed here
+				if assert.NoError(t, ch.UnsafeConnect(localAddr, remoteAddr)) {
+					assert.Equal(t, remoteAddr.String(), ch.RemoteAddr().String())
+					assert.True(t, ch.Conn().IsActive())
+					if assert.NoError(t, ch.UnsafeDisconnect()) {
+						assert.False(t, ch.Conn().IsActive())
+						successfulConnections.Add(1)
+					}
 				}
+				<-slots
 			}
-		}(i)
+			invalid := &Channel{}
+			invalid.Init()
+			if assert.ErrorIs(t, invalid.UnsafeConnect(localAddr, &net.UDPAddr{}), ErrNotTCPAddr) {
+				assert.Nil(t, invalid.Conn())
+				rejectedConnections.Add(1)
+			}
+		})
 	}
-
 	wg.Wait()
-
-	// Verify that all connections were attempted
-	totalConnections := atomic.LoadInt64(&successfulConnections) + atomic.LoadInt64(&failedConnections)
-	expectedTotal := int64(numGoroutines * connectionsPerGoroutine)
-	assert.Equal(t, expectedTotal, totalConnections, "All connection attempts should be counted")
-
-	t.Logf("Connection attempts: %d successful, %d failed out of %d total",
-		successfulConnections, failedConnections, totalConnections)
+	acceptWG.Wait()
+	require.NoError(t, listener.Close())
+	expected := int64(numGoroutines * connectionsPerGoroutine)
+	assert.Equal(t, expected, successfulConnections.Load())
+	assert.Equal(t, int64(numGoroutines), rejectedConnections.Load())
+	assert.Equal(t, expected, accepted.Load(), "every successful connection must reach the listener")
 }
 
 // Test concurrent server channel operations
@@ -124,8 +140,8 @@ func TestTCPServerChannel_ConcurrentAccept(t *testing.T) {
 	const numClients = 30
 	const connectionsPerClient = 10
 
-	var successfulAccepts int64
-	var failedAccepts int64
+	var successfulAccepts atomic.Int64
+	var failedAccepts atomic.Int64
 	var wg sync.WaitGroup
 
 	// Get the actual bound address
@@ -141,40 +157,40 @@ func TestTCPServerChannel_ConcurrentAccept(t *testing.T) {
 
 			ch, future := server.UnsafeAccept()
 			if ch != nil && future != nil {
-				atomic.AddInt64(&successfulAccepts, 1)
-				// Channel accepted successfully
+				successfulAccepts.Add(1)
+				t.Cleanup(func() { assert.NoError(t, ch.(*Channel).UnsafeDisconnect()) })
 			} else {
-				atomic.AddInt64(&failedAccepts, 1)
+				failedAccepts.Add(1)
 			}
 		}
 	})
 
 	// Create concurrent client connections
-	for i := range numClients {
-		wg.Add(1)
-		go func(clientID int) {
-			defer wg.Done()
-
+	for range numClients {
+		wg.Go(func() {
 			for range connectionsPerClient {
 				conn, err := net.Dial("tcp", actualAddr)
-				if err == nil {
+				if assert.NoError(t, err, "Client should connect successfully") {
 					// Brief delay to allow accept
 					time.Sleep(1 * time.Millisecond)
-					conn.Close()
+					assert.NoError(t, conn.Close())
+				} else {
+					assert.NoError(t, server.UnsafeClose())
 				}
 			}
-		}(i)
+		})
 	}
 
 	wg.Wait()
 	acceptWg.Wait()
 
 	// Verify accept operations
-	totalAccepts := atomic.LoadInt64(&successfulAccepts) + atomic.LoadInt64(&failedAccepts)
+	totalAccepts := successfulAccepts.Load() + failedAccepts.Load()
 	assert.Greater(t, totalAccepts, int64(0), "Should have some accept operations")
+	assert.Equal(t, int64(numClients*connectionsPerClient), successfulAccepts.Load(), "All client connections should be accepted")
 
 	t.Logf("Accept operations: %d successful, %d failed out of %d total",
-		successfulAccepts, failedAccepts, totalAccepts)
+		successfulAccepts.Load(), failedAccepts.Load(), totalAccepts)
 }
 
 func TestTCPServerChannel_AcceptUnblocksOnConcurrentClose(t *testing.T) {

@@ -29,12 +29,16 @@ type OperationCandidate struct {
 	// implements MethodAwareSecurityProvider AND its generic
 	// SecurityProvider would have advertised a scheme, but its method-aware
 	// variant returned ("", nil) for this candidate's HTTP method. The
-	// builder uses it to emit `security: []` so that the operation
-	// overrides any document-level GlobalSecurity inheritance.
+	// builder emits `security: []` when no active acceptance or Spec
+	// requirement remains, overriding document-level GlobalSecurity.
 	SecurityExplicitlyEmpty bool
 	// Profiles aggregated from ProfileScope-implementing nodes; empty means
 	// "let the classifier decide".
 	Profiles []string
+	// Walk records which acceptances declared no security so the builder
+	// applies classifier rules without asking providers a second time.
+	securityFallback []ghttp.Acceptance
+	securityResolved bool
 }
 
 // Walk traverses the route tree from the supplied RouteEntriesProvider and
@@ -61,7 +65,7 @@ type OperationCandidate struct {
 // Get / Head / Patch / Put / Delete. Handlers that only override item-level methods
 // (a singleton resource exposing Get only, for example) are treated as
 // singleton-style and emitted on the bare path.
-func Walk(route ghttp.RouteEntriesProvider) []OperationCandidate {
+func Walk(route ghttp.RouteEntriesProvider) (out []OperationCandidate) {
 	if route == nil {
 		return nil
 	}
@@ -71,7 +75,6 @@ func Walk(route ghttp.RouteEntriesProvider) []OperationCandidate {
 		return nil
 	}
 
-	var out []OperationCandidate
 	for _, entry := range entries {
 		if entry.Node == nil {
 			continue
@@ -108,6 +111,7 @@ func Walk(route ghttp.RouteEntriesProvider) []OperationCandidate {
 				if !strings.HasSuffix(path, "}") || !strings.Contains(path, "/{") {
 					itemIDName := itemIDNameFor(handler, path)
 					path = strings.TrimRight(path, "/") + "/{" + itemIDName + "}"
+
 					// Skip the auto-append when an injector already
 					// contributed a PathParam with this name. Happens when
 					// an injector's AnchorAfter is the last path segment:
@@ -131,7 +135,7 @@ func Walk(route ghttp.RouteEntriesProvider) []OperationCandidate {
 			// introspection on POST /tokeninfo) should not contribute a
 			// security requirement on those methods. See
 			// MethodAwareSecurityProvider.
-			refs, explicitlyEmpty := collectSecurityForMethod(acceptances, em.HTTP)
+			refs, explicitlyEmpty, unsecured := collectSecurityForMethod(acceptances, em.HTTP)
 
 			out = append(out, OperationCandidate{
 				Path:                    path,
@@ -143,6 +147,8 @@ func Walk(route ghttp.RouteEntriesProvider) []OperationCandidate {
 				SecurityRefs:            refs,
 				SecurityExplicitlyEmpty: explicitlyEmpty,
 				Profiles:                profiles,
+				securityFallback:        unsecured,
+				securityResolved:        true,
 			})
 		}
 	}
@@ -492,59 +498,50 @@ func collectInjectedParams(acceptances []ghttp.Acceptance, routePath string, ec 
 // MethodAwareSecurityProvider returned "" while its static
 // SecurityProvider would have returned a scheme). Builder uses this to
 // emit an explicit `security: []` override that defeats document-level
-// GlobalSecurity inheritance — without it, OpenAPI tooling would still
-// flag the bearer-less operation as bearer-required.
-func collectSecurityForMethod(acceptances []ghttp.Acceptance, httpMethod string) ([]SecurityRef, bool) {
+// GlobalSecurity inheritance when no active requirement remains.
+//
+// The third return value lists the acceptances that declared no security
+// for this method; only they may receive classifier fallback.
+func collectSecurityForMethod(acceptances []ghttp.Acceptance, httpMethod string) (refs []SecurityRef, explicitlyEmpty bool, unsecured []ghttp.Acceptance) {
 	if len(acceptances) == 0 {
-		return nil, false
+		return nil, false, nil
 	}
 
 	method := strings.ToUpper(httpMethod)
 
-	var refs []SecurityRef
-	seen := map[string]struct{}{}
-	explicitlyEmpty := false
 	for _, a := range acceptances {
 		if a == nil {
 			continue
 		}
 
-		var (
-			scheme  string
-			scopes  []string
-			skipped bool
-		)
+		var scheme string
+		var scopes []string
 
 		if sp, ok := a.(MethodAwareSecurityProvider); ok {
 			scheme, scopes = sp.SecurityRequirementFor(method)
 			if scheme == "" {
 				if generic, gok := a.(SecurityProvider); gok {
 					if gscheme, _ := generic.SecurityRequirement(); gscheme != "" {
-						skipped = true
+						explicitlyEmpty = true
 					}
 				}
+
+				continue
 			}
 		} else if sp, ok := a.(SecurityProvider); ok {
 			scheme, scopes = sp.SecurityRequirement()
 		}
 
-		if skipped {
-			explicitlyEmpty = true
-		}
-
 		if scheme == "" {
+			unsecured = append(unsecured, a)
+
 			continue
 		}
 
-		if _, dup := seen[scheme]; dup {
-			continue
-		}
-
-		seen[scheme] = struct{}{}
 		refs = append(refs, SecurityRef{Scheme: scheme, Scopes: scopes})
 	}
 
-	return refs, explicitlyEmpty
+	return refs, explicitlyEmpty, unsecured
 }
 
 // collectProfiles aggregates the union of profiles declared by the handler

@@ -8,48 +8,52 @@ import (
 	"math/rand/v2"
 	"net"
 	http2 "net/http"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/yetiz-org/gone/ghttp/httpheadername"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
-	buf "github.com/yetiz-org/goth-bytebuf"
-	concurrent "github.com/yetiz-org/goth-concurrent"
-	"github.com/yetiz-org/goth-kklogger"
+	"github.com/yetiz-org/gone/ghttp/httpheadername"
 )
 
 func gUnzipData(data []byte) (resData []byte, err error) {
-	b := bytes.NewBuffer(data)
-
-	var r io.Reader
-	r, err = gzip.NewReader(b)
+	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return
+		return nil, err
 	}
+	defer reader.Close()
+	return io.ReadAll(reader)
+}
 
-	var resB bytes.Buffer
-	_, err = resB.ReadFrom(r)
-	if err != nil {
-		return
-	}
-
-	resData = resB.Bytes()
-
-	return
+func startExampleHTTPServer(t *testing.T, bootstrap channel.ServerBootstrap) (server channel.Channel, baseURL string, client *http2.Client) {
+	t.Helper()
+	reservation, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := reservation.Addr().(*net.TCPAddr)
+	require.NoError(t, reservation.Close())
+	bound := bootstrap.Bind(addr)
+	require.True(t, bound.AwaitTimeout(5*time.Second).IsSuccess(), "bind: %v", bound.Error())
+	server = bound.Channel()
+	transport := &http2.Transport{DisableCompression: true}
+	client = &http2.Client{Transport: transport, Timeout: 10 * time.Second}
+	t.Cleanup(func() {
+		transport.CloseIdleConnections()
+		assert.True(t, server.Close().AwaitTimeout(5*time.Second).IsSuccess())
+		assert.True(t, server.CloseFuture().AwaitTimeout(5*time.Second).IsSuccess())
+	})
+	return server, "http://" + addr.String(), client
 }
 
 func TestServer_Start(t *testing.T) {
-	kklogger.SetLogLevel("TRACE")
 	bootstrap := channel.NewServerBootstrap()
 	bootstrap.ChannelType(&ghttp.ServerChannel{})
 	bootstrap.Handler(channel.NewInitializer(func(ch channel.Channel) {
-		ch.Pipeline().AddLast("INDICATE_HANDLER_INBOUND", &channel.IndicateHandlerInbound{})
-		ch.Pipeline().AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
+		ch.Pipeline().AddLast("INDICATE_HANDLER_INBOUND", &channel.IndicateHandlerInbound{}).AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
 	}))
-
 	clientCountHandler := &ServerChildCountHandler{}
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("CLIENT_COUNT_HANDLER", clientCountHandler)
@@ -61,180 +65,86 @@ func TestServer_Start(t *testing.T) {
 		ch.Pipeline().AddLast("NET_STATUS_OUTBOUND", &channel.NetStatusOutbound{})
 		ch.Pipeline().AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
 	}))
-
-	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18080}).Sync().Channel()
-	wg := concurrent.WaitGroup{}
+	server, baseURL, client := startExampleHTTPServer(t, bootstrap)
+	request := func(method, path, wantBody string, status int, gzipRequested, authorize, sse bool) {
+		req, err := http2.NewRequestWithContext(t.Context(), method, baseURL+path, nil)
+		if !assert.NoError(t, err) {
+			return
+		}
+		if gzipRequested {
+			req.Header.Set(httpheadername.AcceptEncoding, "gzip")
+		}
+		if authorize {
+			req.Header.Set(httpheadername.Authorization, "!!!!")
+		}
+		resp, err := client.Do(req)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, status, resp.StatusCode)
+		if resp.Header.Get(httpheadername.ContentEncoding) == "gzip" {
+			assert.NotEmpty(t, data)
+			data, err = gUnzipData(data)
+			if !assert.NoError(t, err) {
+				return
+			}
+		}
+		if wantBody != "" {
+			assert.Equal(t, wantBody, string(data))
+		}
+		if sse {
+			assert.Equal(t, "true", resp.Header.Get("Validate"))
+		}
+	}
+	var workers sync.WaitGroup
 	for i := range 10 {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-
+		workers.Go(func() {
 			v := fmt.Sprintf("%d", rand.Uint64())
-			req, _ := http2.NewRequest("GET", fmt.Sprintf("http://localhost:18080/long?v=%s", v), nil)
-			req.Header = http2.Header{}
-			if i%2 == 0 {
-				req.Header.Set(httpheadername.AcceptEncoding, "gzip")
-			}
-
-			if rtn, err := http2.DefaultClient.Do(req); err != nil {
-				assert.Fail(t, err.Error())
-			} else {
-				if rtn.Header.Get(httpheadername.ContentEncoding) == "gzip" {
-					buffer := bytes.Buffer{}
-					buffer.ReadFrom(rtn.Body)
-					bufLen := buffer.Len()
-					bs, e := gUnzipData(buffer.Bytes())
-					if e != nil {
-						println(e.Error())
-					}
-
-					if bufLen == 0 {
-						assert.Fail(t, "len should not be zero")
-					}
-
-					assert.Equal(t, 200, rtn.StatusCode)
-					assert.EqualValues(t, longMsg+v, string(bs))
-				} else {
-					assert.EqualValues(t, longMsg+v, string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-				}
-			}
-		}(i)
+			request("GET", "/long?v="+v, longMsg+v, 200, i%2 == 0, false, false)
+		})
 	}
-
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if rtn, err := http2.DefaultClient.Get("http://localhost:18080"); err != nil {
-				assert.Fail(t, err.Error())
-			} else {
-				assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-			}
-		}()
-	}
-
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/home"); err != nil {
-				assert.Fail(t, err.Error())
-			} else {
-				assert.Equal(t, 200, rtn.StatusCode)
-				assert.EqualValues(t, "/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-			}
-		}()
-	}
-
-	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/v1/home"); err != nil {
-				assert.Fail(t, err.Error())
-			} else {
-				assert.Equal(t, 200, rtn.StatusCode)
-				assert.EqualValues(t, "/v1/home", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-			}
-		}()
-	}
-
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if rtn, err := http2.DefaultClient.Get("http://localhost:18080/homes"); err != nil {
-				assert.Fail(t, err.Error())
-			} else {
-				assert.EqualValues(t, 404, rtn.StatusCode)
-			}
-		}()
-	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if rtn, err := http2.DefaultClient.Get("http://localhost:18080/400"); err != nil {
-			assert.Fail(t, err.Error())
-		} else {
-			assert.EqualValues(t, 400, rtn.StatusCode)
+	for _, tt := range []struct {
+		path, body    string
+		count, status int
+	}{
+		{"", "feeling good", 10, 200},
+		{"/home", "/home", 10, 200},
+		{"/v1/home", "/v1/home", 5, 200},
+		{"/homes", "", 10, 404},
+		{"/400", "", 1, 400},
+	} {
+		for range tt.count {
+			workers.Go(func() { request("GET", tt.path, tt.body, tt.status, false, false, false) })
 		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if rtn, err := http2.DefaultClient.Get("http://localhost:18080/sse"); err != nil {
-			assert.Fail(t, err.Error())
-		} else {
-			assert.EqualValues(t, 200, rtn.StatusCode)
-			assert.EqualValues(t, "true", rtn.Header.Get("Validate"))
-			// WriteReader consumes the body until EOF (server close), so the
-			// full SSE frame sequence is captured deterministically.
-			body := string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes())
-			expect := "event: event\ndata: 0\n\nevent: event\ndata: 1\n\nevent: event\ndata: 2\n\nevent: event2\ndata: 4\n\nevent: event2\ndata: 5\ndata: 5-1\n\nevent: event2\ndata: 6\n\n"
-			assert.EqualValues(t, expect, body)
-		}
-	}()
-
-	wg.Wait()
-
+	}
+	workers.Go(func() {
+		expected := "event: event\ndata: 0\n\nevent: event\ndata: 1\n\nevent: event\ndata: 2\n\nevent: event2\ndata: 4\n\nevent: event2\ndata: 5\ndata: 5-1\n\nevent: event2\ndata: 6\n\n"
+		request("GET", "/sse", expected, 200, false, false, true)
+	})
+	workers.Wait()
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			request, _ := http2.NewRequest("POST", "http://localhost:18080", nil)
-			request.Header = http2.Header{}
-			request.Header.Set(httpheadername.Authorization, "!!!!")
-			if rtn, err := http2.DefaultClient.Do(request); err != nil {
-				assert.Fail(t, err.Error())
-			} else {
-				assert.Equal(t, 200, rtn.StatusCode)
-				assert.EqualValues(t, "feeling good", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-			}
-		}()
+		workers.Go(func() { request("POST", "", "feeling good", 200, false, true, false) })
 	}
-
-	wg.Wait()
-	if rtn, err := http2.DefaultClient.Get("http://localhost:18080/close"); err != nil {
-		assert.Fail(t, err.Error())
-	} else {
-		assert.Equal(t, 200, rtn.StatusCode)
-		assert.EqualValues(t, "/close", string(buf.EmptyByteBuf().WriteReader(rtn.Body).Bytes()))
-	}
-
-	go func() {
-		time.Sleep(time.Minute * 5)
-		ch.Close()
-	}()
-
-	ch.CloseFuture().Sync()
-
-	// Wait for all connections to be properly unregistered
-	time.Sleep(time.Millisecond * 500)
-
-	// Ensure all deregister events have been processed
-	for range 50 {
-		if clientCountHandler.regTrigCount == 0 && clientCountHandler.actTrigCount == 0 {
-			break
-		}
-		time.Sleep(time.Millisecond * 10)
-	}
-
-	assert.Equal(t, int32(0), clientCountHandler.regTrigCount)
-	assert.Equal(t, int32(0), clientCountHandler.actTrigCount)
+	workers.Wait()
+	request("GET", "/close", "/close", 200, false, false, false)
+	client.CloseIdleConnections()
+	require.True(t, server.CloseFuture().AwaitTimeout(5*time.Second).IsSuccess())
+	assert.Zero(t, atomic.LoadInt32(&clientCountHandler.regTrigCount))
+	assert.Zero(t, atomic.LoadInt32(&clientCountHandler.actTrigCount))
 }
 
 func TestServer_BodyLimit(t *testing.T) {
-	kklogger.SetLogLevel("TRACE")
 	bootstrap := channel.NewServerBootstrap()
 	bootstrap.ChannelType(&ghttp.ServerChannel{})
-	bootstrap.SetParams(ghttp.ParamMaxBodyBytes, 10)
 	bootstrap.Handler(channel.NewInitializer(func(ch channel.Channel) {
-		ch.Pipeline().AddLast("INDICATE_HANDLER_INBOUND", &channel.IndicateHandlerInbound{})
-		ch.Pipeline().AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
+		ch.Pipeline().AddLast("INDICATE_HANDLER_INBOUND", &channel.IndicateHandlerInbound{}).AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
 	}))
-
+	bootstrap.SetParams(ghttp.ParamMaxBodyBytes, 10)
 	clientCountHandler := &ServerChildCountHandler{}
 	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
 		ch.Pipeline().AddLast("CLIENT_COUNT_HANDLER", clientCountHandler)
@@ -247,22 +157,13 @@ func TestServer_BodyLimit(t *testing.T) {
 		ch.Pipeline().AddLast("INDICATE_HANDLER_OUTBOUND", &channel.IndicateHandlerOutbound{})
 	}))
 
-	ch := bootstrap.Bind(&net.TCPAddr{IP: nil, Port: 18081}).Sync().Channel()
-
-	wg := concurrent.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		request, _ := http2.NewRequest("POST", "http://localhost:18081", buf.NewByteBufString("this is more than 10 characters"))
-		if rtn, err := http2.DefaultClient.Do(request); err != nil {
-			assert.Fail(t, "no")
-		} else {
-			assert.Equal(t, 413, rtn.StatusCode)
-		}
-
-		wg.Done()
-	}()
-
-	wg.Wait()
-	ch.Close()
-	ch.CloseFuture().Sync()
+	_, baseURL, client := startExampleHTTPServer(t, bootstrap)
+	request, err := http2.NewRequestWithContext(t.Context(), "POST", baseURL, bytes.NewBufferString("this is more than 10 characters"))
+	require.NoError(t, err)
+	resp, err := client.Do(request)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, 413, resp.StatusCode)
 }

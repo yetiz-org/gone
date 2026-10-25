@@ -1,6 +1,8 @@
 package example
 
 import (
+	"fmt"
+
 	"github.com/yetiz-org/gone/channel"
 	"github.com/yetiz-org/gone/ghttp"
 	"github.com/yetiz-org/gone/ghttp/httpstatus"
@@ -47,16 +49,17 @@ func (h *CustomRangeTask) EnableAutoRangeSupport() bool {
 	return false
 }
 
-func (h *CustomRangeTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) ghttp.ErrorResponse {
+func (h *CustomRangeTask) Get(ctx channel.HandlerContext, req *ghttp.Request, resp *ghttp.Response, params map[string]any) (responseError ghttp.ErrorResponse) {
 	rangeHeader := req.Header().Get("Range")
 	if rangeHeader != "" {
 		if start, end, valid := ghttp.ParseRange(rangeHeader, int64(len(h.data))); valid {
 			rangeData := h.data[start : end+1]
 			resp.SetStatusCode(httpstatus.PartialContent)
-			resp.SetHeader("Content-Range", "bytes ...")
+			resp.SetHeader("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(h.data)))
 			resp.SetBody(buf.NewByteBuf(rangeData))
 		} else {
 			resp.SetStatusCode(httpstatus.RequestedRangeNotSatisfiable)
+			resp.SetHeader("Content-Range", fmt.Sprintf("bytes */%d", len(h.data)))
 		}
 	} else {
 		resp.SetStatusCode(httpstatus.OK)

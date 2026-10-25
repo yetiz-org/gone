@@ -1,228 +1,203 @@
 package ghttp
 
 import (
-	"context"
+	"bufio"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
 )
 
-// MockNetChannel implements NetChannel interface for testing
-type MockNetChannel struct {
-	channel.DefaultNetChannel
-	deregisterCount int32
-	isActiveMock    bool
-	idMock          string
-	mu              sync.Mutex
-	deactivated     int32 // tracks if channel has been deactivated
+type serverChildLifecycle struct {
+	channel.DefaultHandler
+	channel           channel.Channel
+	peer              net.Conn
+	activated         chan *serverChildLifecycle
+	deregisterEntered chan struct{}
+	deregisterRelease chan struct{}
+	deregisters       atomic.Int32
+	inactives         atomic.Int32
+	unregistered      atomic.Int32
 }
 
-func NewMockNetChannel(id string, isActive bool) *MockNetChannel {
-	mock := &MockNetChannel{
-		isActiveMock: isActive,
-		idMock:       id,
+func (h *serverChildLifecycle) Active(ctx channel.HandlerContext) {
+	h.channel = ctx.Channel()
+	h.activated <- h
+	ctx.FireActive()
+}
+
+func (h *serverChildLifecycle) Deregister(ctx channel.HandlerContext, future channel.Future) {
+	h.deregisters.Add(1)
+	if h.deregisterEntered != nil {
+		close(h.deregisterEntered)
+		<-h.deregisterRelease
 	}
-	mock.Init()
-	return mock
+	ctx.Deregister(future)
 }
 
-func (m *MockNetChannel) Deregister() channel.Future {
-	atomic.AddInt32(&m.deregisterCount, 1)
-	// Simulate atomic behavior - only first call actually deactivates
-	if atomic.CompareAndSwapInt32(&m.deactivated, 0, 1) {
-		m.SetActive(false)
-	}
-	return channel.NewFuture(m)
+func (h *serverChildLifecycle) Inactive(ctx channel.HandlerContext) {
+	h.inactives.Add(1)
+	ctx.FireInactive()
 }
 
-func (m *MockNetChannel) IsActive() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// Channel is active if it was initially set as active AND hasn't been deactivated
-	return m.isActiveMock && atomic.LoadInt32(&m.deactivated) == 0
+func (h *serverChildLifecycle) Unregistered(ctx channel.HandlerContext) {
+	h.unregistered.Add(1)
+	ctx.FireUnregistered()
 }
 
-func (m *MockNetChannel) SetActive(active bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.isActiveMock = active
-}
-
-func (m *MockNetChannel) ID() string {
-	return m.idMock
-}
-
-func (m *MockNetChannel) GetDeregisterCount() int32 {
-	return atomic.LoadInt32(&m.deregisterCount)
-}
-
-func (m *MockNetChannel) IsDeactivated() bool {
-	return atomic.LoadInt32(&m.deactivated) == 1
-}
-
-// MockServer wraps http.Server to allow shutdown behavior override
-type MockServer struct {
-	*http.Server
-	shutdownBehavior func(context.Context) error
-}
-
-func NewMockServer(addr string, connState func(net.Conn, http.ConnState)) *MockServer {
-	server := &http.Server{
-		Addr:      addr,
-		ConnState: connState,
-	}
-	return &MockServer{
-		Server: server,
-	}
-}
-
-func (m *MockServer) Shutdown(ctx context.Context) error {
-	if m.shutdownBehavior != nil {
-		return m.shutdownBehavior(ctx)
-	}
-	return m.Server.Shutdown(ctx)
-}
-
-func (m *MockServer) SetShutdownBehavior(behavior func(context.Context) error) {
-	m.shutdownBehavior = behavior
-}
-
-// MockAddr implements net.Addr for testing
-type MockAddr struct {
-	network string
-	address string
-}
-
-func (m *MockAddr) Network() string { return m.network }
-func (m *MockAddr) String() string  { return m.address }
-
-// TestChannelRangeLoopDeregistration tests the Range loop deregistration logic directly
-func TestChannelRangeLoopDeregistration(t *testing.T) {
-	serverChannel := &ServerChannel{}
-	serverChannel.Init()
-	serverChannel.Name = "test-server"
-
-	// Create mock channels that are initially active
-	mockCh1 := NewMockNetChannel("test-ch-1", true)
-	mockCh2 := NewMockNetChannel("test-ch-2", true)
-
-	// Add them directly to chMap (simulating active connections)
-	conn1 := &mockConn{id: "conn1"}
-	conn2 := &mockConn{id: "conn2"}
-	serverChannel.chMap.Store(conn1, mockCh1)
-	serverChannel.chMap.Store(conn2, mockCh2)
-
-	// Verify initial state
-	assert.True(t, mockCh1.IsActive(), "Channel 1 should be initially active")
-	assert.True(t, mockCh2.IsActive(), "Channel 2 should be initially active")
-	assert.Equal(t, int32(0), mockCh1.GetDeregisterCount(), "Channel 1 should have 0 deregister calls initially")
-	assert.Equal(t, int32(0), mockCh2.GetDeregisterCount(), "Channel 2 should have 0 deregister calls initially")
-
-	// Simulate the Range loop logic from UnsafeClose (when server.Shutdown fails)
-	serverChannel.chMap.Range(func(key, value any) bool {
-		ch := value.(channel.NetChannel)
-		if ch.IsActive() {
-			ch.Deregister()
+func bindCleanupTestServer(t *testing.T, connectionCount int) (server *ServerChannel, children []*serverChildLifecycle, stateClosed func(net.Conn, http.ConnState)) {
+	t.Helper()
+	activated := make(chan *serverChildLifecycle, connectionCount)
+	closed := make(chan net.Conn, connectionCount)
+	idle := make(chan struct{}, connectionCount)
+	bootstrap := channel.NewServerBootstrap()
+	bootstrap.ChannelType(&ServerChannel{})
+	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
+		if stateClosed == nil {
+			// ConnContext initializes the first child before Serve reads ConnState.
+			httpServer := ch.Parent().(*ServerChannel).server
+			originalState := httpServer.ConnState
+			stateClosed = originalState
+			httpServer.ConnState = func(conn net.Conn, state http.ConnState) {
+				if state == http.StateClosed {
+					closed <- conn
+					return
+				}
+				originalState(conn, state)
+				if state == http.StateIdle {
+					idle <- struct{}{}
+				}
+			}
 		}
-		serverChannel.chMap.Delete(key)
+		ch.Pipeline().AddLast("LIFECYCLE", &serverChildLifecycle{activated: activated})
+		ch.Pipeline().AddLast("DISPATCHER", NewDispatchHandler(NewSimpleRoute()))
+	}))
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := listener.Addr().(*net.TCPAddr)
+	require.NoError(t, listener.Close())
+	bound := bootstrap.Bind(addr).Sync()
+	require.NoError(t, bound.Error())
+	server = bound.Channel().(*ServerChannel)
+	t.Cleanup(func() { server.Close().Sync() })
+
+	// Defer only StateClosed delivery so UnsafeClose must run its fallback cleanup.
+	connected := 0
+	t.Cleanup(func() {
+		server.server.Close()
+		for range connected {
+			stateClosed(<-closed, http.StateClosed)
+		}
+	})
+
+	for range connectionCount {
+		conn, err := net.Dial("tcp", addr.String())
+		require.NoError(t, err)
+		connected++
+		t.Cleanup(func() { conn.Close() })
+		child := <-activated
+		_, err = fmt.Fprintf(conn, "GET /cleanup HTTP/1.1\r\nHost: localhost\r\n\r\n")
+		require.NoError(t, err)
+		response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		<-idle
+		require.True(t, child.channel.IsActive())
+		require.Zero(t, child.deregisters.Load())
+		child.peer = conn
+		children = append(children, child)
+	}
+	return server, children, stateClosed
+}
+
+func TestChannelRangeLoopDeregistration(t *testing.T) {
+	server, children, _ := bindCleanupTestServer(t, 2)
+	require.NoError(t, server.UnsafeClose())
+
+	for _, child := range children {
+		require.True(t, child.channel.CloseFuture().IsDone(), "close must finish child cleanup")
+		assert.Equal(t, int32(1), child.deregisters.Load())
+		assert.Equal(t, int32(1), child.inactives.Load())
+		assert.Equal(t, int32(1), child.unregistered.Load())
+		assert.False(t, child.channel.IsActive())
+		_, err := child.peer.Read(make([]byte, 1))
+		assert.ErrorIs(t, err, io.EOF)
+	}
+	server.chMap.Range(func(key, value any) bool {
+		t.Error("closed server retained a child connection")
 		return true
 	})
-
-	// Verify that channels were deregistered exactly once through Range loop
-	assert.Equal(t, int32(1), mockCh1.GetDeregisterCount(), "Channel 1 should be deregistered exactly once")
-	assert.Equal(t, int32(1), mockCh2.GetDeregisterCount(), "Channel 2 should be deregistered exactly once")
-	assert.True(t, mockCh1.IsDeactivated(), "Channel 1 should be deactivated")
-	assert.True(t, mockCh2.IsDeactivated(), "Channel 2 should be deactivated")
-	assert.False(t, mockCh1.IsActive(), "Channel 1 should not be active after deregistration")
-	assert.False(t, mockCh2.IsActive(), "Channel 2 should not be active after deregistration")
 }
 
-// TestLoadAndDeleteRaceCondition tests concurrent LoadAndDelete and Range operations
 func TestLoadAndDeleteRaceCondition(t *testing.T) {
-	serverChannel := &ServerChannel{}
-	serverChannel.Init()
-
-	mockCh := NewMockNetChannel("test-ch", true)
-	conn := &mockConn{id: "test-conn"}
-	serverChannel.chMap.Store(conn, mockCh)
-
+	server, children, stateClosed := bindCleanupTestServer(t, 1)
+	child := children[0]
+	conn := child.channel.(channel.NetChannel).Conn().Conn()
+	child.deregisterEntered = make(chan struct{})
+	child.deregisterRelease = make(chan struct{})
 	var wg sync.WaitGroup
-
-	// Simulate StateClosed callback doing LoadAndDelete
+	callbackDone := make(chan struct{})
 	wg.Go(func() {
-		if v, found := serverChannel.chMap.LoadAndDelete(conn); found {
-			ch := v.(channel.NetChannel)
-			if ch.IsActive() {
-				ch.Deregister()
-			}
-		}
+		stateClosed(conn, http.StateClosed)
+		close(callbackDone)
 	})
-
-	// Simulate Range loop trying to access the same connection
+	select {
+	case <-child.deregisterEntered:
+	case <-callbackDone:
+		t.Fatal("StateClosed returned without deregistering the active child")
+	}
 	wg.Go(func() {
-		time.Sleep(1 * time.Millisecond) // Small delay to create race condition
-		serverChannel.chMap.Range(func(key, value any) bool {
-			if key == conn {
-				ch := value.(channel.NetChannel)
-				if ch.IsActive() {
-					ch.Deregister()
-				}
-				serverChannel.chMap.Delete(key)
-			}
-			return true
-		})
+		assert.NoError(t, server.UnsafeClose())
+		close(child.deregisterRelease)
 	})
-
 	wg.Wait()
+	require.True(t, child.channel.CloseFuture().IsDone(), "close must finish child cleanup")
 
-	// In race condition, channel should be deregistered at least once but not more than twice
-	// Due to atomic protection in MockNetChannel, actual deactivation happens only once
-	count := mockCh.GetDeregisterCount()
-	assert.True(t, count >= 1, "Channel should be deregistered at least once")
-	assert.True(t, count <= 2, "Channel should not be deregistered more than twice")
-	assert.True(t, mockCh.IsDeactivated(), "Channel should be deactivated exactly once")
-	assert.False(t, mockCh.IsActive(), "Channel should be inactive")
+	assert.GreaterOrEqual(t, child.deregisters.Load(), int32(1))
+	assert.LessOrEqual(t, child.deregisters.Load(), int32(2))
+	assert.Equal(t, int32(1), child.inactives.Load())
+	assert.Equal(t, int32(1), child.unregistered.Load())
+	assert.False(t, child.channel.IsActive())
+	_, err := child.peer.Read(make([]byte, 1))
+	assert.ErrorIs(t, err, io.EOF)
+	server.chMap.Range(func(key, value any) bool {
+		t.Error("closed server retained a child connection")
+		return true
+	})
 }
 
-// TestServerChannelMultipleDeregisterSafety tests that multiple Deregister calls are safe
 func TestServerChannelMultipleDeregisterSafety(t *testing.T) {
-	mockCh := NewMockNetChannel("test-ch", true)
-
-	// Call Deregister multiple times concurrently
+	server, children, stateClosed := bindCleanupTestServer(t, 1)
+	child := children[0]
+	const concurrentCalls = 10
 	var wg sync.WaitGroup
-	concurrentCalls := 10
-
 	for range concurrentCalls {
 		wg.Go(func() {
-			mockCh.Deregister()
+			future := child.channel.Deregister().Sync()
+			assert.NoError(t, future.Error())
 		})
 	}
-
 	wg.Wait()
+	require.True(t, child.channel.CloseFuture().IsDone(), "close must finish child cleanup")
 
-	// All calls should be counted, but only first one actually deactivates
-	count := mockCh.GetDeregisterCount()
-	assert.Equal(t, int32(concurrentCalls), count, "All Deregister calls should be counted")
-	assert.True(t, mockCh.IsDeactivated(), "Channel should be deactivated after first deregistration")
-	assert.False(t, mockCh.IsActive(), "Channel should be inactive after deregistration")
+	assert.Equal(t, int32(concurrentCalls), child.deregisters.Load())
+	assert.Equal(t, int32(1), child.inactives.Load())
+	assert.Equal(t, int32(1), child.unregistered.Load())
+	assert.False(t, child.channel.IsActive())
+	_, err := child.peer.Read(make([]byte, 1))
+	assert.ErrorIs(t, err, io.EOF)
+	stateClosed(child.channel.(channel.NetChannel).Conn().Conn(), http.StateClosed)
+	server.chMap.Range(func(key, value any) bool {
+		t.Error("StateClosed retained a deregistered child connection")
+		return true
+	})
 }
-
-// mockConn is a minimal implementation of net.Conn for testing
-type mockConn struct {
-	id string
-}
-
-func (m *mockConn) Read(b []byte) (n int, err error)   { return 0, nil }
-func (m *mockConn) Write(b []byte) (n int, err error)  { return len(b), nil }
-func (m *mockConn) Close() error                       { return nil }
-func (m *mockConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
-func (m *mockConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
-func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
-func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
-func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }

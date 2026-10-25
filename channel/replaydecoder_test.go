@@ -136,6 +136,7 @@ func TestReplayDecoder_Read_WithDecoder(t *testing.T) {
 
 	// Create mock context
 	mockContext := NewMockHandlerContext()
+	mockContext.On("Channel").Return(&DefaultChannel{}).Maybe()
 
 	// Setup mocks - only FireRead is actually called by ReplayDecoder.Read
 	mockContext.On("FireRead", mock.Anything).Run(func(args mock.Arguments) {
@@ -215,13 +216,14 @@ func TestReplayDecoder_Read_InsufficientDataHandling(t *testing.T) {
 
 	// Create mock context and channel
 	mockContext := NewMockHandlerContext()
-	mockChannel := NewMockChannel()
+	mockChannel := &DefaultChannel{}
 
 	// Setup mocks
 	mockContext.On("Channel").Return(mockChannel)
 
 	// Initialize buffer
 	decoder.Added(mockContext)
+	t.Cleanup(func() { decoder.Removed(mockContext) })
 
 	// Create input data with insufficient bytes (only 2 bytes for int32)
 	inputBuf := buf.NewByteBuf(make([]byte, 0, 2))

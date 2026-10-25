@@ -20,6 +20,11 @@ var sessionProviderOnce = sync.Once{}
 var DefaultSessionType = memory.SessionTypeMemory
 var SessionKey = "DEFAULT"
 var SessionDomain = ""
+
+// SessionDomainFromRequestHost restores legacy host-derived Domain cookies. Deprecated: set
+// SessionDomain explicitly when cross-subdomain sharing is required; the default is host-only.
+var SessionDomainFromRequestHost = false
+
 var SessionExpireTime = 86400
 
 // SessionHttpOnly hides the session cookie from scripts.
@@ -67,7 +72,7 @@ func GetSession(req *Request) httpsession.Session {
 	return _NewSession(req)
 }
 
-// _StoredSession returns the stored session named by the request's unexpired session cookie, or nil.
+// _StoredSession checks server-side expiry even when the cookie carries a later renewal timestamp.
 func _StoredSession(req *Request) (session httpsession.Session) {
 	sessionID, err := req.Cookie(SessionKey)
 	if err != nil {
@@ -80,7 +85,12 @@ func _StoredSession(req *Request) (session httpsession.Session) {
 		return nil
 	}
 
-	return SessionProvider().Session(string(data))
+	session = SessionProvider().Session(string(data))
+	if session != nil && session.IsExpire() {
+		return nil
+	}
+
+	return session
 }
 
 func _NewSession(req *Request) httpsession.Session {

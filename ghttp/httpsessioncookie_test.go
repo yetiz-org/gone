@@ -46,21 +46,19 @@ func TestSessionCookieFlags(t *testing.T) {
 	tests := []struct {
 		name       string
 		proto      string
-		untrusted  bool
+		trusted    bool
 		wantSecure bool
 	}{
 		{name: "plain HTTP stays usable", wantSecure: false},
-		{name: "HTTPS behind a proxy is Secure", proto: "https", wantSecure: true},
-		{name: "an untrusted peer cannot claim HTTPS", proto: "https", untrusted: true, wantSecure: false},
+		{name: "HTTPS behind an explicitly trusted proxy is Secure", proto: "https", trusted: true, wantSecure: true},
+		{name: "an untrusted peer cannot claim HTTPS", proto: "https", wantSecure: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.untrusted {
-				previous := TrustForwardedFor
-				TrustForwardedFor = func(net.IP) bool { return false }
-				t.Cleanup(func() { TrustForwardedFor = previous })
-			}
+			previous := TrustForwardedFor
+			TrustForwardedFor = func(peer net.IP) bool { return tt.trusted && peer.IsLoopback() }
+			t.Cleanup(func() { TrustForwardedFor = previous })
 
 			req, err := http.NewRequest(http.MethodGet, "http://"+addr+"/session", nil)
 			require.NoError(t, err)

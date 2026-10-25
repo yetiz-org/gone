@@ -2,8 +2,10 @@ package gws
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	kklogger "github.com/yetiz-org/goth-kklogger"
@@ -18,9 +20,13 @@ var ErrEmpty = fmt.Errorf("wrong object type")
 
 type Channel struct {
 	*channel.DefaultNetChannel
-	wsConn   *websocket.Conn
-	Response *gtp.Response
-	Request  *gtp.Request
+	wsConn           *websocket.Conn
+	Response         *gtp.Response
+	Request          *gtp.Request
+	assemblyDeadline time.Time
+	assemblyTimeout  time.Duration
+	readLimit        int64
+	inboundBudget    *channel.InboundBudget
 }
 
 func (c *Channel) BootstrapPreInit() {
@@ -31,7 +37,7 @@ func (c *Channel) Init() channel.Channel {
 	return c.DefaultNetChannel.Init()
 }
 
-func (c *Channel) UnsafeWrite(obj any) error {
+func (c *Channel) UnsafeWrite(obj any) (rtErr error) {
 	if !c.IsActive() {
 		return net.ErrClosed
 	}
@@ -54,6 +60,13 @@ func (c *Channel) UnsafeWrite(obj any) error {
 
 				return c.wsConn.WriteControl(message.Type().wsLibType(), bs, dead)
 			case *DefaultMessage:
+				deadline := time.Time{}
+				if c.WriteTimeout > 0 {
+					deadline = time.Now().Add(c.WriteTimeout)
+				}
+				if err := c.wsConn.SetWriteDeadline(deadline); err != nil {
+					return err
+				}
 				return c.wsConn.WriteMessage(message.Type().wsLibType(), bs)
 			default:
 				return ErrWrongObjectType
@@ -76,9 +89,8 @@ func (c *Channel) UnsafeRead() (obj any, rtErr error) {
 		return nil, net.ErrClosed
 	}
 
-	c.wsConn.SetReadLimit(channel.GetParamInt64Default(c, ParamWSReadLimit, DefaultWSReadLimit))
 	c._ExtendReadDeadline()
-	typ, bs, err := c.wsConn.ReadMessage()
+	typ, bs, err := c._ReadMessage()
 	if err != nil {
 		if c.IsActive() {
 			if wsErr, ok := err.(*websocket.CloseError); !(ok && wsErr.Code == 1000) {
@@ -154,19 +166,29 @@ func (c *Channel) _CloseHandler(code int, text string) error {
 	return nil
 }
 
-// _ExtendReadDeadline gives the peer another ParamReadIdleTimeout to send a whole message, ping or pong;
-// otherwise the read fails and the channel closes.
+// Control frames renew idle time but never extend the current message's assembly deadline.
 func (c *Channel) _ExtendReadDeadline() {
+	deadline := c.assemblyDeadline
 	if c.ReadIdleTimeout > 0 {
-		c.wsConn.SetReadDeadline(time.Now().Add(c.ReadIdleTimeout))
+		idle := time.Now().Add(c.ReadIdleTimeout)
+		if deadline.IsZero() || idle.Before(deadline) {
+			deadline = idle
+		}
 	}
+	c.wsConn.SetReadDeadline(deadline)
 }
 
-func (c *Channel) _NewWSLog(message Message, err error) *LogStruct {
+func (c *Channel) _NewWSLog(message Message, err error) (entry *LogStruct) {
+	uri := "/"
+	if c.Request != nil {
+		uri = c.Request.LogURI()
+	} else if c.Response != nil && c.Response.Request() != nil {
+		uri = c.Response.Request().LogURI()
+	}
 	log := &LogStruct{
 		LogType:    LogType,
 		ChannelID:  c.ID(),
-		RequestURI: c.Response.Request().LogURI(),
+		RequestURI: uri,
 		Message:    message,
 		Error:      err,
 	}
@@ -177,6 +199,73 @@ func (c *Channel) _NewWSLog(message Message, err error) *LogStruct {
 	}
 
 	return log
+}
+
+func (c *Channel) _ReadMessage() (typ int, data []byte, rtErr error) {
+	if c.inboundBudget == nil {
+		c.inboundBudget = channel.InboundBudgetFor(c)
+		c.readLimit = channel.GetParamInt64Default(c, ParamWSReadLimit, DefaultWSReadLimit)
+		timeout := channel.GetParamInt64Default(c, channel.ParamFrameAssemblyTimeout, channel.DefaultFrameAssemblyTimeout)
+		if timeout <= 0 {
+			timeout = channel.DefaultFrameAssemblyTimeout
+		}
+		c.assemblyTimeout = time.Duration(timeout) * time.Millisecond
+		c.wsConn.SetReadLimit(c.readLimit)
+	}
+	typ, reader, err := c.wsConn.NextReader()
+	if err != nil {
+		return 0, nil, err
+	}
+	c.assemblyDeadline = time.Now().Add(c.assemblyTimeout)
+	c._ExtendReadDeadline()
+
+	// Socket deadlines cannot interrupt a synchronous Ping/Pong callback.
+	var finished atomic.Bool
+	timer := time.AfterFunc(c.assemblyTimeout, func() {
+		if !finished.Swap(true) {
+			c.UnsafeDisconnect()
+		}
+	})
+	defer func() { finished.Store(true); timer.Stop() }()
+	reserved := int64(0)
+	defer func() { c.inboundBudget.Release(reserved); c.assemblyDeadline = time.Time{} }()
+	for {
+		if len(data) == cap(data) {
+			if len(data) > 0 {
+				// At a capacity boundary, check for message completion before growing.
+				_, readErr := reader.Read(nil)
+				if readErr == io.EOF {
+					return typ, data, nil
+				}
+				if readErr != nil {
+					return 0, nil, readErr
+				}
+			}
+			if c.readLimit > 0 && int64(len(data)) == c.readLimit {
+				return 0, nil, channel.ErrFrameTooLarge
+			}
+			nextCapacity := max(512, 2*cap(data))
+			if c.readLimit > 0 && int64(nextCapacity) > c.readLimit {
+				nextCapacity = int(c.readLimit)
+			}
+			if !c.inboundBudget.Reserve(int64(nextCapacity)) {
+				return 0, nil, channel.ErrInboundBudget
+			}
+			next := make([]byte, len(data), nextCapacity)
+			copy(next, data)
+			c.inboundBudget.Release(reserved)
+			reserved = int64(nextCapacity)
+			data = next
+		}
+		n, readErr := reader.Read(data[len(data):cap(data)])
+		data = data[:len(data)+n]
+		if readErr != nil {
+			if readErr == io.EOF {
+				return typ, data, nil
+			}
+			return 0, nil, readErr
+		}
+	}
 }
 
 type WSCustomConnectConfig struct {

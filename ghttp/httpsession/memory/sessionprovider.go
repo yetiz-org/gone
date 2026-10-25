@@ -55,18 +55,41 @@ func (s *SessionProvider) Sessions() map[string]httpsession.Session {
 	return sessions
 }
 
-func (s *SessionProvider) Session(key string) httpsession.Session {
-	if value, f := s.sessions.Load(key); f {
-		return value.(*storedSession).session
-	}
+func (s *SessionProvider) Session(key string) (session httpsession.Session) {
+	for {
+		value, found := s.sessions.Load(key)
+		if !found {
+			return nil
+		}
 
-	return nil
+		session = value.(*storedSession).session
+		if !session.IsExpire() {
+			return session
+		}
+
+		if s.remove(key, value.(*storedSession), true) {
+			return nil
+		}
+	}
 }
 
 func (s *SessionProvider) Save(session httpsession.Session) (rtErr error) {
+	if session.IsExpire() {
+		return nil
+	}
+
 	id := session.Id()
-	if _, loaded := s.sessions.Swap(id, &storedSession{session: session}); !loaded {
-		s.count.Add(1)
+	store := func() {
+		if _, loaded := s.sessions.Swap(id, &storedSession{session: session}); !loaded {
+			s.count.Add(1)
+		}
+	}
+	if guarded, ok := session.(interface{ StoreIfActive(func()) bool }); ok {
+		if !guarded.StoreIfActive(store) {
+			return nil
+		}
+	} else {
+		store()
 	}
 
 	s.cleanSessions()
@@ -119,9 +142,7 @@ func (s *SessionProvider) evict(keep string) {
 			return
 		}
 
-		if s.sessions.CompareAndDelete(c.key, c.value) {
-			s.count.Add(-1)
-		}
+		s.remove(c.key.(string), c.value.(*storedSession), c.expired)
 	}
 }
 
@@ -132,10 +153,12 @@ func (s *SessionProvider) Delete(key string) {
 		if session, ok := value.(*storedSession).session.(interface{ MarkDeleted() }); ok {
 			session.MarkDeleted()
 		}
-	}
 
-	if _, loaded := s.sessions.LoadAndDelete(key); loaded {
-		s.count.Add(-1)
+		if !s.remove(key, value.(*storedSession), false) {
+			// A Save of the same object may have replaced the entry before MarkDeleted acquired its lock.
+			// Expiry lookup removes that revoked generation and preserves a live replacement object.
+			s.Session(key)
+		}
 	}
 }
 
@@ -152,11 +175,37 @@ func (s *SessionProvider) cleanSessions() {
 	s.cleanMu.Unlock()
 
 	s.sessions.Range(func(key, value any) bool {
-		if value.(*storedSession).session.IsExpire() && s.sessions.CompareAndDelete(key, value) {
-			s.count.Add(-1)
-		}
+		s.remove(key.(string), value.(*storedSession), true)
 		return true
 	})
+}
+
+// remove couples DefaultSession deletion and revocation without waiting for Save's outer lock:
+// cleanup can run inside another session's Save. A stale scan must not revoke a newer saved entry.
+func (s *SessionProvider) remove(key string, value *storedSession, expiredOnly bool) (removed bool) {
+	remove := func() bool {
+		if s.sessions.CompareAndDelete(key, value) {
+			s.count.Add(-1)
+			return true
+		}
+
+		return false
+	}
+	if guarded, ok := value.session.(interface{ RemoveIfCurrent(bool, func() bool) bool }); ok {
+		return guarded.RemoveIfCurrent(expiredOnly, remove)
+	}
+
+	if expiredOnly {
+		if !value.session.IsExpire() {
+			return false
+		}
+	}
+
+	if deleted, ok := value.session.(interface{ MarkDeleted() }); ok {
+		deleted.MarkDeleted()
+	}
+
+	return remove()
 }
 
 // storedSession wraps each saved session, so the sync.Map compares provider-owned pointers even when a

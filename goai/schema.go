@@ -225,23 +225,20 @@ func (b *schemaBuilder) buildStruct(t reflect.Type) *Schema {
 
 // structSchema builds the actual object Schema for a struct type, walking
 // exported fields and respecting `json` and `goai` struct tags.
-func (b *schemaBuilder) structSchema(t reflect.Type) *Schema {
+func (b *schemaBuilder) structSchema(t reflect.Type) (schema *Schema) {
 	props := map[string]*Schema{}
 	var required []string
 	var embeddedSchemas []*Schema
 
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		if !field.IsExported() {
 			continue
 		}
 
-		// `goai:"-"` excludes a field from the generated schema while leaving
-		// its json/runtime behavior untouched, mirroring the encoding/json
-		// convention. Checked before the embedded-flatten and build() paths so
-		// the field's type is never registered as a component when no other
-		// field references it.
-		if field.Tag.Get("goai") == "-" {
+		// Exclude before flattening so hidden embedded fields stay private.
+		jsonTag := field.Tag.Get("json")
+		if field.Tag.Get("goai") == "-" || jsonTag == "-" {
 			continue
 		}
 
@@ -260,11 +257,6 @@ func (b *schemaBuilder) structSchema(t reflect.Type) *Schema {
 			}
 			required = append(required, inner.Required...)
 
-			continue
-		}
-
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "-" {
 			continue
 		}
 
@@ -1124,27 +1116,16 @@ func boolFlag(value string) bool {
 	return value == "" || value == "true"
 }
 
-// parseUint returns a *uint64 for non-empty digit strings, nil otherwise.
+// parseUint returns a *uint64 for in-range decimal digit strings, nil otherwise.
 // Using a pointer type lets the caller distinguish "constraint absent" from
 // "constraint == 0" — both of which are meaningful in OpenAPI.
-func parseUint(value string) *uint64 {
-	if value == "" {
+func parseUint(value string) (parsed *uint64) {
+	n, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
 		return nil
 	}
 
-	var n uint64
-	for i := 0; i < len(value); i++ {
-		c := value[i]
-		if c < '0' || c > '9' {
-			return nil
-		}
-
-		n = n*10 + uint64(c-'0')
-	}
-
-	v := n
-
-	return &v
+	return new(n)
 }
 
 // parseFloat returns a *float64 for numeric strings, nil otherwise. Accepts

@@ -72,5 +72,5 @@ func (h *ServerChildHandler) Disconnect(ctx channel.HandlerContext, future chann
 
 func (h *ServerChildHandler) Deregister(ctx channel.HandlerContext, future channel.Future) {
 	println("UDP server deregister")
-	ctx.Disconnect(future)
+	ctx.Deregister(future)
 }

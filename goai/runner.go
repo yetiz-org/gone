@@ -544,8 +544,7 @@ type runFromConfigOpts struct {
 	concurrencySet bool
 }
 
-// WithClassifier injects a fallback Classifier for handlers that do not
-// implement SpecProvider or SecurityProvider.
+// WithClassifier supplies fallback tags and per-acceptance security metadata.
 func WithClassifier(c *Classifier) (opt RunFromConfigOption) {
 	return func(o *runFromConfigOpts) { o.classifier = c }
 }
@@ -1045,14 +1044,9 @@ func _RunConfigProfileJobs(stdout io.Writer, stderr io.Writer, cfg *Config, jobs
 	}
 
 	prepared := _PrepareOperationCandidates(candidates, nil, build)
-	owned := make(map[string]_PreparedSet, len(jobs))
-	for _, job := range jobs {
-		owned[job.Name] = _ClonePreparedSet(prepared)
-	}
-
 	results := _RunProfileJobs(workers, jobs, func(job _ProfileJob) (result _ProfileJobResult) {
 		profile := _ProfileForJob(cfg, job.Name, baseSpec)
-		body, doc, err := _MaterializePreparedProfileYAML(owned[job.Name], profile, build, cfg.SecuritySchemes, baseSpec)
+		body, doc, err := _MaterializePreparedProfileYAML(_ClonePreparedSet(prepared), profile, build, cfg.SecuritySchemes, baseSpec)
 
 		return _ProfileJobResult{Name: job.Name, Output: job.Output, Body: body, Doc: doc, Err: err}
 	})

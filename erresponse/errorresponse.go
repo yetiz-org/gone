@@ -65,7 +65,8 @@ func (d *DefaultErrorResponse) ErrorData() map[string]any {
 	return d.Data
 }
 
-// Clone returns a copy that shares no mutable state with the receiver.
+// Clone returns a copy with independent top-level Data and I18nParams maps.
+// Values stored inside Data are not recursively copied.
 //
 // The map copies are required, not defensive: registered responses are
 // package-level singletons and callers write per-request keys into ErrorData()

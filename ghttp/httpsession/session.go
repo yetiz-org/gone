@@ -85,6 +85,36 @@ func (d *DefaultSession) MarkDeleted() {
 	d.deleted = true
 }
 
+// StoreIfActive publishes through store while renewal and removal are excluded. The callback must
+// only change provider state; it must not call session methods or acquire another session's lock.
+func (d *DefaultSession) StoreIfActive(store func()) (stored bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.deleted || d.expired <= time.Now().Unix() {
+		return false
+	}
+
+	store()
+	return true
+}
+
+// RemoveIfCurrent revokes this object only when remove deletes its current provider entry. With
+// expiredOnly, a renewal that wins the lock survives. The callback has StoreIfActive's restrictions.
+func (d *DefaultSession) RemoveIfCurrent(expiredOnly bool, remove func() bool) (removed bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if expiredOnly && !d.deleted && d.expired > time.Now().Unix() {
+		return false
+	}
+
+	if !remove() {
+		return false
+	}
+
+	d.deleted = true
+	return true
+}
+
 func (d *DefaultSession) Id() (id string) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -215,7 +245,7 @@ func (d *DefaultSession) SetExpire(expire time.Time) (session Session) {
 func (d *DefaultSession) IsExpire() (expired bool) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.expired < time.Now().Unix()
+	return d.deleted || d.expired <= time.Now().Unix()
 }
 
 func (d *DefaultSession) MarshalJSON() (data []byte, rtErr error) {

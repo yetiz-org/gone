@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yetiz-org/gone/ghttp"
 	"github.com/yetiz-org/gone/ghttp/httpheadername"
@@ -28,14 +29,14 @@ const _MaxForwardAttempts = 3
 // _MaxForwardWait caps the wait between 202 polls so Retry-After cannot stretch one tool call.
 const _MaxForwardWait = 3 * time.Second
 
-// IndexTool is implemented by a handler task that exposes its Index function. The forwarded GET never carries the
-// endpoint's own ID, otherwise ghttp would run Get instead.
+// IndexTool is implemented by a handler task that exposes its Index function. Its forwarded GET selects Index
+// explicitly and cannot carry the endpoint's own ID.
 type IndexTool interface {
 	MCPIndex() (tool Tool)
 }
 
-// GetTool is implemented by a handler task that exposes its Get function. When the endpoint also implements Index,
-// the input must declare the endpoint's own ID so the request cannot fall back to Index.
+// GetTool is implemented by a handler task that exposes its Get function. Its forwarded GET selects Get explicitly,
+// even without an endpoint ID or when the task also implements Index.
 type GetTool interface {
 	MCPGet() (tool Tool)
 }
@@ -113,14 +114,17 @@ type Binding struct {
 
 // _Route is one bound tool: the dispatcher, endpoint node, canonical path, HTTP method, and derived input mapping.
 type _Route struct {
-	_Server     *Server
-	_Dispatcher *ghttp.DispatchHandler
-	_Node       ghttp.RouteNode
-	_Path       string
-	_Name       string
-	_Method     string
-	_Index      bool
-	_Input      *_Input
+	_Server         *Server
+	_Dispatcher     *ghttp.DispatchHandler
+	_Node           ghttp.RouteNode
+	_Path           string
+	_Name           string
+	_Method         string
+	_Index          bool
+	_Input          *_Input
+	_ResolvedOutput *jsonschema.Resolved
+	_OutputPointer  bool
+	_OutputDefaults bool
 }
 
 // NewTool declares a tool whose input is In and whose structured output is Out, decoded from the REST response and then
@@ -140,28 +144,29 @@ func NewTool[In, Out any](definition *mcp.Tool, options ...ToolOption[In, Out]) 
 	}
 
 	return Tool{_Definition: definition, _InputType: reflect.TypeFor[In](), _OutputType: reflect.TypeFor[Out](), _Register: func(server *Server, route *_Route) {
-		_AddTool(server, definition, func(ctx context.Context, request *mcp.CallToolRequest, value In) (result *mcp.CallToolResult, output Out, err error) {
+		_AddTool(server, definition, func(ctx context.Context, request *mcp.CallToolRequest, value In) (result *mcp.CallToolResult, sdkOutput any, err error) {
+			var output Out
 			binding, ok := route._Input._Binding(value)
 			if !ok {
-				return nil, output, &_ToolError{_Category: _InvalidArgument}
+				return nil, nil, &_ToolError{_Category: _InvalidArgument}
 			}
 
 			if err = route._Forward(ctx, binding, &output); err != nil {
-				return nil, output, err
+				return nil, nil, err
 			}
 
 			for _, adjuster := range settings._OutputAdjusters {
 				if output, err = adjuster(ctx, value, output); err != nil {
 					kklogger.ErrorJ("gmcp:NewTool#output!adjust_failed", map[string]any{"tool": route._Name, "error": err.Error()})
-					return nil, output, &_ToolError{_Category: _InternalError}
+					return nil, nil, &_ToolError{_Category: _InternalError}
 				}
 			}
 
-			if blob, ok := any(output).(Blob); ok {
-				result, err = blob._Result()
+			if result, err = route._Output(output); err != nil {
+				return nil, nil, &_ToolError{_Category: _InternalError}
 			}
 
-			return result, output, err
+			return result, nil, nil
 		})
 	}}
 }
@@ -268,8 +273,24 @@ func (r *_Route) _Forward(ctx context.Context, binding Binding, output any) (rtE
 			request.Header.Set(httpheadername.AcceptLanguage, caller.Language)
 		}
 
-		pack := r._Dispatcher.Dispatch(caller.HandlerContext, request, seed)
-		if pack == nil || !r._Matches(pack, binding) {
+		operation := map[string]ghttp.DispatchOperation{
+			http.MethodGet: ghttp.DispatchGet, http.MethodPost: ghttp.DispatchPost, http.MethodPut: ghttp.DispatchPut,
+			http.MethodPatch: ghttp.DispatchPatch, http.MethodDelete: ghttp.DispatchDelete,
+		}[r._Method]
+		if r._Index {
+			operation = ghttp.DispatchIndex
+		}
+
+		ids := maps.Clone(binding.IDs)
+		if ids == nil {
+			ids = map[string]string{}
+		}
+
+		ids[r._Node.Name()] = binding.ID
+		pack, dispatchErr := r._Dispatcher.DispatchExact(caller.HandlerContext, request, seed, ghttp.DispatchOptions{
+			Operation: operation, Node: r._Node, IDs: ids, MaxResponseBytes: r._Server._Options.MaxResponseBodyBytes,
+		})
+		if dispatchErr != nil || pack == nil || !r._Matches(pack, binding) {
 			kklogger.WarnJ("gmcp:Route.Forward#route!mismatch", map[string]any{"tool": r._Name, "path": r._Path})
 			return &_ToolError{_Category: _InternalError}
 		}
@@ -333,7 +354,7 @@ func (r *_Route) _Target(binding Binding) (target string, ok bool) {
 			continue
 		}
 
-		if !r._Server._IDPattern.MatchString(id) {
+		if !r._Server._ValidID(id) {
 			return "", false
 		}
 
@@ -341,7 +362,7 @@ func (r *_Route) _Target(binding Binding) (target string, ok bool) {
 		used++
 	}
 
-	if used != len(binding.IDs) || binding.ID != "" && !r._Server._IDPattern.MatchString(binding.ID) {
+	if used != len(binding.IDs) || binding.ID != "" && !r._Server._ValidID(binding.ID) {
 		return "", false
 	}
 
@@ -385,7 +406,7 @@ func (r *_Route) _RetryAfter(value string) (wait time.Duration) {
 		return _MaxForwardWait
 	}
 
-	return min(time.Duration(seconds)*time.Second, _MaxForwardWait)
+	return time.Duration(min(seconds, int(_MaxForwardWait/time.Second))) * time.Second
 }
 
 // _Multipart encodes Files as a multipart/form-data body with one part per form field, in name order. Each part takes

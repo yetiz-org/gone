@@ -32,12 +32,12 @@ func TestWrapRequestForwardedForTrust(t *testing.T) {
 		wantIP    string
 		wantAddrs []string
 	}{
-		{name: "private proxy is trusted", peer: "10.0.0.5:1234", wantIP: "8.8.8.8", wantAddrs: []string{"8.8.8.8", "10.0.0.2", "10.0.0.5:1234"}},
-		{name: "loopback proxy is trusted", peer: "127.0.0.1:1234", wantIP: "8.8.8.8", wantAddrs: []string{"8.8.8.8", "10.0.0.2", "127.0.0.1:1234"}},
+		{name: "private peer is untrusted by default", peer: "10.0.0.5:1234", wantIP: "10.0.0.5", wantAddrs: []string{"10.0.0.5:1234"}},
+		{name: "loopback peer is untrusted by default", peer: "127.0.0.1:1234", wantIP: "127.0.0.1", wantAddrs: []string{"127.0.0.1:1234"}},
 		{name: "public peer cannot spoof", peer: "1.1.1.1:1234", wantIP: "1.1.1.1", wantAddrs: []string{"1.1.1.1:1234"}},
 		{name: "custom trust restores the header", peer: "1.1.1.1:1234", trust: func(net.IP) bool { return true }, wantIP: "8.8.8.8", wantAddrs: []string{"8.8.8.8", "10.0.0.2", "1.1.1.1:1234"}},
-		{name: "entries without spaces are split", peer: "10.0.0.5:1234", header: "8.8.4.4,10.0.0.2", wantIP: "8.8.4.4", wantAddrs: []string{"8.8.4.4", "10.0.0.2", "10.0.0.5:1234"}},
-		{name: "non IP tokens are skipped", peer: "10.0.0.5:1234", header: "8.8.4.4, unknown", wantIP: "8.8.4.4", wantAddrs: []string{"8.8.4.4", "unknown", "10.0.0.5:1234"}},
+		{name: "entries without spaces are split", peer: "10.0.0.5:1234", header: "8.8.4.4,10.0.0.2", trust: func(ip net.IP) bool { return ip.IsPrivate() }, wantIP: "8.8.4.4", wantAddrs: []string{"8.8.4.4", "10.0.0.2", "10.0.0.5:1234"}},
+		{name: "non IP tokens reject the chain", peer: "10.0.0.5:1234", header: "8.8.4.4, unknown", trust: func(ip net.IP) bool { return ip.IsPrivate() }, wantIP: "10.0.0.5", wantAddrs: []string{"10.0.0.5:1234"}},
 	}
 
 	for _, tt := range tests {

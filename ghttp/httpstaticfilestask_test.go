@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yetiz-org/gone/channel"
-	buf "github.com/yetiz-org/goth-bytebuf"
 )
 
 // TestParseRange_SpecifiedRange tests parsing of "bytes=start-end" format
@@ -193,12 +192,11 @@ func TestParseRange_DataIntegrity(t *testing.T) {
 	for _, rangeHeader := range validRanges {
 		t.Run(rangeHeader, func(t *testing.T) {
 			start, end, valid := handler._ParseRange(rangeHeader, fileSize)
-			if valid {
-				assert.True(t, start <= end, "start should be <= end")
-				assert.True(t, start >= 0, "start should be >= 0")
-				assert.True(t, end < fileSize, "end should be < fileSize")
-				assert.True(t, end-start+1 > 0, "range length should be positive")
-			}
+			require.True(t, valid, "named valid range must parse")
+			assert.True(t, start <= end, "start should be <= end")
+			assert.True(t, start >= 0, "start should be >= 0")
+			assert.True(t, end < fileSize, "end should be < fileSize")
+			assert.True(t, end-start+1 > 0, "range length should be positive")
 		})
 	}
 }
@@ -386,104 +384,30 @@ func TestStaticFilesHandlerTask_FullHTTPServerClient_Integration(t *testing.T) {
 
 	t.Logf("✓ Created test files: %s (1000 bytes), %s (5000 bytes)", testFile1, testFile2)
 
-	// Find available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err, "should get available port")
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
-	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	t.Logf("✓ Using port: %d, base URL: %s", port, baseURL)
-
-	// Create HTTP server with StaticFilesHandlerTask
 	handler := NewStaticFilesHandlerTask(tmpDir)
 	handler.DoMinify = false
 	handler.DoCache = false
-
-	// Create HTTP server
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Create wrapped Request
-		req := &Request{
-			request: r,
-		}
-
-		// Create wrapped Response
-		resp := NewResponse(req)
-		respWrapper := &testResponseWriter{w: w, resp: resp}
-
-		// Call handler
-		handler.Get(nil, req, resp, nil)
-
-		// Simulate automatic Range handling (since we're bypassing DispatchHandler)
-		if resp.body != nil && resp.body.ReadableBytes() > 0 {
-			rangeHeader := r.Header.Get("Range")
-			if rangeHeader != "" {
-				content := resp.body.Bytes()
-				contentSize := int64(len(content))
-				if start, end, valid := ParseRange(rangeHeader, contentSize); valid {
-					rangeData := content[start : end+1]
-					resp.SetStatusCode(206)
-					resp.SetHeader("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, contentSize))
-					resp.SetHeader("Content-Length", fmt.Sprintf("%d", len(rangeData)))
-					resp.SetBody(buf.NewByteBuf(rangeData))
-				} else {
-					resp.SetStatusCode(416)
-					resp.SetHeader("Content-Range", fmt.Sprintf("bytes */%d", contentSize))
-				}
-			}
-			resp.SetHeader("Accept-Ranges", "bytes")
-		}
-
-		// Write response
-		respWrapper.WriteResponse()
-	})
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf("127.0.0.1:%d", port),
-		Handler: mux,
-	}
-
-	// Start server in background
-	serverStarted := make(chan bool)
-	serverError := make(chan error, 1)
-	go func() {
-		listener, err := net.Listen("tcp", server.Addr)
-		if err != nil {
-			serverError <- err
-			return
-		}
-		serverStarted <- true
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			serverError <- err
-		}
-	}()
-
-	// Wait for server to start or fail
-	select {
-	case <-serverStarted:
-		t.Logf("✓ HTTP server started on %s", server.Addr)
-	case err := <-serverError:
-		t.Fatalf("Failed to start server: %v", err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Server start timeout")
-	}
-
-	// Ensure server shutdown
-	defer func() {
-		if err := server.Close(); err != nil {
-			t.Logf("Server close error: %v", err)
-		}
-		t.Logf("✓ HTTP server stopped")
-	}()
-
-	// Create HTTP client
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	// Wait a bit for server to be ready
-	time.Sleep(100 * time.Millisecond)
+	route := NewSimpleRoute()
+	route.SetEndpoint("/test1.txt", handler)
+	route.SetEndpoint("/test2.bin", handler)
+	route.SetEndpoint("/nonexistent.txt", handler)
+	bootstrap := channel.NewServerBootstrap()
+	bootstrap.ChannelType(&ServerChannel{})
+	bootstrap.ChildHandler(channel.NewInitializer(func(ch channel.Channel) {
+		ch.Pipeline().AddLast("DISPATCHER", NewDispatchHandler(route))
+	}))
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "should get available port")
+	addr := listener.Addr().(*net.TCPAddr)
+	require.NoError(t, listener.Close())
+	bound := bootstrap.Bind(addr).Sync()
+	require.NoError(t, bound.Error(), "should bind Gone HTTP server")
+	serverCh := bound.Channel()
+	require.NotNil(t, serverCh)
+	t.Cleanup(func() { serverCh.Close().Sync() })
+	baseURL := "http://" + addr.String()
+	client := &http.Client{Timeout: 5 * time.Second}
+	t.Cleanup(client.CloseIdleConnections)
 
 	// Test 1: Normal request without Range header
 	t.Run("Full HTTP: Normal request", func(t *testing.T) {
@@ -724,33 +648,6 @@ func TestStaticFilesHandlerTask_FullHTTPServerClient_Integration(t *testing.T) {
 		t.Logf("✓ Data integrity verified: reconstructed %d bytes from %d chunks",
 			len(reconstructed), len(chunks))
 	})
-}
-
-// testResponseWriter wraps http.ResponseWriter and Response for testing
-type testResponseWriter struct {
-	w    http.ResponseWriter
-	resp *Response
-}
-
-func (trw *testResponseWriter) WriteResponse() {
-	// Write headers first (must be before WriteHeader)
-	for key, values := range trw.resp.header {
-		for _, value := range values {
-			trw.w.Header().Set(key, value)
-		}
-	}
-
-	// Write status code
-	statusCode := trw.resp.statusCode
-	if statusCode == 0 {
-		statusCode = 200
-	}
-	trw.w.WriteHeader(statusCode)
-
-	// Write body
-	if trw.resp.body != nil {
-		trw.w.Write(trw.resp.body.Bytes())
-	}
 }
 
 // TestStaticFilesHandlerTask_GoneHTTPServerClient_Integration performs REAL Gone HTTP server/client testing

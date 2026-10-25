@@ -733,6 +733,14 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		A string `json:"a"`
 	}
 
+	type _PathAndQuery struct {
+		A string `json:"a" gmcp:"path;query=a"`
+	}
+
+	type _QueryAndFile struct {
+		A string `json:"a" gmcp:"query=a;file=a"`
+	}
+
 	type _OptionalPath struct {
 		A string `json:"a,omitempty" gmcp:"path"`
 	}
@@ -844,6 +852,12 @@ func TestServerBindRejectsInvalidDeclarations(t *testing.T) {
 		}, `invalid gmcp tag key "typo"`},
 		{"unplaced field", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_Unplaced, _Echo](&mcp.Tool{Name: "x"})))
+		}, "needs exactly one valid path, query, body, or file placement"},
+		{"multiple path query placements", Options{}, func(options Options) {
+			_BindServer(options, tool(NewTool[_PathAndQuery, _Echo](&mcp.Tool{Name: "x"})))
+		}, "needs exactly one valid path, query, body, or file placement"},
+		{"multiple query file placements", Options{}, func(options Options) {
+			_BindServer(options, write(NewTool[_QueryAndFile, _Echo](&mcp.Tool{Name: "x"})))
 		}, "needs exactly one valid path, query, body, or file placement"},
 		{"optional own path", Options{}, func(options Options) {
 			_BindServer(options, tool(NewTool[_OptionalPath, _Echo](&mcp.Tool{Name: "x"})))

@@ -92,14 +92,11 @@ func (c *DefaultNetChannel) RemoteAddr() net.Addr {
 	return nil
 }
 
-func (c *DefaultNetChannel) LocalAddr() net.Addr {
-	if c.localAddr == nil {
-		if c.conn != nil {
-			c.localAddr = c.conn.LocalAddr()
-			return c.localAddr
-		} else {
-			return nil
-		}
+func (c *DefaultNetChannel) LocalAddr() (addr net.Addr) {
+	c.addrMu.Lock()
+	defer c.addrMu.Unlock()
+	if c.localAddr == nil && c.conn != nil {
+		c.localAddr = c.conn.LocalAddr()
 	}
 
 	return c.localAddr
@@ -236,6 +233,10 @@ func (c *DefaultNetChannel) UnsafeDisconnect() (rtErr error) {
 	}
 
 	return nil
+}
+
+func (c *DefaultNetChannel) UnsafeClose() (rtErr error) {
+	return c.UnsafeDisconnect()
 }
 
 func (c *DefaultNetChannel) UnsafeConnect(localAddr net.Addr, remoteAddr net.Addr) error {

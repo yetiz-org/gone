@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -106,36 +105,16 @@ func TestImportPackageNameCachesParsedPackage(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/mod\n\ngo 1.26\n"), 0o644))
 
-	pkgDir := filepath.Join(root, "pkg", "large")
+	pkgDir := filepath.Join(root, "pkg", "cached")
 	require.NoError(t, os.MkdirAll(pkgDir, 0o755))
-	for fileIdx := 0; fileIdx < 60; fileIdx++ {
-		var src strings.Builder
-		src.WriteString("package custompkg\n\n")
-		for typeIdx := 0; typeIdx < 40; typeIdx++ {
-			src.WriteString("type T")
-			src.WriteString(strconv.Itoa(fileIdx))
-			src.WriteString("_")
-			src.WriteString(strconv.Itoa(typeIdx))
-			src.WriteString(" struct {\n")
-			for fieldIdx := 0; fieldIdx < 30; fieldIdx++ {
-				src.WriteString("F")
-				src.WriteString(strconv.Itoa(fieldIdx))
-				src.WriteString(" string\n")
-			}
-			src.WriteString("}\n")
-		}
+	source := filepath.Join(pkgDir, "schema.go")
+	require.NoError(t, os.WriteFile(source, []byte("package custompkg\n\ntype T struct{}\n"), 0o644))
 
-		require.NoError(t, os.WriteFile(filepath.Join(pkgDir, "file"+strconv.Itoa(fileIdx)+".go"), []byte(src.String()), 0o644))
-	}
-
-	start := time.Now()
 	cache := &sync.Map{}
-	for i := 0; i < 20; i++ {
-		assert.Equal(t, "custompkg", _ImportPackageName("example.com/mod/pkg/large", root, nil, cache))
-	}
-
-	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
-		t.Fatalf("_ImportPackageName reparsed the same package too often: %s", elapsed)
+	require.Equal(t, "custompkg", _ImportPackageName("example.com/mod/pkg/cached", root, nil, cache))
+	require.NoError(t, os.Remove(source))
+	for range 19 {
+		assert.Equal(t, "custompkg", _ImportPackageName("example.com/mod/pkg/cached", root, nil, cache))
 	}
 }
 
@@ -960,6 +939,33 @@ func TestSchemaFromWrapsRefForOutputNullableOptionOnce(t *testing.T) {
 	require.Len(t, schema.AllOf, 1)
 	assert.Equal(t, "#/components/schemas/Request", schema.AllOf[0].Ref)
 	assert.True(t, schema.Nullable)
+}
+
+func TestASTSchemaBuilderRecursiveEmbeddedPointers(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "self", source: "type Node struct { *Node; Value string }", want: "object"},
+		{name: "mutual", source: "type Node struct { *Peer; Value string }; type Peer struct { *Node; Other bool }", want: "object"},
+		{name: "promoted method after cycle", source: "type Node struct { *Node; ID }; type ID struct{}; func (ID) MarshalText() ([]byte, error) { return nil, nil }", want: "string"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			builder := _ASTSchemaBuilderFromSource(t, "example.test/p", "package p\n"+tc.source)
+			doc, ok := _ParseOpenAPIDocCommentWithContext("@goai.response 200 OK schemaType=Node", "Get", &_DocParseContext{_SchemaBuilder: builder})
+			require.True(t, ok)
+			response := doc.Operation.Responses["200"].Content["application/json"].Schema
+			require.NotNil(t, response)
+			component := doc.Schemas[strings.TrimPrefix(response.Ref, "#/components/schemas/")]
+			require.NotNil(t, component)
+			assert.Equal(t, tc.want, component.Type)
+			if tc.want == "object" {
+				require.Contains(t, component.Properties, "Value")
+				assert.Equal(t, "string", component.Properties["Value"].Type)
+			}
+		})
+	}
 }
 
 func TestASTSchemaBuilderUsesStringSchemaForStructPromotingTextMarshaler(t *testing.T) {
@@ -2964,8 +2970,8 @@ func TestBuildOperationMergesDocResponseHeadersAndLinksByName(t *testing.T) {
 	require.NotNil(t, op)
 	require.NotNil(t, op.Security)
 	require.Len(t, *op.Security, 1)
-	assert.Contains(t, (*op.Security)[0], "DocAuth")
-	assert.NotContains(t, (*op.Security)[0], "RouteAuth")
+	assert.Contains(t, (*op.Security)[0], "RouteAuth")
+	assert.NotContains(t, (*op.Security)[0], "DocAuth")
 
 	resp400 := op.Responses["400"]
 	require.NotNil(t, resp400)
@@ -3085,39 +3091,6 @@ func TestBuildOperationUsesDocSchemaInsteadOfDefaultPlaceholderSchema(t *testing
 	assert.Equal(t, "array", mt.Schema.Type)
 	require.NotNil(t, mt.Schema.Items)
 	assert.Equal(t, "string", mt.Schema.Items.Type)
-}
-
-func TestBuildOperationDocSecurityOverridesRouteSecurityWhenSpecHasNoSecurity(t *testing.T) {
-	handler := &_DocstringTestHandler{}
-	doc := Build([]OperationCandidate{
-		{
-			Path:          "/mgmt/items",
-			Method:        "GET",
-			Handler:       handler,
-			HandlerMethod: "Get",
-			SecurityRefs: []SecurityRef{
-				{Scheme: "OAuth2"},
-			},
-		},
-	}, nil, BuildOptions{
-		OperationDocExtractor: func(handler any, methodName string) (*OperationDoc, bool) {
-			return &OperationDoc{
-				Endpoint: OperationEndpoint{Method: "GET", Path: "/mgmt/items"},
-				Operation: Operation{
-					Security: &[]map[string][]string{
-						{"SiteToken": {}},
-					},
-				},
-			}, true
-		},
-	})
-
-	op := doc.Paths["/mgmt/items"].Get
-	require.NotNil(t, op)
-	require.NotNil(t, op.Security)
-	require.Len(t, *op.Security, 1)
-	assert.Contains(t, (*op.Security)[0], "SiteToken")
-	assert.NotContains(t, (*op.Security)[0], "OAuth2")
 }
 
 func TestBuildOperationDedupesDuplicateSecurityRefs(t *testing.T) {

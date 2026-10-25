@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -289,6 +290,7 @@ func TestReplayDecoder_Composite_ZeroCopyAccumulation(t *testing.T) {
 	})
 
 	ctx := NewMockHandlerContext()
+	ctx.On("Channel").Return(&DefaultChannel{}).Maybe()
 	ctx.On("FireRead", mock.Anything).Run(func(args mock.Arguments) {
 		decoded = append(decoded, args.Get(0).(string))
 	}).Return(ctx)
@@ -331,6 +333,7 @@ func TestReplayDecoder_Composite_CompactDropsConsumedComponents(t *testing.T) {
 		}
 	})
 	ctx := NewMockHandlerContext()
+	ctx.On("Channel").Return(&DefaultChannel{}).Maybe()
 	ctx.On("FireRead", mock.Anything).Return(ctx)
 	ctx.On("FireReadCompleted").Return(ctx)
 	dec.Added(ctx)
@@ -345,10 +348,61 @@ func TestReplayDecoder_Composite_CompactDropsConsumedComponents(t *testing.T) {
 	dec.Read(ctx, b)
 
 	assert.Equal(t, 0, dec.in.ReadableBytes())
-	// Before Compact, Cap equals the total bytes buffered across both
-	// components (3 + 3). After Compact, every fully-consumed component is
-	// dropped and Cap goes to zero.
-	assert.Equal(t, 6, dec.in.Cap())
+
+	// Completed input must not retain component storage between reads.
+	assert.Zero(t, dec.in.Cap(), "completed input is released before the next read")
 	dec.in.Compact()
 	assert.Equal(t, 0, dec.in.Cap(), "Compact on a fully-consumed composite drops all components")
+}
+
+func TestDefaultNetChannel_CloseReleasesConnection(t *testing.T) {
+	local, peer := net.Pipe()
+	defer local.Close()
+	defer peer.Close()
+	ch := &DefaultNetChannel{BufferSize: 1024}
+	ch.init(ch)
+	ch.SetConn(local)
+	ch.activeChannel()
+	require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+
+	closed := ch.Close()
+	requireDoneFuture(t, closed)
+	require.NoError(t, closed.Error())
+	requireDoneFuture(t, ch.CloseFuture())
+	require.False(t, ch.IsActive())
+	_, err := peer.Read(make([]byte, 1))
+	require.ErrorIs(t, err, io.EOF)
+
+	again := ch.Close()
+	requireDoneFuture(t, again)
+	require.NoError(t, again.Error())
+}
+
+func TestDefaultNetChannel_ConcurrentLocalAddr(t *testing.T) {
+	for _, mode := range []string{"first lookup", "setter"} {
+		t.Run(mode, func(t *testing.T) {
+			local, peer := net.Pipe()
+			defer local.Close()
+			defer peer.Close()
+			ch := &DefaultNetChannel{}
+			ch.SetConn(local)
+			want := local.LocalAddr()
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for range 16 {
+				wg.Go(func() {
+					<-start
+					for range 64 {
+						if mode == "setter" {
+							ch.setLocalAddr(nil)
+						}
+						assert.Equal(t, want, ch.LocalAddr())
+					}
+				})
+			}
+			close(start)
+			wg.Wait()
+			require.Equal(t, want, ch.LocalAddr())
+		})
+	}
 }

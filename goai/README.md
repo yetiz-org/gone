@@ -219,8 +219,10 @@ Acceptances on a route node can implement these optional interfaces:
   The walker collects every provider on the route's acceptance chain and
   attaches them to each operation.
 - `goai.MethodAwareSecurityProvider` — method-specific variant of
-  `SecurityProvider`. Returning an empty scheme for one method explicitly
-  suppresses inherited/global security for that operation.
+  `SecurityProvider`. An empty scheme exempts only that acceptance for the
+  method; active sibling and Spec requirements remain. A nonempty result
+  takes precedence over static-provider or classifier inference for that
+  acceptance.
 - `goai.PathParamInjector` — declare path parameters this acceptance
   injects into the request (e.g. an `OrgScope` acceptance that prepends
   `/{organization_id}`).
@@ -236,6 +238,21 @@ Acceptances on a route node can implement these optional interfaces:
 
 Use these when documenting cross-cutting middleware behavior. For
 per-handler overrides, prefer `goai.Register` or `SpecProvider`.
+
+Acceptance requirements are combined with **AND** in one OpenAPI security
+requirement; repeated uses of the same scheme union their scopes. Spec
+`WithSecurity` entries remain **OR** alternatives, each combined with the
+acceptance requirements, including classifier-derived siblings. When an
+acceptance's static `SecurityProvider` advertises a scheme but its
+method-aware result is empty, the operation emits `security: []` only when
+no acceptance or Spec requirements remain.
+Doc-comment security fills an unset operation only; it cannot replace
+acceptance/Spec security or an explicit empty override.
+
+After upgrading, regenerate OpenAPI artifacts and reload their downstream
+consumers. If using `Merge3Way`, review and update existing explicit
+operation security in the curated spec: it takes precedence over newly
+generated security.
 
 ### Per-handler customization
 
@@ -641,7 +658,7 @@ output onto a hand-tuned baseline:
 | -------------------------------- | --------------------------------------------------------------------------------- |
 | `info`, `servers`, `security`, `externalDocs` | Existing wins verbatim.                                              |
 | `tags`                           | Union — existing order preserved, generated tags missing from existing appended.  |
-| `paths`                          | Union by path key — existing path entries kept verbatim; new paths appended.      |
+| `paths`                          | Union by path key — existing entries win; absent operation security is filled from generated output; new paths appended. |
 | `components.*` (every sub-map)   | Union by name — existing entries kept; generated entries fill gaps only.          |
 
 This is the canonical pattern when the project keeps a curated
@@ -694,7 +711,7 @@ overwriting hand-tuned prose. See [`examples/merge`](./examples/merge).
 | `WithResponseExampleObject(name, ex)`   | Response option: attach a named Example object.                         |
 | `WithResponseHeader(HeaderDef)`         | Response option: attach a response header to that status.               |
 | `WithDeprecated()`                      | Marks the operation deprecated.                                         |
-| `WithSecurity(scheme, scopes...)`       | Appends a security requirement.                                         |
+| `WithSecurity(scheme, scopes...)`       | Adds an OR alternative combined with acceptance requirements.            |
 | `WithHeader(HeaderDef)`                 | Documents a request or response header.                                 |
 | `WithParam(PathParam)`                  | Documents an extra path/query/header parameter.                         |
 | `WithExternalDocs(url, description)`    | Operation-level externalDocs.                                           |

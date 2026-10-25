@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -56,7 +57,6 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			r.Body = http.MaxBytesReader(w, r.Body, c.maxBodyBytes)
 		}
 	}
-
 	request := WrapRequest(cch, r)
 	if c.maxInflightBodyBytes > 0 {
 		reserved, rejectStatus := c._ReserveBody(w, request)
@@ -78,6 +78,8 @@ func (c *ServerChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer c.inflightBodyBytes.Add(-reserved)
 	}
 
+	request.bodyBudget.budget = channel.InboundBudgetFor(cch)
+	defer request.bodyBudget.release()
 	if !cch.bodyGated.Load() {
 		// Without a DispatchHandler to answer for the body, reject an unreadable one here as before.
 		if err := request.BodyReadError(); err != nil {
@@ -284,4 +286,30 @@ func (c *ServerChannel) UnsafeClose() error {
 
 func (c *ServerChannel) IsActive() bool {
 	return c.active.Load()
+}
+
+type serverBudgetBody struct {
+	io.Reader
+	budget   *channel.InboundBudget
+	reserved int64
+}
+
+func (b *serverBudgetBody) Read(p []byte) (n int, rtErr error) {
+	n, rtErr = b.Reader.Read(p)
+	if n > 0 {
+		if !b.budget.Reserve(int64(n)) {
+			return 0, channel.ErrInboundBudget
+		}
+
+		b.reserved += int64(n)
+	}
+
+	return n, rtErr
+}
+
+func (b *serverBudgetBody) release() {
+	if b.reserved > 0 {
+		b.budget.Release(b.reserved)
+		b.reserved = 0
+	}
 }

@@ -1,12 +1,14 @@
 package ghttp
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type jsonResponseSample struct {
@@ -50,4 +52,55 @@ func TestResponse_JsonResponse_PerResponseOverride(t *testing.T) {
 	var got jsonResponseSample
 	assert.NoError(t, json.Unmarshal([]byte(body), &got))
 	assert.Equal(t, url, got.URL)
+}
+
+func TestResponseBoundedEncoderConfig(t *testing.T) {
+	original := DefaultJsonEncoderConfig
+	t.Cleanup(func() { DefaultJsonEncoderConfig = original })
+	for _, standard := range []bool{false, true} {
+		DefaultJsonEncoderConfig = original
+		if standard {
+			DefaultJsonEncoderConfig = nil
+		}
+
+		response := newTestResponse()
+		response.bodyLimit = 512
+		response.JsonResponse(jsonResponseSample{URL: "<ok>&"})
+		require.NoError(t, response.BodyError())
+		if standard {
+			require.Contains(t, string(response.Body().Bytes()), `\u003cok\u003e\u0026`)
+		} else {
+			require.Contains(t, string(response.Body().Bytes()), `<ok>&`)
+		}
+	}
+
+	for _, global := range []bool{false, true} {
+		for _, escape := range []bool{false, true} {
+			config := func(enc *json.Encoder) { enc.SetEscapeHTML(escape); enc.SetIndent("", "  ") }
+			var expected bytes.Buffer
+			encoder := json.NewEncoder(&expected)
+			config(encoder)
+			value := jsonResponseSample{URL: "<ok>&"}
+			require.NoError(t, encoder.Encode(value))
+			wire := bytes.TrimRight(expected.Bytes(), "\n")
+			for _, limit := range []int64{int64(len(wire)) - 1, int64(len(wire)), int64(len(wire)) + 1} {
+				DefaultJsonEncoderConfig = original
+				response := newTestResponse()
+				response.bodyLimit = limit
+				if global {
+					DefaultJsonEncoderConfig = config
+				} else {
+					response.SetJsonEncoderConfig(config)
+				}
+				response.JsonResponse(value)
+				if limit < int64(len(wire)) {
+					require.ErrorIs(t, response.BodyError(), ErrResponseBodyTooLarge)
+					require.Empty(t, response.Body().Bytes())
+				} else {
+					require.NoError(t, response.BodyError())
+					require.Equal(t, string(wire), string(response.Body().Bytes()))
+				}
+			}
+		}
+	}
 }

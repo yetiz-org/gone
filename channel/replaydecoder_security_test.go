@@ -19,6 +19,7 @@ func TestReplayDecoder_BufferBudget(t *testing.T) {
 				panic(buf.ErrInsufficientSize)
 			})
 			ctx := NewMockHandlerContext()
+			ctx.On("Channel").Return(&DefaultChannel{}).Maybe()
 			var caught error
 			closed := false
 			ctx.On("FireErrorCaught", mock.Anything).Run(func(args mock.Arguments) {
@@ -49,6 +50,7 @@ func TestReplayDecoder_DecodeFailure(t *testing.T) {
 		panic(malformed)
 	})
 	ctx := NewMockHandlerContext()
+	ctx.On("Channel").Return(&DefaultChannel{}).Maybe()
 	var caught error
 	closed := false
 	ctx.On("FireErrorCaught", mock.Anything).Run(func(args mock.Arguments) {
@@ -73,6 +75,7 @@ func TestReplayDecoder_ConsumedInputBudget(t *testing.T) {
 		in.Skip(in.ReadableBytes())
 	})
 	ctx := NewMockHandlerContext()
+	ctx.On("Channel").Return(&DefaultChannel{}).Maybe()
 	decoder.Added(ctx)
 	for range 2 {
 		decoder.Read(ctx, buf.NewByteBuf(make([]byte, 16<<20)))
