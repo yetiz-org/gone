@@ -35,6 +35,7 @@ func TestServerChannel_ClosesIdleAcceptedConnections(t *testing.T) {
 	for _, readTimeout := range []int{20, 0} {
 		t.Run(fmt.Sprintf("read timeout %d", readTimeout), func(t *testing.T) {
 			addr, _ := startLimitServer(t, nil, map[channel.ParamKey]any{channel.ParamReadTimeout: readTimeout, channel.ParamReadIdleTimeout: 200})
+			start := time.Now()
 			silent, err := net.Dial("tcp", addr.String())
 			require.NoError(t, err)
 			defer silent.Close()
@@ -42,7 +43,6 @@ func TestServerChannel_ClosesIdleAcceptedConnections(t *testing.T) {
 			require.NoError(t, err)
 			defer busy.Close()
 
-			start := time.Now()
 			stop := make(chan struct{})
 			defer close(stop)
 			go func() {
