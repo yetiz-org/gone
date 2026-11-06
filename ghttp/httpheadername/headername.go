@@ -38,7 +38,6 @@ const (
 	XForwardedHost                string = "x-forwarded-host"
 	XForwardedProto               string = "x-forwarded-proto"
 	FrontEndHttps                 string = "front-end-https"
-	XHttpMethodOverride           string = "x-http-method-override"
 	XATTDeviceId                  string = "x-att-deviceid"
 	XWapProfile                   string = "x-wap-profile"
 	ProxyConnection               string = "proxy-connection"
